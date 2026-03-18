@@ -99,6 +99,44 @@ interface TransactionRow {
   updated_at: Date;
 }
 
+interface LedgerTransaction {
+  id: number;
+  userId: number;
+  recipientId: number | null;
+  direction: TransactionDirection;
+  entryType: TransactionEntryType;
+  asset: TransferAsset;
+  amountDecimal: string;
+  amountRaw: string;
+  network: "solana-mainnet";
+  trackedWalletAddress: string;
+  fromWalletAddress: string;
+  counterpartyName: string | null;
+  counterpartyWalletAddress: string | null;
+  transactionSignature: string;
+  status: TransactionStatus;
+  confirmedAt: string | null;
+  failedAt: string | null;
+  failureReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface TransactionPageCursor {
+  id: number;
+  sortAt: string;
+}
+
+interface ListTransactionsOptions {
+  cursor?: string | null;
+  limit?: number;
+}
+
+interface ListTransactionsResult {
+  nextCursor: string | null;
+  transactions: AppTransaction[];
+}
+
 const userSelection = `
   id, cdp_user_id, email, account_type, full_name, country_code, country_name,
   business_name, solana_address, bridge_kyc_link_id, bridge_kyc_link, bridge_tos_link,
@@ -166,7 +204,7 @@ function mapRecipient(row: RecipientRow): Recipient {
   };
 }
 
-function mapTransaction(row: TransactionRow): AppTransaction {
+function mapLedgerTransaction(row: TransactionRow): LedgerTransaction {
   return {
     id: Number(row.id),
     userId: Number(row.user_id),
@@ -558,7 +596,24 @@ export async function listTransactionsByUserId(userId: number) {
     [userId],
   );
 
-  return result.rows.map(mapTransaction);
+  return collapseLedgerTransactions(result.rows);
+}
+
+export async function listTransactionsByUserIdPaginated(
+  userId: number,
+  options: ListTransactionsOptions = {},
+): Promise<ListTransactionsResult> {
+  const result = await pool.query<TransactionRow>(
+    `
+      SELECT ${transactionSelection}
+      FROM transactions
+      WHERE user_id = $1
+      ORDER BY COALESCE(confirmed_at, created_at) DESC, id DESC
+    `,
+    [userId],
+  );
+
+  return paginateTransactions(collapseLedgerTransactions(result.rows), options);
 }
 
 export async function getUserBalancesByUserId(userId: number): Promise<SolanaBalancesResponse["balances"]> {
@@ -619,7 +674,7 @@ export async function applyWebhookLedgerEntries(input: {
       };
     }
 
-    const insertedEntries: AppTransaction[] = [];
+    const insertedUserIds = new Set<number>();
     const balanceDeltas = new Map<number, { sol: bigint; usdc: bigint }>();
     const updatedRecipientPayments = new Map<number, Date>();
 
@@ -675,8 +730,7 @@ export async function applyWebhookLedgerEntries(input: {
         continue;
       }
 
-      const transaction = mapTransaction(result.rows[0]);
-      insertedEntries.push(transaction);
+      insertedUserIds.add(entry.userId);
 
       const current = balanceDeltas.get(entry.userId) ?? { sol: 0n, usdc: 0n };
       const signedAmount =
@@ -735,7 +789,7 @@ export async function applyWebhookLedgerEntries(input: {
     await client.query("COMMIT");
 
     return {
-      affectedUserIds: Array.from(new Set(insertedEntries.map(entry => entry.userId))),
+      affectedUserIds: Array.from(insertedUserIds),
       applied: true,
     };
   } catch (error) {
@@ -837,4 +891,156 @@ function isMissingDirectoryError(error: unknown) {
     "code" in error &&
     error.code === "ENOENT"
   );
+}
+
+function collapseLedgerTransactions(rows: TransactionRow[]) {
+  const ledgerTransactions = rows.map(mapLedgerTransaction);
+  const groupedTransactions = new Map<
+    string,
+    {
+      feeRaw: bigint;
+      transfers: LedgerTransaction[];
+    }
+  >();
+
+  for (const transaction of ledgerTransactions) {
+    const key = `${transaction.transactionSignature}:${transaction.trackedWalletAddress}`;
+    const group = groupedTransactions.get(key) ?? {
+      feeRaw: 0n,
+      transfers: [],
+    };
+
+    if (transaction.entryType === "network_fee" && transaction.direction === "outbound") {
+      group.feeRaw += BigInt(transaction.amountRaw);
+    } else if (transaction.entryType === "transfer") {
+      group.transfers.push(transaction);
+    }
+
+    groupedTransactions.set(key, group);
+  }
+
+  const collapsedTransactions: AppTransaction[] = [];
+
+  for (const group of groupedTransactions.values()) {
+    if (group.transfers.length === 0) {
+      continue;
+    }
+
+    let feeAttached = false;
+    const feeRaw = group.feeRaw > 0n ? group.feeRaw.toString() : null;
+    const feeDisplay = feeRaw ? formatTokenAmount(feeRaw, 9) : null;
+
+    for (const transfer of group.transfers) {
+      const shouldAttachFee =
+        !feeAttached && transfer.direction === "outbound" && feeRaw !== null;
+
+      collapsedTransactions.push({
+        ...transfer,
+        amountDecimal: formatAssetAmount(transfer.amountRaw, transfer.asset),
+        amountDisplay: formatAssetAmount(transfer.amountRaw, transfer.asset),
+        networkFeeRaw: shouldAttachFee ? feeRaw : null,
+        networkFeeDisplay: shouldAttachFee ? feeDisplay : null,
+      });
+
+      if (shouldAttachFee) {
+        feeAttached = true;
+      }
+    }
+  }
+
+  collapsedTransactions.sort(compareTransactionsByMostRecent);
+
+  return collapsedTransactions;
+}
+
+function paginateTransactions(
+  transactions: AppTransaction[],
+  options: ListTransactionsOptions,
+): ListTransactionsResult {
+  const limit = normalizeTransactionLimit(options.limit);
+  const startIndex = findTransactionStartIndex(transactions, options.cursor);
+  const page = transactions.slice(startIndex, startIndex + limit);
+  const hasMore = startIndex + limit < transactions.length;
+
+  return {
+    nextCursor: hasMore && page.length > 0 ? encodeTransactionCursor(page[page.length - 1]) : null,
+    transactions: page,
+  };
+}
+
+function normalizeTransactionLimit(limit?: number) {
+  if (!Number.isFinite(limit) || !limit || limit < 1) {
+    return 20;
+  }
+
+  return Math.min(Math.trunc(limit), 100);
+}
+
+function findTransactionStartIndex(transactions: AppTransaction[], cursor?: string | null) {
+  const parsedCursor = decodeTransactionCursor(cursor);
+  if (!parsedCursor) {
+    return 0;
+  }
+
+  const index = transactions.findIndex(transaction => {
+    const sortAt = getTransactionSortTimestamp(transaction);
+    return sortAt === parsedCursor.sortAt && transaction.id === parsedCursor.id;
+  });
+
+  return index === -1 ? 0 : index + 1;
+}
+
+function compareTransactionsByMostRecent(left: AppTransaction, right: AppTransaction) {
+  const leftTimestamp = Date.parse(getTransactionSortTimestamp(left));
+  const rightTimestamp = Date.parse(getTransactionSortTimestamp(right));
+
+  if (leftTimestamp !== rightTimestamp) {
+    return rightTimestamp - leftTimestamp;
+  }
+
+  return right.id - left.id;
+}
+
+function getTransactionSortTimestamp(transaction: Pick<AppTransaction, "confirmedAt" | "createdAt">) {
+  return transaction.confirmedAt ?? transaction.createdAt;
+}
+
+function encodeTransactionCursor(transaction: AppTransaction) {
+  const payload: TransactionPageCursor = {
+    id: transaction.id,
+    sortAt: getTransactionSortTimestamp(transaction),
+  };
+
+  return Buffer.from(JSON.stringify(payload)).toString("base64url");
+}
+
+function decodeTransactionCursor(cursor?: string | null): TransactionPageCursor | null {
+  if (!cursor) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as unknown;
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
+
+    const id = "id" in parsed ? parsed.id : null;
+    const sortAt = "sortAt" in parsed ? parsed.sortAt : null;
+
+    if (typeof id !== "number" || !Number.isFinite(id) || typeof sortAt !== "string" || !sortAt) {
+      return null;
+    }
+
+    return {
+      id,
+      sortAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function formatAssetAmount(rawAmount: string, asset: TransferAsset) {
+  return formatTokenAmount(rawAmount, asset === "sol" ? 9 : 6);
 }

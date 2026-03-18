@@ -57,6 +57,14 @@ export const sidebarItems: SidebarItem[] = [
     href: "/",
   },
   {
+    id: "transactions",
+    label: "Transactions",
+    caption: "Ledger history",
+    icon: ReceiptText,
+    state: "active",
+    href: "/transactions",
+  },
+  {
     id: "recipients",
     label: "Recipients",
     caption: "Wallets and bank rails",

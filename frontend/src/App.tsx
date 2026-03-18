@@ -27,6 +27,7 @@ import OnboardingScreen from "./OnboardingScreen";
 import RecipientsPage from "./RecipientsPage";
 import { navigateTo, usePathname } from "./router";
 import SignInScreen from "./SignInScreen";
+import TransactionsPage from "./TransactionsPage";
 import type {
   AppTransaction,
   AppUser,
@@ -68,6 +69,9 @@ function App() {
   const [error, setError] = useState<string | undefined>(undefined);
   const [isSubmittingOnboarding, setIsSubmittingOnboarding] = useState(false);
   const bootstrappedUserId = useRef<string | null>(null);
+  const streamReconnectAttempts = useRef(0);
+  const streamOutageStartedAt = useRef<number | null>(null);
+  const hasOpenedTransactionStream = useRef(false);
   const pathname = usePathname();
 
   const refreshDashboardData = useCallback(async () => {
@@ -78,7 +82,7 @@ function App() {
 
     const [balancesResponse, transactionsResponse, recipientsResponse] = await Promise.all([
       fetchSolanaBalances(token),
-      fetchTransactions(token),
+      fetchTransactions(token, { limit: 5 }),
       fetchRecipients(token),
     ]);
 
@@ -105,6 +109,9 @@ function App() {
       setRecipientsError(null);
       setTransactions([]);
       setTransactionsError(null);
+      streamReconnectAttempts.current = 0;
+      streamOutageStartedAt.current = null;
+      hasOpenedTransactionStream.current = false;
       setPhase("unauthenticated");
       return;
     }
@@ -141,6 +148,9 @@ function App() {
           setRecipientsError(null);
           setTransactions([]);
           setTransactionsError(null);
+          streamReconnectAttempts.current = 0;
+          streamOutageStartedAt.current = null;
+          hasOpenedTransactionStream.current = false;
           setPhase("onboarding");
           return;
         }
@@ -162,6 +172,9 @@ function App() {
         setRecipientsError(null);
         setTransactions([]);
         setTransactionsError(null);
+        streamReconnectAttempts.current = 0;
+        streamOutageStartedAt.current = null;
+        hasOpenedTransactionStream.current = false;
         setError(
           bootstrapError instanceof Error
             ? bootstrapError.message
@@ -229,46 +242,99 @@ function App() {
     let activeStream: EventSource | null = null;
     let reconnectTimer: number | null = null;
 
-    const connect = async () => {
-      const token = await getAccessToken();
-      if (!token || cancelled) {
-        return;
-      }
+    streamReconnectAttempts.current = 0;
+    streamOutageStartedAt.current = null;
+    hasOpenedTransactionStream.current = false;
 
-      const streamTokenResponse = await fetchTransactionStreamToken(token);
+    const scheduleReconnect = () => {
       if (cancelled) {
         return;
       }
 
-      const streamUrl = new URL(`${API_BASE_URL}/api/transactions/stream`);
-      streamUrl.searchParams.set("streamToken", streamTokenResponse.token);
+      const outageStartedAt = streamOutageStartedAt.current;
+      const outageDuration = outageStartedAt === null ? 0 : Date.now() - outageStartedAt;
 
-      activeStream = new EventSource(streamUrl.toString());
+      if (streamReconnectAttempts.current >= 3 || outageDuration >= 30000) {
+        setTransactionsError("Live updates are temporarily unavailable. Reconnecting...");
+      }
 
-      activeStream.onmessage = event => {
-        try {
-          const payload = JSON.parse(event.data) as TransactionStreamResponse;
-          setBalances(payload.balances);
-          setTransactions(payload.transactions);
-          setTransactionsError(null);
-        } catch (streamError) {
-          console.error(streamError);
+      reconnectTimer = window.setTimeout(() => {
+        void connect();
+      }, 3000);
+    };
+
+    const connect = async () => {
+      try {
+        const token = await getAccessToken();
+        if (!token || cancelled) {
+          return;
         }
-      };
 
-      activeStream.onerror = () => {
-        activeStream?.close();
-        activeStream = null;
+        const streamTokenResponse = await fetchTransactionStreamToken(token);
+        if (cancelled) {
+          return;
+        }
+
+        const streamUrl = new URL(`${API_BASE_URL}/api/transactions/stream`);
+        streamUrl.searchParams.set("streamToken", streamTokenResponse.token);
+
+        const stream = new EventSource(streamUrl.toString());
+        activeStream = stream;
+
+        stream.onopen = () => {
+          const shouldRefreshSnapshot =
+            hasOpenedTransactionStream.current ||
+            streamReconnectAttempts.current > 0 ||
+            streamOutageStartedAt.current !== null;
+
+          hasOpenedTransactionStream.current = true;
+          streamReconnectAttempts.current = 0;
+          streamOutageStartedAt.current = null;
+          setTransactionsError(null);
+
+          if (shouldRefreshSnapshot) {
+            void refreshDashboardData().catch(console.error);
+          }
+        };
+
+        stream.onmessage = event => {
+          try {
+            const payload = JSON.parse(event.data) as TransactionStreamResponse;
+            setBalances(payload.balances);
+            setTransactions(payload.transactions);
+            setTransactionsError(null);
+          } catch (streamError) {
+            console.error(streamError);
+          }
+        };
+
+        stream.onerror = () => {
+          if (activeStream !== stream) {
+            return;
+          }
+
+          stream.close();
+          activeStream = null;
+
+          if (cancelled) {
+            return;
+          }
+
+          streamReconnectAttempts.current += 1;
+          streamOutageStartedAt.current ??= Date.now();
+          scheduleReconnect();
+        };
+      } catch (streamError) {
+        console.error(streamError);
 
         if (cancelled) {
           return;
         }
 
-        setTransactionsError(currentError => currentError ?? "Live updates disconnected. Reconnecting...");
-        reconnectTimer = window.setTimeout(() => {
-          void connect();
-        }, 5000);
-      };
+        streamReconnectAttempts.current += 1;
+        streamOutageStartedAt.current ??= Date.now();
+        scheduleReconnect();
+      }
     };
 
     void connect();
@@ -289,7 +355,7 @@ function App() {
       return;
     }
 
-    if (pathname !== "/" && pathname !== "/recipients") {
+    if (pathname !== "/" && pathname !== "/recipients" && pathname !== "/transactions") {
       navigateTo("/");
     }
   }, [pathname, phase]);
@@ -397,6 +463,8 @@ function App() {
               onDeleteRecipient={handleRecipientDelete}
               recipients={recipients}
             />
+          ) : pathname === "/transactions" ? (
+            <TransactionsPage />
           ) : (
             <Dashboard
               balances={balances}

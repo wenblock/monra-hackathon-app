@@ -37,6 +37,13 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import SendDrawer from "@/SendDrawer";
+import {
+  formatActivityAmount,
+  formatActivitySubtitle,
+  formatActivityTimestamp,
+  formatActivityTitle,
+} from "@/transaction-display";
+import { navigateTo } from "@/router";
 import type {
   AppTransaction,
   AppUser,
@@ -91,6 +98,7 @@ function Dashboard({
   const showKycAlert = bridge.showKycAlert;
   const showTosAlert = bridge.showTosAlert && !dismissedTosAlert;
   const displayedKycStatus = bridge.customerStatus ?? user.bridgeKycStatus ?? "not_started";
+  const recentTransactions = transactions.slice(0, 5);
 
   const balanceMetrics = [
     {
@@ -356,7 +364,12 @@ function Dashboard({
 
         <Card>
           <CardHeader className="pb-5">
-            <CardTitle>Recent Activity</CardTitle>
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle>Recent Activity</CardTitle>
+              <Button type="button" variant="ghost" size="sm" onClick={() => navigateTo("/transactions")}>
+                See all
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             {transactionsError ? (
@@ -368,7 +381,7 @@ function Dashboard({
                 <Skeleton className="h-20 w-full rounded-[calc(var(--radius)+2px)]" />
                 <Skeleton className="h-20 w-full rounded-[calc(var(--radius)+2px)]" />
               </div>
-            ) : transactions.length === 0 ? (
+            ) : recentTransactions.length === 0 ? (
               <div className="flex min-h-[22rem] items-center justify-center rounded-[calc(var(--radius)+2px)] border border-dashed border-border bg-background/50 px-6 py-8">
                 <div className="max-w-md text-center">
                   <span className="mx-auto flex size-14 items-center justify-center rounded-3xl bg-secondary text-muted-foreground">
@@ -384,7 +397,7 @@ function Dashboard({
               </div>
             ) : (
               <div className="space-y-3">
-                {transactions.map(transaction => (
+                {recentTransactions.map(transaction => (
                   <div
                     key={transaction.id}
                     className="flex flex-col gap-3 rounded-[calc(var(--radius)+2px)] border border-border/70 bg-background/70 px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
@@ -634,48 +647,6 @@ function formatBridgeStatus(status: string) {
     .filter(Boolean)
     .map(part => part[0]?.toUpperCase() + part.slice(1))
     .join(" ");
-}
-
-function formatActivityTimestamp(value: string | null) {
-  if (!value) {
-    return "Pending";
-  }
-
-  return new Intl.DateTimeFormat(undefined, {
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    month: "short",
-  }).format(new Date(value));
-}
-
-function formatActivityTitle(transaction: AppTransaction) {
-  if (transaction.entryType === "network_fee") {
-    return "Network Fee";
-  }
-
-  return transaction.direction === "inbound" ? "Received" : "Send";
-}
-
-function formatActivitySubtitle(transaction: AppTransaction) {
-  if (transaction.entryType === "network_fee") {
-    return "Solana mainnet execution fee";
-  }
-
-  if (transaction.direction === "inbound") {
-    return `From ${
-      transaction.counterpartyName ??
-      transaction.counterpartyWalletAddress ??
-      transaction.fromWalletAddress
-    }`;
-  }
-
-  return `To ${transaction.counterpartyName ?? transaction.counterpartyWalletAddress ?? "Unknown wallet"}`;
-}
-
-function formatActivityAmount(transaction: AppTransaction) {
-  const prefix = transaction.direction === "inbound" ? "+" : "-";
-  return `${prefix}${transaction.amountDecimal} ${transaction.asset === "sol" ? "SOL" : "USDC"}`;
 }
 
 export default Dashboard;

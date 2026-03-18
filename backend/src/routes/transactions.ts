@@ -3,7 +3,7 @@ import { Router, type Request } from "express";
 import {
   getUserBalancesByUserId,
   getUserByCdpUserId,
-  listTransactionsByUserId,
+  listTransactionsByUserIdPaginated,
 } from "../db.js";
 import { validateAccessToken } from "../auth/validateAccessToken.js";
 import { createStreamToken, verifyStreamToken } from "../lib/streamToken.js";
@@ -29,8 +29,10 @@ transactionsRouter.get("/", async (request, response) => {
       return sendError(response, 404, "Monra user not found.");
     }
 
-    const transactions = await listTransactionsByUserId(user.id);
-    return response.json({ transactions });
+    const limit = readLimitFromQuery(request.query.limit);
+    const cursor = readCursorFromQuery(request.query.cursor);
+    const result = await listTransactionsByUserIdPaginated(user.id, { cursor, limit });
+    return response.json(result);
   } catch (error) {
     console.error(error);
 
@@ -94,12 +96,12 @@ transactionsRouter.get("/stream", async (request, response) => {
     response.setHeader("X-Accel-Buffering", "no");
     response.flushHeaders?.();
 
-    const [balances, transactions] = await Promise.all([
+    const [balances, transactionPage] = await Promise.all([
       getUserBalancesByUserId(user.id),
-      listTransactionsByUserId(user.id),
+      listTransactionsByUserIdPaginated(user.id, { limit: 5 }),
     ]);
 
-    sendTransactionSnapshot(response, { balances, transactions });
+    sendTransactionSnapshot(response, { balances, transactions: transactionPage.transactions });
     const unregister = registerTransactionStream(user.id, response);
     const heartbeat = setInterval(() => {
       response.write(": ping\n\n");
@@ -139,6 +141,19 @@ function extractAccessToken(request: Request) {
 
 function readTokenFromQuery(value: unknown) {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function readCursorFromQuery(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function readLimitFromQuery(value: unknown) {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return undefined;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function isUnauthorizedTokenError(error: unknown) {

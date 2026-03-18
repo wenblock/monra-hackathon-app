@@ -153,11 +153,14 @@ export interface AppTransaction {
   asset: TransferAsset;
   amountDecimal: string;
   amountRaw: string;
+  amountDisplay: string;
   network: "solana-mainnet";
   trackedWalletAddress: string;
   fromWalletAddress: string;
   counterpartyName: string | null;
   counterpartyWalletAddress: string | null;
+  networkFeeRaw: string | null;
+  networkFeeDisplay: string | null;
   transactionSignature: string;
   status: TransactionStatus;
   confirmedAt: string | null;
@@ -169,6 +172,7 @@ export interface AppTransaction {
 
 export interface TransactionListResponse {
   transactions: AppTransaction[];
+  nextCursor: string | null;
 }
 
 export interface StreamTokenResponse {

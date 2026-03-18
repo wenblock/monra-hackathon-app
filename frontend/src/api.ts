@@ -161,8 +161,24 @@ export async function deleteRecipient(token: string, recipientId: number) {
   }
 }
 
-export async function fetchTransactions(token: string) {
-  const response = await fetch(`${API_BASE_URL}/api/transactions`, {
+export async function fetchTransactions(
+  token: string,
+  options: {
+    cursor?: string | null;
+    limit?: number;
+  } = {},
+) {
+  const url = new URL(`${API_BASE_URL}/api/transactions`);
+
+  if (typeof options.limit === "number") {
+    url.searchParams.set("limit", String(options.limit));
+  }
+
+  if (options.cursor) {
+    url.searchParams.set("cursor", options.cursor);
+  }
+
+  const response = await fetch(url.toString(), {
     method: "GET",
     headers: {
       Authorization: `Bearer ${token}`,

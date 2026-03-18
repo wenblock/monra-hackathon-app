@@ -4,7 +4,7 @@ import {
   applyWebhookLedgerEntries,
   getUserBalancesByUserId,
   getUsersBySolanaAddresses,
-  listTransactionsByUserId,
+  listTransactionsByUserIdPaginated,
   resolveRecipientIdByWalletAddressForUser,
   type WebhookLedgerEntryInput,
 } from "../db.js";
@@ -93,12 +93,12 @@ alchemyWebhookRouter.post(
       });
 
       for (const userId of result.affectedUserIds) {
-        const [balances, transactions] = await Promise.all([
+        const [balances, transactionPage] = await Promise.all([
           getUserBalancesByUserId(userId),
-          listTransactionsByUserId(userId),
+          listTransactionsByUserIdPaginated(userId, { limit: 5 }),
         ]);
 
-        broadcastTransactionSnapshot(userId, { balances, transactions });
+        broadcastTransactionSnapshot(userId, { balances, transactions: transactionPage.transactions });
       }
 
       return response.status(200).json({
