@@ -1,0 +1,49 @@
+export interface SepaCountryOption {
+  code: string;
+  name: string;
+}
+
+export const SEPA_COUNTRIES: SepaCountryOption[] = [
+  { code: "AND", name: "Andorra" },
+  { code: "AUT", name: "Austria" },
+  { code: "BEL", name: "Belgium" },
+  { code: "BGR", name: "Bulgaria" },
+  { code: "CHE", name: "Switzerland" },
+  { code: "CYP", name: "Cyprus" },
+  { code: "CZE", name: "Czech Republic" },
+  { code: "DEU", name: "Germany" },
+  { code: "DNK", name: "Denmark" },
+  { code: "ESP", name: "Spain" },
+  { code: "EST", name: "Estonia" },
+  { code: "FIN", name: "Finland" },
+  { code: "FRA", name: "France" },
+  { code: "GBR", name: "United Kingdom" },
+  { code: "GRC", name: "Greece" },
+  { code: "HRV", name: "Croatia" },
+  { code: "HUN", name: "Hungary" },
+  { code: "IRL", name: "Ireland" },
+  { code: "ISL", name: "Iceland" },
+  { code: "ITA", name: "Italy" },
+  { code: "LIE", name: "Liechtenstein" },
+  { code: "LTU", name: "Lithuania" },
+  { code: "LUX", name: "Luxembourg" },
+  { code: "LVA", name: "Latvia" },
+  { code: "MCO", name: "Monaco" },
+  { code: "MLT", name: "Malta" },
+  { code: "NLD", name: "Netherlands" },
+  { code: "NOR", name: "Norway" },
+  { code: "POL", name: "Poland" },
+  { code: "PRT", name: "Portugal" },
+  { code: "ROU", name: "Romania" },
+  { code: "SMR", name: "San Marino" },
+  { code: "SVK", name: "Slovakia" },
+  { code: "SVN", name: "Slovenia" },
+  { code: "SWE", name: "Sweden" },
+  { code: "VAT", name: "Vatican City" },
+];
+
+const sepaCountryMap = new Map(SEPA_COUNTRIES.map(country => [country.code, country.name]));
+
+export function getSepaCountryName(code: string) {
+  return sepaCountryMap.get(code.toUpperCase()) ?? null;
+}

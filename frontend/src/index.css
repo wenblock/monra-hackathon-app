@@ -1,0 +1,102 @@
+@import url("https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=Geist+Mono:wght@100..900&display=swap");
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-border: var(--sidebar-border);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --radius-sm: calc(var(--radius) - 8px);
+  --radius-md: calc(var(--radius) - 4px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 6px);
+}
+
+:root {
+  --background: #f7f4ee;
+  --foreground: #121212;
+  --card: rgba(255, 255, 255, 0.94);
+  --card-foreground: #121212;
+  --popover: #ffffff;
+  --popover-foreground: #121212;
+  --primary: #5f8717;
+  --primary-foreground: #f9faf6;
+  --secondary: #efebe4;
+  --secondary-foreground: #272521;
+  --muted: #f3efe8;
+  --muted-foreground: #7a746b;
+  --accent: #ede9e1;
+  --accent-foreground: #1d1b17;
+  --border: #ddd7ce;
+  --input: #e2ddd4;
+  --ring: #5f8717;
+  --sidebar: rgba(44, 43, 41, 0.98);
+  --sidebar-foreground: #f6f2ec;
+  --sidebar-accent: rgba(255, 255, 255, 0.05);
+  --sidebar-border: rgba(255, 255, 255, 0.08);
+  --danger: #d9485f;
+  --overlay: rgba(18, 18, 18, 0.34);
+  --skeleton: rgba(18, 18, 18, 0.06);
+  --radius: 1rem;
+  --font-sans: "Geist", system-ui, sans-serif;
+  --font-mono: "Geist Mono", monospace;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply min-h-screen bg-background font-sans text-foreground antialiased;
+    background-image:
+      radial-gradient(circle at top left, rgba(95, 135, 23, 0.08), transparent 24%),
+      linear-gradient(180deg, #faf8f4 0%, #f1eee7 100%);
+    background-position: 0 0, 0 0;
+    background-size: auto, auto;
+    margin: 0;
+  }
+
+  a {
+    @apply text-primary;
+  }
+
+  button,
+  input,
+  select {
+    font: inherit;
+  }
+
+  #root {
+    @apply min-h-screen;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--primary) 28%, white);
+    color: var(--foreground);
+  }
+}
