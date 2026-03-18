@@ -1,5 +1,5 @@
 import { useGetAccessToken } from "@coinbase/cdp-hooks";
-import { Send } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, Send } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import AppShell from "@/AppShell";
@@ -12,6 +12,7 @@ import {
   formatActivitySubtitle,
   formatActivityTimestamp,
   formatActivityTitle,
+  getTransactionDirectionTone,
 } from "@/transaction-display";
 import type { AppTransaction } from "@/types";
 
@@ -142,7 +143,11 @@ function TransactionsPage() {
                     >
                       <div className="flex min-w-0 items-center gap-4">
                         <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-secondary text-foreground">
-                          <Send className="size-5" />
+                          {transaction.direction === "inbound" ? (
+                            <ArrowDownLeft className="size-5" />
+                          ) : (
+                            <ArrowUpRight className="size-5" />
+                          )}
                         </span>
                         <div className="min-w-0">
                           <p className="font-semibold text-foreground">
@@ -154,7 +159,7 @@ function TransactionsPage() {
                         </div>
                       </div>
                       <div className="flex items-center justify-between gap-4 sm:block sm:text-right">
-                        <p className="text-lg font-semibold text-foreground">
+                        <p className={`text-lg font-semibold ${getTransactionDirectionTone(transaction)}`}>
                           {formatActivityAmount(transaction)}
                         </p>
                         <p className="text-sm text-muted-foreground">

@@ -1,5 +1,11 @@
 import type { AppTransaction } from "./types";
 
+export function getTransactionDirectionTone(transaction: AppTransaction) {
+  return transaction.direction === "inbound"
+    ? "text-emerald-600"
+    : "text-[var(--danger)]";
+}
+
 export function formatActivityTimestamp(value: string | null) {
   if (!value) {
     return "Pending";
