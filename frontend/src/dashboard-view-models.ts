@@ -7,10 +7,8 @@ import {
   LayoutDashboard,
   ReceiptText,
   Send,
-  ShieldCheck,
   Sparkles,
   Users,
-  WalletCards,
 } from "lucide-react";
 
 export interface SidebarItem {
@@ -71,27 +69,6 @@ export const sidebarItems: SidebarItem[] = [
     icon: Users,
     state: "active",
     href: "/recipients",
-  },
-  {
-    id: "payments",
-    label: "Payments",
-    caption: "Coming soon",
-    icon: WalletCards,
-    state: "coming-soon",
-  },
-  {
-    id: "compliance",
-    label: "Compliance",
-    caption: "Coming soon",
-    icon: ShieldCheck,
-    state: "coming-soon",
-  },
-  {
-    id: "reports",
-    label: "Reports",
-    caption: "Coming soon",
-    icon: ReceiptText,
-    state: "coming-soon",
   },
 ];
 
