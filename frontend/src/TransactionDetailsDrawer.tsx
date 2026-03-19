@@ -79,12 +79,6 @@ function TransactionDetailsDrawer({
               />
 
               <DetailBlock
-                label="Tracked wallet"
-                value={transaction.trackedWalletAddress}
-                monospace
-              />
-
-              <DetailBlock
                 label="Signature"
                 value={transaction.transactionSignature}
                 monospace
