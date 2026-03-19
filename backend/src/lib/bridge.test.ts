@@ -243,10 +243,11 @@ test("createBridgeOfframpTransfer requests a USDC source transfer with return in
       sourceAsset: "usdc",
     });
 
-    assert.equal(requestBody?.source.currency, "usdc");
-    assert.equal(requestBody?.source.from_address, "user-wallet-address");
-    assert.equal(requestBody?.destination.external_account_id, "external-account-id");
-    assert.equal(requestBody?.return_instructions.address, "user-wallet-address");
+    assert.ok(requestBody);
+    assert.equal(requestBody.source.currency, "usdc");
+    assert.equal(requestBody.source.from_address, "user-wallet-address");
+    assert.equal(requestBody.destination.external_account_id, "external-account-id");
+    assert.equal(requestBody.return_instructions.address, "user-wallet-address");
     assert.equal(result.depositInstructions.toAddress, "bridge-deposit-wallet");
     assert.equal(result.sourceCurrency, "usdc");
   } finally {
