@@ -174,7 +174,7 @@ alchemyWebhookRouter.post(
         for (const entry of normalizedEntries) {
           const matchesPendingOnramp =
             pendingOnramp &&
-            entry.asset === "usdc" &&
+            entry.asset === pendingOnramp.asset &&
             entry.direction === "inbound" &&
             entry.entryType === "transfer" &&
             entry.userId === pendingOnramp.userId &&

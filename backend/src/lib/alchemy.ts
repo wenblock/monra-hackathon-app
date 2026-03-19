@@ -1,7 +1,13 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 import { config } from "../config.js";
+import {
+  SPL_TRANSFER_ASSETS,
+  getSplTokenAssetByMintAddress,
+  getTransferAssetDecimals,
+} from "./assets.js";
 import type {
+  TransferAsset,
   SolanaBalancesResponse,
   SolanaTransactionContextResponse,
 } from "../types.js";
@@ -10,7 +16,6 @@ const ALCHEMY_API_BASE_URL = "https://api.g.alchemy.com";
 const ALCHEMY_DASHBOARD_API_BASE_URL = "https://dashboard.alchemy.com/api";
 const ALCHEMY_SOLANA_RPC_URL = `https://solana-mainnet.g.alchemy.com/v2/${config.alchemyApiKey}`;
 const SOLANA_MAINNET_NETWORK = "solana-mainnet";
-const SOLANA_MAINNET_USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 
 interface AlchemyTokenBalance {
   network?: string;
@@ -247,10 +252,11 @@ async function fetchAlchemyRpc<T>(method: string, params: unknown[]) {
 export async function fetchSolanaBalances(address: string): Promise<SolanaBalancesResponse> {
   let pageKey: string | undefined;
   let foundSol = false;
-  let foundUsdc = false;
-
   const sol = createEmptyBalance(9);
-  const usdc = createEmptyBalance(6);
+  const tokenBalances = Object.fromEntries(
+    SPL_TRANSFER_ASSETS.map(asset => [asset, createEmptyBalance(getTransferAssetDecimals(asset))]),
+  ) as Record<Exclude<TransferAsset, "sol">, ReturnType<typeof createEmptyBalance>>;
+  const foundTokenAssets = new Set<Exclude<TransferAsset, "sol">>();
 
   do {
     const payload = await fetchAlchemyTokenBalances(address, pageKey);
@@ -266,10 +272,14 @@ export async function fetchSolanaBalances(address: string): Promise<SolanaBalanc
           ? normalizeRawAmount(token.tokenBalance)
           : "0";
 
-      if (!foundUsdc && token.tokenAddress === SOLANA_MAINNET_USDC_MINT) {
-        usdc.raw = rawBalance;
-        usdc.formatted = formatTokenAmount(rawBalance, 6);
-        foundUsdc = true;
+      const tokenAsset = getSplTokenAssetByMintAddress(token.tokenAddress);
+      if (tokenAsset) {
+        tokenBalances[tokenAsset].raw = rawBalance;
+        tokenBalances[tokenAsset].formatted = formatTokenAmount(
+          rawBalance,
+          getTransferAssetDecimals(tokenAsset),
+        );
+        foundTokenAssets.add(tokenAsset);
         continue;
       }
 
@@ -284,12 +294,12 @@ export async function fetchSolanaBalances(address: string): Promise<SolanaBalanc
       typeof payload.data?.pageKey === "string" && payload.data.pageKey.trim().length > 0
         ? payload.data.pageKey
         : undefined;
-  } while (pageKey && (!foundSol || !foundUsdc));
+  } while (pageKey && (!foundSol || foundTokenAssets.size < SPL_TRANSFER_ASSETS.length));
 
   return {
     balances: {
+      ...tokenBalances,
       sol,
-      usdc,
     },
     network: "solana-mainnet",
   };
@@ -323,7 +333,7 @@ export async function fetchSolanaAccountInfo(address: string) {
 }
 
 export async function fetchSolanaTransactionContext(input: {
-  asset: "sol" | "usdc";
+  asset: TransferAsset;
   recipientTokenAccountAddress?: string;
 }): Promise<SolanaTransactionContextResponse> {
   const recentBlockhash = await fetchLatestSolanaBlockhash();
@@ -333,14 +343,15 @@ export async function fetchSolanaTransactionContext(input: {
   }
 
   if (!input.recipientTokenAccountAddress) {
-    throw new AlchemyApiError("Recipient token account address is required for USDC.", 400);
+    throw new AlchemyApiError("Recipient token account address is required for SPL token transfers.", 400);
   }
 
-  const recipientUsdcAtaExists = (await fetchSolanaAccountInfo(input.recipientTokenAccountAddress)) !== null;
+  const recipientTokenAccountExists =
+    (await fetchSolanaAccountInfo(input.recipientTokenAccountAddress)) !== null;
 
   return {
     recentBlockhash,
-    recipientUsdcAtaExists,
+    recipientTokenAccountExists,
   };
 }
 
@@ -411,6 +422,6 @@ export function isAlchemyApiError(error: unknown): error is AlchemyApiError {
   return error instanceof AlchemyApiError;
 }
 
-export function isUsdcMintAddress(value: string | null | undefined) {
-  return value === SOLANA_MAINNET_USDC_MINT;
+export function isSupportedSplTokenMintAddress(value: string | null | undefined) {
+  return getSplTokenAssetByMintAddress(value) !== null;
 }

@@ -1,6 +1,7 @@
 import { ExternalLink, Landmark, Wallet, type LucideIcon } from "lucide-react";
 import { useState } from "react";
 
+import { ONRAMP_DESTINATION_ASSETS, getTransferAssetLabel } from "@/assets";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,7 +13,14 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import type { AppTransaction, CreateOnrampPayload } from "@/types";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import type { AppTransaction, CreateOnrampPayload, OnrampDestinationAsset } from "@/types";
 
 interface OnrampDrawerProps {
   onCreateOnramp: (payload: CreateOnrampPayload) => Promise<AppTransaction>;
@@ -28,6 +36,7 @@ function OnrampDrawer({
   walletAddress,
 }: OnrampDrawerProps) {
   const [amount, setAmount] = useState("");
+  const [destinationAsset, setDestinationAsset] = useState<OnrampDestinationAsset>("usdc");
   const [createdTransaction, setCreatedTransaction] = useState<AppTransaction | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,6 +62,7 @@ function OnrampDrawer({
 
       const transaction = await onCreateOnramp({
         amount: normalizedAmount,
+        destinationAsset,
       });
 
       setCreatedTransaction(transaction);
@@ -74,7 +84,7 @@ function OnrampDrawer({
         <SheetHeader className="border-b border-border/80 bg-background pb-5">
           <SheetTitle>On-ramp</SheetTitle>
           <SheetDescription>
-            Convert EUR via SEPA into USDC on Solana using Bridge deposit instructions.
+            Convert EUR via SEPA into USDC or EURC on Solana using Bridge deposit instructions.
           </SheetDescription>
         </SheetHeader>
 
@@ -97,7 +107,8 @@ function OnrampDrawer({
                     +{formatSourceAmount(createdTransaction)}
                   </p>
                   <p className="mt-2 text-sm text-muted-foreground">
-                    Expected receive: +{createdTransaction.amountDisplay} USDC
+                    Expected receive: +{createdTransaction.amountDisplay}{" "}
+                    {getTransferAssetLabel(createdTransaction.asset)}
                   </p>
                 </div>
               </div>
@@ -164,14 +175,29 @@ function OnrampDrawer({
               <div className="grid gap-4 sm:grid-cols-2">
                 <FixedField
                   icon={Landmark}
-                  label="Asset"
-                  value="USDC"
+                  label="Destination asset"
+                  value={getTransferAssetLabel(destinationAsset)}
                 />
-                <FixedField
-                  icon={Wallet}
-                  label="Chain"
-                  value="Solana"
-                />
+                <FixedField icon={Wallet} label="Chain" value="Solana" />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Receive asset</Label>
+                <Select
+                  value={destinationAsset}
+                  onValueChange={value => setDestinationAsset(value as OnrampDestinationAsset)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ONRAMP_DESTINATION_ASSETS.map(asset => (
+                      <SelectItem key={asset} value={asset}>
+                        {getTransferAssetLabel(asset)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="rounded-[calc(var(--radius)+2px)] border border-border/70 bg-secondary/30 px-4 py-3 text-sm text-muted-foreground">
@@ -202,6 +228,7 @@ function OnrampDrawer({
 
   function resetState() {
     setAmount("");
+    setDestinationAsset("usdc");
     setCreatedTransaction(null);
     setIsSubmitting(false);
     setError(null);

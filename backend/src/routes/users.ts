@@ -19,17 +19,17 @@ const solanaAddressSchema = z.object({
 const solanaTransactionContextSchema = z
   .object({
     accessToken: z.string().trim().min(1, "Missing accessToken parameter."),
-    asset: z.enum(["sol", "usdc"]),
+    asset: z.enum(["sol", "usdc", "eurc"]),
     senderAddress: z.string().trim().min(1, "Sender wallet address is required."),
     recipientAddress: z.string().trim().min(1, "Recipient wallet address is required."),
     recipientTokenAccountAddress: z.string().trim().optional(),
   })
   .superRefine((data, ctx) => {
-    if (data.asset === "usdc" && !data.recipientTokenAccountAddress?.trim()) {
+    if (data.asset !== "sol" && !data.recipientTokenAccountAddress?.trim()) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["recipientTokenAccountAddress"],
-        message: "Recipient USDC token account address is required.",
+        message: "Recipient token account address is required.",
       });
     }
   });

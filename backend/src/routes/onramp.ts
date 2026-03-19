@@ -13,6 +13,7 @@ import { sendError } from "../lib/http.js";
 const createOnrampSchema = z.object({
   accessToken: z.string().trim().min(1, "Missing accessToken parameter."),
   amount: z.string().trim().min(1, "EUR amount is required."),
+  destinationAsset: z.enum(["usdc", "eurc"]).default("usdc"),
 });
 
 export const onrampRouter = Router();
@@ -49,9 +50,11 @@ onrampRouter.post("/", async (request, response) => {
       amount,
       bridgeCustomerId: existingUser.bridgeCustomerId,
       destinationAddress: existingUser.solanaAddress,
+      destinationAsset: parsedBody.data.destinationAsset,
     });
 
     const transaction = await createPendingOnrampTransaction({
+      asset: parsedBody.data.destinationAsset,
       userId: existingUser.id,
       walletAddress: existingUser.solanaAddress,
       bridgeTransferId: bridgeTransfer.bridgeTransferId,

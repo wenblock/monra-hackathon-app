@@ -4,6 +4,11 @@ import path from "node:path";
 import { Pool, type PoolClient } from "pg";
 
 import { config } from "./config.js";
+import {
+  TRANSFER_ASSETS,
+  getTransferAssetDecimals,
+  isOnrampDestinationAsset,
+} from "./lib/assets.js";
 import type {
   AppTransaction,
   AppUser,
@@ -11,6 +16,7 @@ import type {
   BankRecipientType,
   BridgeSourceDepositInstructions,
   BridgeKycStatus,
+  OnrampDestinationAsset,
   BridgeTransferState,
   BridgeTosStatus,
   Recipient,
@@ -52,6 +58,7 @@ interface UserBalanceRow {
   user_id: string;
   sol_raw: string;
   usdc_raw: string;
+  eurc_raw: string;
   created_at: Date;
   updated_at: Date;
 }
@@ -160,7 +167,7 @@ const userSelection = `
 `;
 
 const userBalanceSelection = `
-  user_id, sol_raw, usdc_raw, created_at, updated_at
+  user_id, sol_raw, usdc_raw, eurc_raw, created_at, updated_at
 `;
 
 const recipientSelection = `
@@ -177,6 +184,12 @@ const transactionSelection = `
   transaction_signature, webhook_event_id, normalization_key, status, confirmed_at,
   failed_at, failure_reason, created_at, updated_at
 `;
+
+const userBalanceColumns = {
+  sol: "sol_raw",
+  usdc: "usdc_raw",
+  eurc: "eurc_raw",
+} satisfies Record<TransferAsset, keyof UserBalanceRow>;
 
 function mapUser(row: UserRow): AppUser {
   return {
@@ -314,16 +327,18 @@ function formatTokenAmount(rawAmount: string, decimals: number) {
 }
 
 function mapBalances(row: UserBalanceRow): SolanaBalancesResponse["balances"] {
-  return {
-    sol: {
-      formatted: formatTokenAmount(row.sol_raw, 9),
-      raw: row.sol_raw,
-    },
-    usdc: {
-      formatted: formatTokenAmount(row.usdc_raw, 6),
-      raw: row.usdc_raw,
-    },
-  };
+  return Object.fromEntries(
+    TRANSFER_ASSETS.map(asset => {
+      const raw = row[userBalanceColumns[asset]];
+      return [
+        asset,
+        {
+          formatted: formatTokenAmount(raw, getTransferAssetDecimals(asset)),
+          raw,
+        },
+      ];
+    }),
+  ) as SolanaBalancesResponse["balances"];
 }
 
 function parseDecimalAmountToRaw(value: string, decimals: number) {
@@ -343,48 +358,43 @@ function parseDecimalAmountToRaw(value: string, decimals: number) {
 }
 
 function addBalanceDelta(
-  balanceDeltas: Map<number, { sol: bigint; usdc: bigint }>,
+  balanceDeltas: Map<number, Record<TransferAsset, bigint>>,
   userId: number,
   asset: TransferAsset,
   amountRaw: bigint,
 ) {
-  const current = balanceDeltas.get(userId) ?? { sol: 0n, usdc: 0n };
+  const current =
+    balanceDeltas.get(userId) ??
+    (Object.fromEntries(TRANSFER_ASSETS.map(balanceAsset => [balanceAsset, 0n])) as Record<
+      TransferAsset,
+      bigint
+    >);
 
-  if (asset === "sol") {
-    current.sol += amountRaw;
-  } else {
-    current.usdc += amountRaw;
-  }
+  current[asset] += amountRaw;
 
   balanceDeltas.set(userId, current);
 }
 
 async function applyBalanceDeltas(
   client: PoolClient,
-  balanceDeltas: Map<number, { sol: bigint; usdc: bigint }>,
+  balanceDeltas: Map<number, Record<TransferAsset, bigint>>,
 ) {
   for (const [userId, delta] of balanceDeltas.entries()) {
     await ensureUserBalanceRecord(client, userId);
 
-    if (delta.sol !== 0n) {
-      await client.query(
-        `
-          UPDATE user_balances
-          SET sol_raw = ((sol_raw)::NUMERIC + $2::NUMERIC)::TEXT, updated_at = NOW()
-          WHERE user_id = $1
-        `,
-        [userId, delta.sol.toString()],
-      );
-    }
+    for (const asset of TRANSFER_ASSETS) {
+      if (delta[asset] === 0n) {
+        continue;
+      }
 
-    if (delta.usdc !== 0n) {
+      const balanceColumn = userBalanceColumns[asset];
       await client.query(
         `
           UPDATE user_balances
-          SET usdc_raw = ((usdc_raw)::NUMERIC + $2::NUMERIC)::TEXT, updated_at = NOW()
+          SET ${balanceColumn} = ((${balanceColumn})::NUMERIC + $2::NUMERIC)::TEXT, updated_at = NOW()
           WHERE user_id = $1
         `,
-        [userId, delta.usdc.toString()],
+        [userId, delta[asset].toString()],
       );
     }
   }
@@ -762,7 +772,11 @@ export async function getUserBalancesByUserId(userId: number): Promise<SolanaBal
 
   try {
     const row = await getUserBalanceRow(client, userId);
-    return row ? mapBalances(row) : { sol: createEmptyBalance(9), usdc: createEmptyBalance(6) };
+    return row
+      ? mapBalances(row)
+      : Object.fromEntries(
+          TRANSFER_ASSETS.map(asset => [asset, createEmptyBalance(getTransferAssetDecimals(asset))]),
+        ) as SolanaBalancesResponse["balances"];
   } finally {
     client.release();
   }
@@ -774,6 +788,7 @@ function buildOnrampCounterpartyName(paymentRail: string | null | undefined) {
 }
 
 export interface CreatePendingOnrampTransactionInput {
+  asset: OnrampDestinationAsset;
   userId: number;
   walletAddress: string;
   bridgeTransferId: string;
@@ -786,7 +801,10 @@ export interface CreatePendingOnrampTransactionInput {
 }
 
 export async function createPendingOnrampTransaction(input: CreatePendingOnrampTransactionInput) {
-  const amountRaw = parseDecimalAmountToRaw(input.expectedDestinationAmount, 6);
+  const amountRaw = parseDecimalAmountToRaw(
+    input.expectedDestinationAmount,
+    getTransferAssetDecimals(input.asset),
+  );
   const result = await pool.query<TransactionRow>(
     `
       INSERT INTO transactions (
@@ -818,17 +836,18 @@ export async function createPendingOnrampTransaction(input: CreatePendingOnrampT
         failure_reason
       )
       VALUES (
-        $1, NULL, 'inbound', 'onramp', 'usdc', $2, $3, 'solana-mainnet', $4, $5, $6, NULL, $7, $8,
-        $9, $10, $11::JSONB, NULL, $12, $7, NULL, $13, 'pending', NULL, NULL, NULL
+        $1, NULL, 'inbound', 'onramp', $2, $3, $4, 'solana-mainnet', $5, $6, $7, NULL, $8, $9,
+        $10, $11, $12::JSONB, NULL, $13, $8, NULL, $14, 'pending', NULL, NULL, NULL
       )
       RETURNING ${transactionSelection}
     `,
     [
       input.userId,
+      input.asset,
       input.expectedDestinationAmount,
       amountRaw,
       input.walletAddress,
-      input.bridgeTransferId,
+      input.walletAddress,
       buildOnrampCounterpartyName(input.depositInstructions?.paymentRail),
       input.bridgeTransferId,
       input.bridgeTransferStatus,
@@ -846,6 +865,7 @@ export async function createPendingOnrampTransaction(input: CreatePendingOnrampT
 interface PendingOnrampMatchRow {
   id: string;
   user_id: string;
+  asset: OnrampDestinationAsset;
   tracked_wallet_address: string;
   bridge_transfer_id: string;
   status: TransactionStatus;
@@ -868,6 +888,7 @@ export async function getPendingOnrampByDestinationTxHash(txHash: string) {
   const result = await pool.query<PendingOnrampMatchRow>(
     `
       SELECT id, user_id, tracked_wallet_address, bridge_transfer_id
+      , asset
       FROM transactions
       WHERE entry_type = 'onramp'
         AND status = 'pending'
@@ -884,6 +905,7 @@ export async function getPendingOnrampByDestinationTxHash(txHash: string) {
 
   return {
     id: Number(row.id),
+    asset: row.asset,
     userId: Number(row.user_id),
     trackedWalletAddress: row.tracked_wallet_address,
     bridgeTransferId: row.bridge_transfer_id,
@@ -894,6 +916,7 @@ async function reconcilePendingOnrampWithConfirmedTransfer(client: PoolClient, t
   const pendingOnrampResult = await client.query<PendingOnrampMatchRow>(
     `
       SELECT id, user_id, tracked_wallet_address, bridge_transfer_id, status
+      , asset
       FROM transactions
       WHERE entry_type = 'onramp'
         AND bridge_destination_tx_hash = $1::text
@@ -927,7 +950,7 @@ async function reconcilePendingOnrampWithConfirmedTransfer(client: PoolClient, t
       WHERE entry_type = 'transfer'
         AND status = 'confirmed'
         AND direction = 'inbound'
-        AND asset = 'usdc'
+        AND asset = $4::text
         AND transaction_signature = $1::text
         AND user_id = $2::bigint
         AND tracked_wallet_address = $3::text
@@ -935,7 +958,7 @@ async function reconcilePendingOnrampWithConfirmedTransfer(client: PoolClient, t
       LIMIT 1
       FOR UPDATE
     `,
-    [txHash, pendingOnramp.user_id, pendingOnramp.tracked_wallet_address],
+    [txHash, pendingOnramp.user_id, pendingOnramp.tracked_wallet_address, pendingOnramp.asset],
   );
 
   const confirmedTransfer = confirmedTransferResult.rows[0];
@@ -1001,6 +1024,7 @@ async function reconcilePendingOnrampWithConfirmedTransfer(client: PoolClient, t
 async function deleteDuplicateConfirmedTransferForOnramp(
   client: PoolClient,
   input: {
+    asset: OnrampDestinationAsset;
     txHash: string;
     trackedWalletAddress: string;
     userId: number;
@@ -1013,7 +1037,7 @@ async function deleteDuplicateConfirmedTransferForOnramp(
       WHERE entry_type = 'transfer'
         AND status = 'confirmed'
         AND direction = 'inbound'
-        AND asset = 'usdc'
+        AND asset = $4::text
         AND transaction_signature = $1::text
         AND user_id = $2::bigint
         AND tracked_wallet_address = $3::text
@@ -1021,7 +1045,7 @@ async function deleteDuplicateConfirmedTransferForOnramp(
       LIMIT 1
       FOR UPDATE
     `,
-    [input.txHash, input.userId, input.trackedWalletAddress],
+    [input.txHash, input.userId, input.trackedWalletAddress, input.asset],
   );
 
   const duplicateTransfer = duplicateTransferResult.rows[0];
@@ -1107,7 +1131,7 @@ function collectOnrampReconciliationTxHashes(effects: AlchemyWebhookEffectInput[
       effect.type === "ledger" &&
       effect.entry.entryType === "transfer" &&
       effect.entry.direction === "inbound" &&
-      effect.entry.asset === "usdc"
+      isOnrampDestinationAsset(effect.entry.asset)
     ) {
       txHashes.add(effect.entry.transactionSignature);
     }
@@ -1340,7 +1364,7 @@ export async function applyAlchemyWebhookEffects(input: {
     }
 
     const affectedUserIds = new Set<number>();
-    const balanceDeltas = new Map<number, { sol: bigint; usdc: bigint }>();
+    const balanceDeltas = new Map<number, Record<TransferAsset, bigint>>();
     const updatedRecipientPayments = new Map<number, Date>();
 
     for (const effect of input.effects) {
@@ -1409,7 +1433,12 @@ export async function applyAlchemyWebhookEffects(input: {
       const userId = Number(row.user_id);
       affectedUserIds.add(userId);
 
+      if (!isOnrampDestinationAsset(row.asset)) {
+        continue;
+      }
+
       const removedDuplicateTransfer = await deleteDuplicateConfirmedTransferForOnramp(client, {
+        asset: row.asset,
         trackedWalletAddress: row.tracked_wallet_address,
         txHash: effect.txHash,
         userId,
@@ -1736,5 +1765,5 @@ function decodeTransactionCursor(cursor?: string | null): TransactionPageCursor 
 }
 
 function formatAssetAmount(rawAmount: string, asset: TransferAsset) {
-  return formatTokenAmount(rawAmount, asset === "sol" ? 9 : 6);
+  return formatTokenAmount(rawAmount, getTransferAssetDecimals(asset));
 }

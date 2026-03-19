@@ -8,6 +8,7 @@ import type {
   BankRecipientType,
   BridgeComplianceState,
   BridgeKycStatus,
+  OnrampDestinationAsset,
   BridgeSourceDepositInstructions,
   BridgeTransferState,
   BridgeTosStatus,
@@ -290,6 +291,7 @@ export async function createBridgeOnrampTransfer(input: {
   amount: string;
   bridgeCustomerId: string;
   destinationAddress: string;
+  destinationAsset: OnrampDestinationAsset;
 }) {
   const transfer = await bridgeRequest<BridgeTransferResponse>({
     method: "POST",
@@ -302,7 +304,7 @@ export async function createBridgeOnrampTransfer(input: {
         payment_rail: "sepa",
       },
       destination: {
-        currency: "usdc",
+        currency: input.destinationAsset,
         payment_rail: "solana",
         to_address: input.destinationAddress,
       },

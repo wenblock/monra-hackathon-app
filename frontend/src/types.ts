@@ -1,7 +1,8 @@
 export type AccountType = "individual" | "business";
 export type RecipientKind = "wallet" | "bank";
 export type BankRecipientType = "individual" | "business";
-export type TransferAsset = "sol" | "usdc";
+export type TransferAsset = "sol" | "usdc" | "eurc";
+export type OnrampDestinationAsset = Exclude<TransferAsset, "sol">;
 export type TransactionStatus = "pending" | "confirmed" | "failed";
 export type TransactionDirection = "inbound" | "outbound";
 export type TransactionEntryType = "transfer" | "network_fee" | "onramp";
@@ -92,12 +93,13 @@ export interface SolanaBalancesResponse {
   balances: {
     sol: TokenBalanceAmount;
     usdc: TokenBalanceAmount;
+    eurc: TokenBalanceAmount;
   };
 }
 
 export interface SolanaTransactionContextResponse {
   recentBlockhash: string;
-  recipientUsdcAtaExists?: boolean;
+  recipientTokenAccountExists?: boolean;
 }
 
 export interface FetchSolanaTransactionContextPayload {
@@ -129,6 +131,7 @@ export interface Recipient {
 
 export interface CreateOnrampPayload {
   amount: string;
+  destinationAsset: OnrampDestinationAsset;
 }
 
 export type CreateRecipientPayload =

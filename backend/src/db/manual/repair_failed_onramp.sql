@@ -1,13 +1,14 @@
 -- Replace the placeholder values in this file before running it.
 -- This repair assumes:
 -- 1. The failed Solana tx should be removed from the ledger.
--- 2. The successful Solana tx already exists as a confirmed inbound USDC transfer row.
+-- 2. The successful Solana tx already exists as a confirmed inbound transfer row
+--    for the same destination asset as the on-ramp.
 -- 3. The on-ramp row identified by bridge_transfer_id should become the canonical confirmed record.
 
 BEGIN;
 
 WITH target_onramp AS (
-  SELECT id, user_id, tracked_wallet_address
+  SELECT id, user_id, asset, tracked_wallet_address
   FROM transactions
   WHERE entry_type = 'onramp'
     AND bridge_transfer_id = '__BRIDGE_TRANSFER_ID__'
@@ -23,7 +24,7 @@ failed_transfer_rows AS (
   WHERE t.entry_type = 'transfer'
     AND t.status = 'confirmed'
     AND t.direction = 'inbound'
-    AND t.asset = 'usdc'
+    AND t.asset = o.asset
     AND t.transaction_signature = '__FAILED_TX_HASH__'
 ),
 deleted_failed_transfers AS (
@@ -48,7 +49,7 @@ successful_transfer AS (
   WHERE t.entry_type = 'transfer'
     AND t.status = 'confirmed'
     AND t.direction = 'inbound'
-    AND t.asset = 'usdc'
+    AND t.asset = o.asset
     AND t.transaction_signature = '__SUCCESSFUL_TX_HASH__'
   ORDER BY COALESCE(t.confirmed_at, t.created_at) DESC, t.id DESC
   LIMIT 1

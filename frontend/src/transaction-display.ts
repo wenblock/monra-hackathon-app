@@ -1,3 +1,4 @@
+import { getTransferAssetLabel } from "./assets";
 import type { AppTransaction } from "./types";
 
 export function isOnrampTransaction(transaction: AppTransaction) {
@@ -50,7 +51,7 @@ export function formatActivityTimestamp(value: string | null, now = Date.now()) 
 
 export function formatActivityTitle(transaction: AppTransaction) {
   if (isOnrampTransaction(transaction)) {
-    return "On-ramp to USDC";
+    return `On-ramp to ${getTransferAssetLabel(transaction.asset)}`;
   }
 
   const counterpartyDisplay = getTransactionCounterpartyDisplay(transaction);
@@ -126,7 +127,7 @@ export function getTransactionCounterpartyWalletAddress(transaction: AppTransact
 }
 
 export function getAssetLabel(asset: AppTransaction["asset"]) {
-  return asset === "sol" ? "SOL" : "USDC";
+  return getTransferAssetLabel(asset);
 }
 
 function formatPendingOnrampAmount(transaction: AppTransaction) {

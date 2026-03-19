@@ -1,5 +1,6 @@
 import type { AppUser, TransactionDirection, TransactionEntryType, TransferAsset } from "../types.js";
-import { formatTokenAmount, isUsdcMintAddress, type AlchemyParsedTransactionResult } from "./alchemy.js";
+import { formatTokenAmount, type AlchemyParsedTransactionResult } from "./alchemy.js";
+import { getSplTokenAssetByMintAddress, getTransferAssetDecimals } from "./assets.js";
 
 interface AlchemyWebhookTransactionItem {
   signature?: string;
@@ -167,14 +168,18 @@ export function normalizeAlchemyTransaction(input: {
     const sourceTokenInfo = tokenOwnersByAccount.get(sourceTokenAddress);
     const destinationTokenInfo = tokenOwnersByAccount.get(destinationTokenAddress);
 
-    if (!isUsdcMintAddress(sourceTokenInfo?.mint) && !isUsdcMintAddress(destinationTokenInfo?.mint)) {
+    const tokenAsset =
+      getSplTokenAssetByMintAddress(sourceTokenInfo?.mint) ??
+      getSplTokenAssetByMintAddress(destinationTokenInfo?.mint);
+
+    if (!tokenAsset) {
       continue;
     }
 
     const sourceOwner = sourceTokenInfo?.owner ?? null;
     const destinationOwner = destinationTokenInfo?.owner ?? null;
     const amountRaw = rawAmount.toString();
-    const amountDecimal = formatTokenAmount(amountRaw, 6);
+    const amountDecimal = formatTokenAmount(amountRaw, getTransferAssetDecimals(tokenAsset));
 
     if (sourceOwner) {
       const sourceUser = input.usersByAddress.get(sourceOwner);
@@ -182,7 +187,7 @@ export function normalizeAlchemyTransaction(input: {
         normalizedEntries.push({
           amountDecimal,
           amountRaw,
-          asset: "usdc",
+          asset: tokenAsset,
           confirmedAt,
           counterpartyWalletAddress: destinationOwner ?? destinationTokenAddress,
           direction: "outbound",
@@ -208,7 +213,7 @@ export function normalizeAlchemyTransaction(input: {
         normalizedEntries.push({
           amountDecimal,
           amountRaw,
-          asset: "usdc",
+          asset: tokenAsset,
           confirmedAt,
           counterpartyWalletAddress: sourceOwner ?? sourceTokenAddress,
           direction: "inbound",

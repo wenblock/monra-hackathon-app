@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { TRANSFER_ASSETS, getTransferAssetLabel } from "@/assets";
 import { cn } from "@/lib/utils";
 import OnrampDrawer from "@/OnrampDrawer";
 import SendDrawer from "@/SendDrawer";
@@ -44,6 +45,7 @@ import type {
   AppTransaction,
   AppUser,
   BridgeComplianceState,
+  CreateOnrampPayload,
   CreateRecipientPayload,
   FetchSolanaTransactionContextPayload,
   Recipient,
@@ -54,7 +56,7 @@ import type {
 interface Props {
   balances?: SolanaBalancesResponse["balances"];
   bridge: BridgeComplianceState;
-  onCreateOnramp: (payload: { amount: string }) => Promise<AppTransaction>;
+  onCreateOnramp: (payload: CreateOnrampPayload) => Promise<AppTransaction>;
   onCreateWalletRecipient: (
     payload: Extract<CreateRecipientPayload, { kind: "wallet" }>,
   ) => Promise<Recipient>;
@@ -99,22 +101,13 @@ function Dashboard({
   const displayedKycStatus = bridge.customerStatus ?? user.bridgeKycStatus ?? "not_started";
   const recentTransactions = transactions.slice(0, 5);
 
-  const balanceMetrics = [
-    {
-      id: "sol",
-      label: "SOL",
-      value: balances ? `${balances.sol.formatted} SOL` : undefined,
-      note: "Live",
-      tone: "live" as const,
-    },
-    {
-      id: "usdc",
-      label: "USDC",
-      value: balances ? `${balances.usdc.formatted} USDC` : undefined,
-      note: "Live",
-      tone: "live" as const,
-    },
-  ];
+  const balanceMetrics = TRANSFER_ASSETS.map(asset => ({
+    id: asset,
+    label: getTransferAssetLabel(asset),
+    value: balances ? `${balances[asset].formatted} ${getTransferAssetLabel(asset)}` : undefined,
+    note: "Live",
+    tone: "live" as const,
+  }));
 
   const refreshBridgeStatus = useCallback(async () => {
     try {
@@ -255,7 +248,7 @@ function Dashboard({
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-4 md:grid-cols-3">
                 {balanceMetrics.map(metric => (
                   <div
                     key={metric.id}
@@ -371,6 +364,9 @@ function Dashboard({
                 <p className="text-sm font-medium">Wallet</p>
                 <p className="mt-2 break-all font-mono text-xs text-muted-foreground">
                   {effectiveSolanaAddress ?? "Address will appear after wallet initialization."}
+                </p>
+                <p className="mt-3 text-xs text-muted-foreground">
+                  Receive SOL, USDC, or EURC at this Solana address.
                 </p>
               </div>
             </CardContent>

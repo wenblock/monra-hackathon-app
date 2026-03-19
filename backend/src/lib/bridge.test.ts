@@ -17,7 +17,7 @@ process.env.BRIDGE_API_KEY = "bridge-api-key";
 process.env.BRIDGE_WEBHOOK_PUBLIC_KEY = publicKeyPem;
 process.env.BRIDGE_WEBHOOK_MAX_AGE_MS = "600000";
 
-const { validateBridgeWebhookSignature } = await import("./bridge.js");
+const { createBridgeOnrampTransfer, validateBridgeWebhookSignature } = await import("./bridge.js");
 
 function signBridgeWebhookPayload(timestamp: string, rawBody: Buffer) {
   const digest = createHash("sha256")
@@ -90,4 +90,100 @@ test("validateBridgeWebhookSignature rejects malformed headers missing the signa
 
   assert.equal(result.isValid, false);
   assert.equal(result.error, "Missing Bridge webhook timestamp or signature.");
+});
+
+test("createBridgeOnrampTransfer requests a USDC destination transfer", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedCurrency: string | null = null;
+
+  globalThis.fetch = async (_input, init) => {
+    const body = JSON.parse(String(init?.body)) as {
+      destination: { currency: string };
+    };
+    requestedCurrency = body.destination.currency;
+
+    return new Response(
+      JSON.stringify({
+        amount: "25",
+        id: "bridge-transfer-id",
+        receipt: {
+          final_amount: "24.75",
+          url: "https://bridge.example/receipt",
+        },
+        source: {
+          currency: "eur",
+          payment_rail: "sepa",
+        },
+        state: "pending",
+      }),
+      {
+        headers: {
+          "Content-Type": "application/json",
+        },
+        status: 200,
+      },
+    );
+  };
+
+  try {
+    const result = await createBridgeOnrampTransfer({
+      amount: "25",
+      bridgeCustomerId: "customer-id",
+      destinationAddress: "wallet-address",
+      destinationAsset: "usdc",
+    });
+
+    assert.equal(requestedCurrency, "usdc");
+    assert.equal(result.destinationAmount, "24.75");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("createBridgeOnrampTransfer requests a EURC destination transfer", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedCurrency: string | null = null;
+
+  globalThis.fetch = async (_input, init) => {
+    const body = JSON.parse(String(init?.body)) as {
+      destination: { currency: string };
+    };
+    requestedCurrency = body.destination.currency;
+
+    return new Response(
+      JSON.stringify({
+        amount: "25",
+        id: "bridge-transfer-id",
+        receipt: {
+          final_amount: "24.75",
+          url: "https://bridge.example/receipt",
+        },
+        source: {
+          currency: "eur",
+          payment_rail: "sepa",
+        },
+        state: "pending",
+      }),
+      {
+        headers: {
+          "Content-Type": "application/json",
+        },
+        status: 200,
+      },
+    );
+  };
+
+  try {
+    const result = await createBridgeOnrampTransfer({
+      amount: "25",
+      bridgeCustomerId: "customer-id",
+      destinationAddress: "wallet-address",
+      destinationAsset: "eurc",
+    });
+
+    assert.equal(requestedCurrency, "eurc");
+    assert.equal(result.destinationAmount, "24.75");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS user_balances (
   user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   sol_raw TEXT NOT NULL DEFAULT '0',
   usdc_raw TEXT NOT NULL DEFAULT '0',
+  eurc_raw TEXT NOT NULL DEFAULT '0',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -93,7 +94,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   recipient_id BIGINT NULL REFERENCES recipients(id) ON DELETE SET NULL,
   direction TEXT NOT NULL CHECK (direction IN ('inbound', 'outbound')),
   entry_type TEXT NOT NULL CHECK (entry_type IN ('transfer', 'network_fee', 'onramp')),
-  asset TEXT NOT NULL CHECK (asset IN ('sol', 'usdc')),
+  asset TEXT NOT NULL CHECK (asset IN ('sol', 'usdc', 'eurc')),
   amount_decimal NUMERIC(36, 9) NOT NULL,
   amount_raw TEXT NOT NULL,
   network TEXT NOT NULL CHECK (network = 'solana-mainnet'),

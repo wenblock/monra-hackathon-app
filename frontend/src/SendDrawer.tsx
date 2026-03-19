@@ -11,6 +11,12 @@ import {
 import { ArrowUpRight, CheckCircle2, Plus, Wallet } from "lucide-react";
 import { useMemo, useState } from "react";
 
+import {
+  TRANSFER_ASSETS,
+  getTransferAssetDecimals,
+  getTransferAssetLabel,
+  getTransferAssetMintAddress,
+} from "@/assets";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -54,9 +60,6 @@ interface SendDrawerProps {
 
 const TOKEN_PROGRAM_ID = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
-const USDC_MINT = new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
-const USDC_DECIMALS = 6;
-const SOL_DECIMALS = 9;
 
 function SendDrawer({
   balances,
@@ -85,7 +88,7 @@ function SendDrawer({
 
   const selectedRecipient =
     walletRecipients.find(recipient => String(recipient.id) === selectedRecipientId) ?? null;
-  const availableRawBalance = asset === "sol" ? balances?.sol.raw ?? "0" : balances?.usdc.raw ?? "0";
+  const availableRawBalance = balances?.[asset].raw ?? "0";
 
   const handleDrawerChange = (isOpen: boolean) => {
     if (!isOpen) {
@@ -133,7 +136,7 @@ function SendDrawer({
         throw new Error("Wallet connection is still initializing.");
       }
 
-      const parsedAmount = parseTransferAmount(amount, asset === "sol" ? SOL_DECIMALS : USDC_DECIMALS);
+      const parsedAmount = parseTransferAmount(amount, getTransferAssetDecimals(asset));
       const availableBalance = BigInt(availableRawBalance);
 
       if (!selectedRecipient?.walletAddress) {
@@ -145,8 +148,11 @@ function SendDrawer({
       }
 
       const recipientTokenAccountAddress =
-        asset === "usdc"
-          ? findAssociatedTokenAddress(new PublicKey(selectedRecipient.walletAddress), USDC_MINT).toBase58()
+        asset !== "sol"
+          ? findAssociatedTokenAddress(
+              new PublicKey(selectedRecipient.walletAddress),
+              new PublicKey(getTransferAssetMintAddress(asset)),
+            ).toBase58()
           : undefined;
       const transactionContext = await onFetchTransactionContext({
         asset,
@@ -159,7 +165,7 @@ function SendDrawer({
         asset,
         recentBlockhash: transactionContext.recentBlockhash,
         recipientAddress: selectedRecipient.walletAddress,
-        recipientUsdcAtaExists: transactionContext.recipientUsdcAtaExists ?? false,
+        recipientTokenAccountExists: transactionContext.recipientTokenAccountExists ?? false,
         senderAddress,
       });
 
@@ -190,7 +196,7 @@ function SendDrawer({
         <SheetHeader className="border-b border-border/80 bg-background pb-5">
           <SheetTitle>Send</SheetTitle>
           <SheetDescription>
-            Send SOL or USDC to a saved wallet recipient on Solana mainnet.
+            Send SOL, USDC, or EURC to a saved wallet recipient on Solana mainnet.
           </SheetDescription>
         </SheetHeader>
 
@@ -243,8 +249,13 @@ function SendDrawer({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="sol">Solana (SOL)</SelectItem>
-                      <SelectItem value="usdc">USDC</SelectItem>
+                      {TRANSFER_ASSETS.map(selectableAsset => (
+                        <SelectItem key={selectableAsset} value={selectableAsset}>
+                          {selectableAsset === "sol"
+                            ? "Solana (SOL)"
+                            : getTransferAssetLabel(selectableAsset)}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -253,9 +264,7 @@ function SendDrawer({
               <div className="rounded-[calc(var(--radius)+2px)] border border-border/70 bg-secondary/35 px-4 py-3 text-sm text-muted-foreground">
                 Available:{" "}
                 <span className="font-medium text-foreground">
-                  {asset === "sol"
-                    ? `${balances?.sol.formatted ?? "0"} SOL`
-                    : `${balances?.usdc.formatted ?? "0"} USDC`}
+                  {`${balances?.[asset].formatted ?? "0"} ${getTransferAssetLabel(asset)}`}
                 </span>
               </div>
 
@@ -407,7 +416,7 @@ function buildSerializedTransaction(input: {
   asset: TransferAsset;
   recentBlockhash: string;
   recipientAddress: string;
-  recipientUsdcAtaExists: boolean;
+  recipientTokenAccountExists: boolean;
   senderAddress: string;
 }) {
   const senderPublicKey = new PublicKey(input.senderAddress);
@@ -423,16 +432,18 @@ function buildSerializedTransaction(input: {
       }),
     );
   } else {
-    const senderAta = findAssociatedTokenAddress(senderPublicKey, USDC_MINT);
-    const recipientAta = findAssociatedTokenAddress(recipientPublicKey, USDC_MINT);
+    const mint = new PublicKey(getTransferAssetMintAddress(input.asset));
+    const decimals = getTransferAssetDecimals(input.asset);
+    const senderAta = findAssociatedTokenAddress(senderPublicKey, mint);
+    const recipientAta = findAssociatedTokenAddress(recipientPublicKey, mint);
 
-    if (!input.recipientUsdcAtaExists) {
+    if (!input.recipientTokenAccountExists) {
       transaction.add(
         createAssociatedTokenAccountInstruction(
           senderPublicKey,
           recipientAta,
           recipientPublicKey,
-          USDC_MINT,
+          mint,
         ),
       );
     }
@@ -440,9 +451,9 @@ function buildSerializedTransaction(input: {
     transaction.add(
       createTransferCheckedInstruction({
         amount: input.amountRaw,
-        decimals: USDC_DECIMALS,
+        decimals,
         destination: recipientAta,
-        mint: USDC_MINT,
+        mint,
         owner: senderPublicKey,
         source: senderAta,
       }),
