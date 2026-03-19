@@ -9,10 +9,11 @@ import { sendError } from "./lib/http.js";
 import { authRouter } from "./routes/auth.js";
 import { bridgeRouter } from "./routes/bridge.js";
 import { onboardingRouter } from "./routes/onboarding.js";
+import { onrampRouter } from "./routes/onramp.js";
 import { recipientsRouter } from "./routes/recipients.js";
 import { transactionsRouter } from "./routes/transactions.js";
 import { usersRouter } from "./routes/users.js";
-import { alchemyWebhookRouter } from "./routes/webhooks.js";
+import { alchemyWebhookRouter, bridgeWebhookRouter } from "./routes/webhooks.js";
 
 const require = createRequire(import.meta.url);
 const helmet = require("helmet") as () => RequestHandler;
@@ -36,6 +37,7 @@ app.use(
   }),
 );
 app.use("/api/webhooks/alchemy", alchemyWebhookRouter);
+app.use("/api/webhooks/bridge", bridgeWebhookRouter);
 app.use(express.json({ limit: "1mb" }));
 
 app.get("/health", (_request, response) => {
@@ -45,6 +47,7 @@ app.get("/health", (_request, response) => {
 app.use("/api/auth", authRouter);
 app.use("/api/bridge", bridgeRouter);
 app.use("/api/onboarding", onboardingRouter);
+app.use("/api/onramp", onrampRouter);
 app.use("/api/recipients", recipientsRouter);
 app.use("/api/transactions", transactionsRouter);
 app.use("/api/users", usersRouter);

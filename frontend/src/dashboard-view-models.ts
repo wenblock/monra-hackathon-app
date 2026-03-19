@@ -75,7 +75,7 @@ export const sidebarItems: SidebarItem[] = [
 export const quickActions: QuickAction[] = [
   {
     id: "onramp",
-    label: "Onramp",
+    label: "On-ramp",
     description: "Fund the wallet from fiat rails",
     icon: CreditCard,
   },

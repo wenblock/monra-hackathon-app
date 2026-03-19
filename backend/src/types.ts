@@ -5,7 +5,20 @@ export type BankRecipientType = "individual" | "business";
 export type TransferAsset = "sol" | "usdc";
 export type TransactionStatus = "pending" | "confirmed" | "failed";
 export type TransactionDirection = "inbound" | "outbound";
-export type TransactionEntryType = "transfer" | "network_fee";
+export type TransactionEntryType = "transfer" | "network_fee" | "onramp";
+export type BridgeTransferState =
+  | "pending"
+  | "awaiting_funds"
+  | "in_review"
+  | "funds_received"
+  | "payment_submitted"
+  | "payment_processed"
+  | "undeliverable"
+  | "returned"
+  | "missing_return_policy"
+  | "refunded"
+  | "canceled"
+  | "error";
 
 export type BridgeKycStatus =
   | "active"
@@ -91,6 +104,22 @@ export interface Recipient {
   updatedAt: string;
 }
 
+export interface BridgeSourceDepositInstructions {
+  paymentRail: string | null;
+  amount: string | null;
+  currency: string | null;
+  depositMessage: string | null;
+  bankName: string | null;
+  bankAddress: string | null;
+  iban: string | null;
+  bic: string | null;
+  accountHolderName: string | null;
+  bankRoutingNumber: string | null;
+  bankAccountNumber: string | null;
+  bankBeneficiaryName: string | null;
+  bankBeneficiaryAddress: string | null;
+}
+
 export interface AppTransaction {
   id: number;
   userId: number;
@@ -106,6 +135,13 @@ export interface AppTransaction {
   fromWalletAddress: string;
   counterpartyName: string | null;
   counterpartyWalletAddress: string | null;
+  bridgeTransferId: string | null;
+  bridgeTransferStatus: BridgeTransferState | null;
+  bridgeSourceAmount: string | null;
+  bridgeSourceCurrency: string | null;
+  bridgeSourceDepositInstructions: BridgeSourceDepositInstructions | null;
+  bridgeDestinationTxHash: string | null;
+  bridgeReceiptUrl: string | null;
   networkFeeRaw: string | null;
   networkFeeDisplay: string | null;
   transactionSignature: string;

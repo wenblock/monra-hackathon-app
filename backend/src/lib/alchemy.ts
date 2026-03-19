@@ -72,6 +72,7 @@ interface AlchemyTokenBalanceInfo {
 export interface AlchemyParsedTransactionResult {
   blockTime?: number | null;
   meta?: {
+    err?: unknown | null;
     fee?: number;
     preBalances?: number[];
     postBalances?: number[];
@@ -358,6 +359,10 @@ export async function fetchSolanaParsedTransaction(signature: string) {
   }
 
   return payload.result;
+}
+
+export function isSolanaTransactionSuccessful(parsedTransaction: AlchemyParsedTransactionResult) {
+  return parsedTransaction.meta != null && parsedTransaction.meta.err == null;
 }
 
 export async function updateAlchemyWebhookAddresses(input: {

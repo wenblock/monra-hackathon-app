@@ -14,8 +14,10 @@ import {
   formatActivityStatus,
   formatActivityTitle,
   formatCounterpartyLabel,
+  getTransactionExplorerSignature,
   getTransactionCounterpartyDisplay,
   getTransactionCounterpartyWalletAddress,
+  isOnrampTransaction,
 } from "@/transaction-display";
 import type { AppTransaction } from "@/types";
 
@@ -30,6 +32,8 @@ function TransactionDetailsDrawer({
   open,
   transaction,
 }: TransactionDetailsDrawerProps) {
+  const explorerSignature = transaction ? getTransactionExplorerSignature(transaction) : null;
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
@@ -50,7 +54,11 @@ function TransactionDetailsDrawer({
                 <div className="min-w-0 space-y-3">
                   <div className="flex flex-wrap items-center gap-2">
                     <SheetTitle className="text-xl text-foreground">
-                      {transaction.direction === "inbound" ? "Received" : "Send"}
+                      {isOnrampTransaction(transaction)
+                        ? "On-ramp"
+                        : transaction.direction === "inbound"
+                          ? "Received"
+                          : "Send"}
                     </SheetTitle>
                     <Badge variant={transaction.status === "confirmed" ? "success" : "secondary"}>
                       {formatActivityStatus(transaction)}
@@ -66,51 +74,142 @@ function TransactionDetailsDrawer({
               </div>
             </SheetHeader>
 
-            <div className="space-y-5 p-6">
-              <DetailBlock
-                label="Confirmed"
-                value={formatActivityAbsoluteTimestamp(transaction.confirmedAt ?? transaction.createdAt)}
-              />
-
-              <DetailBlock
-                label={formatCounterpartyLabel(transaction)}
-                value={getTransactionCounterpartyDisplay(transaction)}
-                secondaryValue={getTransactionCounterpartyWalletAddress(transaction)}
-              />
-
-              <DetailBlock
-                label="Signature"
-                value={transaction.transactionSignature}
-                monospace
-              />
-
-              <a
-                className="inline-flex items-center gap-2 text-sm font-medium text-primary transition-colors hover:text-primary/80"
-                href={`https://explorer.solana.com/tx/${transaction.transactionSignature}`}
-                rel="noopener noreferrer"
-                target="_blank"
-              >
-                View on Solana Explorer
-                <ExternalLink className="size-4" />
-              </a>
-
-              <DetailBlock label="Network" value="Solana Mainnet" />
-
-              {transaction.networkFeeDisplay ? (
+            {isOnrampTransaction(transaction) ? (
+              <OnrampDetails transaction={transaction} explorerSignature={explorerSignature} />
+            ) : (
+              <div className="space-y-5 p-6">
                 <DetailBlock
-                  label="Network fee"
-                  value={`${transaction.networkFeeDisplay} SOL`}
+                  label="Confirmed"
+                  value={formatActivityAbsoluteTimestamp(transaction.confirmedAt ?? transaction.createdAt)}
                 />
-              ) : null}
 
-              {transaction.failureReason ? (
-                <DetailBlock label="Failure reason" value={transaction.failureReason} />
-              ) : null}
-            </div>
+                <DetailBlock
+                  label={formatCounterpartyLabel(transaction)}
+                  value={getTransactionCounterpartyDisplay(transaction)}
+                  secondaryValue={getTransactionCounterpartyWalletAddress(transaction)}
+                />
+
+                <DetailBlock
+                  label="Signature"
+                  value={transaction.transactionSignature}
+                  monospace
+                />
+
+                {explorerSignature ? (
+                  <a
+                    className="inline-flex items-center gap-2 text-sm font-medium text-primary transition-colors hover:text-primary/80"
+                    href={`https://explorer.solana.com/tx/${explorerSignature}`}
+                    rel="noopener noreferrer"
+                    target="_blank"
+                  >
+                    View on Solana Explorer
+                    <ExternalLink className="size-4" />
+                  </a>
+                ) : null}
+
+                <DetailBlock label="Network" value="Solana Mainnet" />
+
+                {transaction.networkFeeDisplay ? (
+                  <DetailBlock
+                    label="Network fee"
+                    value={`${transaction.networkFeeDisplay} SOL`}
+                  />
+                ) : null}
+
+                {transaction.failureReason ? (
+                  <DetailBlock label="Failure reason" value={transaction.failureReason} />
+                ) : null}
+              </div>
+            )}
           </>
         ) : null}
       </SheetContent>
     </Sheet>
+  );
+}
+
+function OnrampDetails({
+  explorerSignature,
+  transaction,
+}: {
+  explorerSignature: string | null;
+  transaction: AppTransaction;
+}) {
+  const instructions = transaction.bridgeSourceDepositInstructions;
+
+  return (
+    <div className="space-y-5 p-6">
+      <DetailBlock
+        label={transaction.status === "confirmed" ? "Completed" : "Created"}
+        value={formatActivityAbsoluteTimestamp(transaction.confirmedAt ?? transaction.createdAt)}
+      />
+
+      <DetailBlock
+        label="Bridge transfer"
+        value={transaction.bridgeTransferId ?? transaction.transactionSignature}
+        monospace
+      />
+
+      <DetailBlock label="Destination wallet" value={transaction.trackedWalletAddress} monospace />
+
+      <DetailBlock label="Source amount" value={formatSourceAmount(transaction)} />
+
+      {instructions ? (
+        <>
+          <DetailBlock label="Payment rail" value={formatPaymentRail(instructions.paymentRail)} />
+          <DetailBlock label="Bank name" value={instructions.bankName ?? "Unavailable"} />
+          <DetailBlock label="Account holder" value={instructions.accountHolderName ?? "Unavailable"} />
+          <DetailBlock label="IBAN" value={instructions.iban ?? "Unavailable"} monospace />
+          <DetailBlock label="BIC" value={instructions.bic ?? "Unavailable"} monospace />
+          <DetailBlock
+            label="Bank transfer amount"
+            value={formatInstructionAmount(instructions.amount, instructions.currency)}
+          />
+          <DetailBlock
+            label="Reference / deposit message"
+            value={instructions.depositMessage ?? "Unavailable"}
+            monospace
+          />
+          {instructions.bankAddress ? (
+            <DetailBlock label="Bank address" value={instructions.bankAddress} />
+          ) : null}
+        </>
+      ) : null}
+
+      <DetailBlock label="Network" value="Solana Mainnet" />
+
+      {transaction.bridgeDestinationTxHash ? (
+        <DetailBlock label="Destination tx hash" value={transaction.bridgeDestinationTxHash} monospace />
+      ) : null}
+
+      {explorerSignature ? (
+        <a
+          className="inline-flex items-center gap-2 text-sm font-medium text-primary transition-colors hover:text-primary/80"
+          href={`https://explorer.solana.com/tx/${explorerSignature}`}
+          rel="noopener noreferrer"
+          target="_blank"
+        >
+          View on Solana Explorer
+          <ExternalLink className="size-4" />
+        </a>
+      ) : null}
+
+      {transaction.bridgeReceiptUrl ? (
+        <a
+          className="inline-flex items-center gap-2 text-sm font-medium text-primary transition-colors hover:text-primary/80"
+          href={transaction.bridgeReceiptUrl}
+          rel="noopener noreferrer"
+          target="_blank"
+        >
+          Open Bridge receipt
+          <ExternalLink className="size-4" />
+        </a>
+      ) : null}
+
+      {transaction.failureReason ? (
+        <DetailBlock label="Failure reason" value={transaction.failureReason} />
+      ) : null}
+    </div>
   );
 }
 
@@ -136,6 +235,36 @@ function DetailBlock({
       ) : null}
     </div>
   );
+}
+
+function formatPaymentRail(value: string | null) {
+  if (!value) {
+    return "Unavailable";
+  }
+
+  return value
+    .split("_")
+    .filter(Boolean)
+    .map(part => part[0]?.toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function formatInstructionAmount(amount: string | null, currency: string | null) {
+  if (!amount) {
+    return "Unavailable";
+  }
+
+  return currency ? `${amount} ${currency.toUpperCase()}` : amount;
+}
+
+function formatSourceAmount(transaction: AppTransaction) {
+  if (!transaction.bridgeSourceAmount) {
+    return "Unavailable";
+  }
+
+  return transaction.bridgeSourceCurrency
+    ? `${transaction.bridgeSourceAmount} ${transaction.bridgeSourceCurrency.toUpperCase()}`
+    : transaction.bridgeSourceAmount;
 }
 
 export default TransactionDetailsDrawer;

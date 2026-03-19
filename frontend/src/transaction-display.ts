@@ -1,5 +1,9 @@
 import type { AppTransaction } from "./types";
 
+export function isOnrampTransaction(transaction: AppTransaction) {
+  return transaction.entryType === "onramp";
+}
+
 export function getTransactionDirectionTone(transaction: AppTransaction) {
   return transaction.direction === "inbound"
     ? "text-emerald-600"
@@ -45,6 +49,10 @@ export function formatActivityTimestamp(value: string | null, now = Date.now()) 
 }
 
 export function formatActivityTitle(transaction: AppTransaction) {
+  if (isOnrampTransaction(transaction)) {
+    return "On-ramp to USDC";
+  }
+
   const counterpartyDisplay = getTransactionCounterpartyDisplay(transaction);
 
   return transaction.direction === "inbound"
@@ -65,6 +73,13 @@ export function formatActivityStatus(transaction: AppTransaction) {
 
 export function formatActivityAmount(transaction: AppTransaction) {
   const prefix = transaction.direction === "inbound" ? "+" : "-";
+  if (isOnrampTransaction(transaction)) {
+    const pendingAmount = formatPendingOnrampAmount(transaction);
+    if (pendingAmount) {
+      return `${prefix}${pendingAmount}`;
+    }
+  }
+
   return `${prefix}${transaction.amountDisplay} ${getAssetLabel(transaction.asset)}`;
 }
 
@@ -83,10 +98,18 @@ export function formatActivityAbsoluteTimestamp(value: string | null) {
 }
 
 export function formatCounterpartyLabel(transaction: AppTransaction) {
+  if (isOnrampTransaction(transaction)) {
+    return "Destination wallet";
+  }
+
   return transaction.direction === "inbound" ? "From" : "To";
 }
 
 export function getTransactionCounterpartyDisplay(transaction: AppTransaction) {
+  if (isOnrampTransaction(transaction)) {
+    return transaction.counterpartyName ?? "Bridge On-ramp";
+  }
+
   return (
     transaction.counterpartyName ??
     getTransactionCounterpartyWalletAddress(transaction) ??
@@ -95,9 +118,35 @@ export function getTransactionCounterpartyDisplay(transaction: AppTransaction) {
 }
 
 export function getTransactionCounterpartyWalletAddress(transaction: AppTransaction) {
+  if (isOnrampTransaction(transaction)) {
+    return transaction.trackedWalletAddress;
+  }
+
   return transaction.counterpartyWalletAddress ?? transaction.fromWalletAddress ?? null;
 }
 
 export function getAssetLabel(asset: AppTransaction["asset"]) {
   return asset === "sol" ? "SOL" : "USDC";
+}
+
+function formatPendingOnrampAmount(transaction: AppTransaction) {
+  if (transaction.status === "confirmed") {
+    return null;
+  }
+
+  if (!transaction.bridgeSourceAmount) {
+    return null;
+  }
+
+  return transaction.bridgeSourceCurrency
+    ? `${transaction.bridgeSourceAmount} ${transaction.bridgeSourceCurrency.toUpperCase()}`
+    : transaction.bridgeSourceAmount;
+}
+
+export function getTransactionExplorerSignature(transaction: AppTransaction) {
+  if (isOnrampTransaction(transaction)) {
+    return transaction.bridgeDestinationTxHash ?? null;
+  }
+
+  return transaction.transactionSignature;
 }

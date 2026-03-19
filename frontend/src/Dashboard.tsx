@@ -36,6 +36,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import OnrampDrawer from "@/OnrampDrawer";
 import SendDrawer from "@/SendDrawer";
 import { navigateTo } from "@/router";
 import TransactionActivityList from "@/TransactionActivityList";
@@ -53,6 +54,7 @@ import type {
 interface Props {
   balances?: SolanaBalancesResponse["balances"];
   bridge: BridgeComplianceState;
+  onCreateOnramp: (payload: { amount: string }) => Promise<AppTransaction>;
   onCreateWalletRecipient: (
     payload: Extract<CreateRecipientPayload, { kind: "wallet" }>,
   ) => Promise<Recipient>;
@@ -71,6 +73,7 @@ interface Props {
 function Dashboard({
   balances,
   bridge,
+  onCreateOnramp,
   onCreateWalletRecipient,
   onFetchSolanaTransactionContext,
   onPersistSolanaAddress,
@@ -85,6 +88,7 @@ function Dashboard({
   const [dismissedTosAlert, setDismissedTosAlert] = useState(false);
   const [isKycDialogOpen, setIsKycDialogOpen] = useState(false);
   const [isTosDialogOpen, setIsTosDialogOpen] = useState(false);
+  const [isOnrampDrawerOpen, setIsOnrampDrawerOpen] = useState(false);
   const [isSendDrawerOpen, setIsSendDrawerOpen] = useState(false);
   const [persistedSolanaAddress, setPersistedSolanaAddress] = useState<string | null>(null);
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string | null>(null);
@@ -284,6 +288,22 @@ function Dashboard({
                 {quickActions.map(action => {
                   const Icon = action.icon;
 
+                  if (action.id === "onramp") {
+                    return (
+                      <Button
+                        key={action.id}
+                        variant="outline"
+                        className="h-auto min-h-16 justify-start rounded-[calc(var(--radius)+4px)] px-4 py-3 text-left"
+                        onClick={() => setIsOnrampDrawerOpen(true)}
+                      >
+                        <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-secondary">
+                          <Icon />
+                        </span>
+                        <span className="min-w-0 text-base font-medium">{action.label}</span>
+                      </Button>
+                    );
+                  }
+
                   if (action.id === "send") {
                     return (
                       <Button
@@ -396,6 +416,13 @@ function Dashboard({
           </CardContent>
         </Card>
       </div>
+
+      <OnrampDrawer
+        onCreateOnramp={onCreateOnramp}
+        onOpenChange={setIsOnrampDrawerOpen}
+        open={isOnrampDrawerOpen}
+        walletAddress={user.solanaAddress}
+      />
 
       <SendDrawer
         balances={balances}

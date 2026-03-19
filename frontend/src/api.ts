@@ -1,5 +1,6 @@
 import type {
   BridgeStatusResponse,
+  CreateOnrampPayload,
   CreateRecipientPayload,
   FetchSolanaTransactionContextPayload,
   OnboardingPayload,
@@ -146,6 +147,21 @@ export async function createRecipient(token: string, payload: CreateRecipientPay
   });
 
   return readJson<{ recipient: Recipient }>(response);
+}
+
+export async function createOnramp(token: string, payload: CreateOnrampPayload) {
+  const response = await fetch(`${API_BASE_URL}/api/onramp`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      accessToken: token,
+      ...payload,
+    }),
+  });
+
+  return readJson<{ transaction: TransactionListResponse["transactions"][number] }>(response);
 }
 
 export async function deleteRecipient(token: string, recipientId: number) {

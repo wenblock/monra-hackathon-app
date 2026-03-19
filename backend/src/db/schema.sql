@@ -79,12 +79,20 @@ CREATE TABLE IF NOT EXISTS processed_webhook_events (
   processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS processed_bridge_webhook_events (
+  event_id TEXT PRIMARY KEY,
+  webhook_id TEXT NOT NULL,
+  event_object_id TEXT NULL,
+  event_created_at TIMESTAMPTZ NULL,
+  processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS transactions (
   id BIGSERIAL PRIMARY KEY,
   user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   recipient_id BIGINT NULL REFERENCES recipients(id) ON DELETE SET NULL,
   direction TEXT NOT NULL CHECK (direction IN ('inbound', 'outbound')),
-  entry_type TEXT NOT NULL CHECK (entry_type IN ('transfer', 'network_fee')),
+  entry_type TEXT NOT NULL CHECK (entry_type IN ('transfer', 'network_fee', 'onramp')),
   asset TEXT NOT NULL CHECK (asset IN ('sol', 'usdc')),
   amount_decimal NUMERIC(36, 9) NOT NULL,
   amount_raw TEXT NOT NULL,
@@ -93,6 +101,13 @@ CREATE TABLE IF NOT EXISTS transactions (
   from_wallet_address TEXT NOT NULL,
   counterparty_name TEXT NULL,
   counterparty_wallet_address TEXT NULL,
+  bridge_transfer_id TEXT NULL,
+  bridge_transfer_status TEXT NULL,
+  bridge_source_amount TEXT NULL,
+  bridge_source_currency TEXT NULL,
+  bridge_source_deposit_instructions JSONB NULL,
+  bridge_destination_tx_hash TEXT NULL,
+  bridge_receipt_url TEXT NULL,
   transaction_signature TEXT NOT NULL,
   webhook_event_id TEXT NULL REFERENCES processed_webhook_events(event_id) ON DELETE SET NULL,
   normalization_key TEXT NOT NULL UNIQUE,

@@ -9,7 +9,9 @@ import type {
   AppUser,
   AccountType,
   BankRecipientType,
+  BridgeSourceDepositInstructions,
   BridgeKycStatus,
+  BridgeTransferState,
   BridgeTosStatus,
   Recipient,
   RecipientKind,
@@ -88,6 +90,13 @@ interface TransactionRow {
   from_wallet_address: string;
   counterparty_name: string | null;
   counterparty_wallet_address: string | null;
+  bridge_transfer_id: string | null;
+  bridge_transfer_status: BridgeTransferState | null;
+  bridge_source_amount: string | null;
+  bridge_source_currency: string | null;
+  bridge_source_deposit_instructions: BridgeSourceDepositInstructions | null;
+  bridge_destination_tx_hash: string | null;
+  bridge_receipt_url: string | null;
   transaction_signature: string;
   webhook_event_id: string | null;
   normalization_key: string;
@@ -113,6 +122,13 @@ interface LedgerTransaction {
   fromWalletAddress: string;
   counterpartyName: string | null;
   counterpartyWalletAddress: string | null;
+  bridgeTransferId: string | null;
+  bridgeTransferStatus: BridgeTransferState | null;
+  bridgeSourceAmount: string | null;
+  bridgeSourceCurrency: string | null;
+  bridgeSourceDepositInstructions: BridgeSourceDepositInstructions | null;
+  bridgeDestinationTxHash: string | null;
+  bridgeReceiptUrl: string | null;
   transactionSignature: string;
   status: TransactionStatus;
   confirmedAt: string | null;
@@ -156,8 +172,10 @@ const recipientSelection = `
 const transactionSelection = `
   id, user_id, recipient_id, direction, entry_type, asset, amount_decimal, amount_raw, network,
   tracked_wallet_address, from_wallet_address, counterparty_name, counterparty_wallet_address,
-  transaction_signature, webhook_event_id, normalization_key, status, confirmed_at, failed_at,
-  failure_reason, created_at, updated_at
+  bridge_transfer_id, bridge_transfer_status, bridge_source_amount, bridge_source_currency,
+  bridge_source_deposit_instructions, bridge_destination_tx_hash, bridge_receipt_url,
+  transaction_signature, webhook_event_id, normalization_key, status, confirmed_at,
+  failed_at, failure_reason, created_at, updated_at
 `;
 
 function mapUser(row: UserRow): AppUser {
@@ -204,6 +222,40 @@ function mapRecipient(row: RecipientRow): Recipient {
   };
 }
 
+function mapBridgeSourceDepositInstructions(value: unknown): BridgeSourceDepositInstructions | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const readString = (...keys: string[]) => {
+    for (const key of keys) {
+      const value = record[key];
+      if (typeof value === "string" && value.trim().length > 0) {
+        return value;
+      }
+    }
+
+    return null;
+  };
+
+  return {
+    paymentRail: readString("paymentRail", "payment_rail"),
+    amount: readString("amount"),
+    currency: readString("currency"),
+    depositMessage: readString("depositMessage", "deposit_message"),
+    bankName: readString("bankName", "bank_name"),
+    bankAddress: readString("bankAddress", "bank_address"),
+    iban: readString("iban"),
+    bic: readString("bic"),
+    accountHolderName: readString("accountHolderName", "account_holder_name"),
+    bankRoutingNumber: readString("bankRoutingNumber", "bank_routing_number"),
+    bankAccountNumber: readString("bankAccountNumber", "bank_account_number"),
+    bankBeneficiaryName: readString("bankBeneficiaryName", "bank_beneficiary_name"),
+    bankBeneficiaryAddress: readString("bankBeneficiaryAddress", "bank_beneficiary_address"),
+  };
+}
+
 function mapLedgerTransaction(row: TransactionRow): LedgerTransaction {
   return {
     id: Number(row.id),
@@ -219,6 +271,15 @@ function mapLedgerTransaction(row: TransactionRow): LedgerTransaction {
     fromWalletAddress: row.from_wallet_address,
     counterpartyName: row.counterparty_name,
     counterpartyWalletAddress: row.counterparty_wallet_address,
+    bridgeTransferId: row.bridge_transfer_id,
+    bridgeTransferStatus: row.bridge_transfer_status,
+    bridgeSourceAmount: row.bridge_source_amount,
+    bridgeSourceCurrency: row.bridge_source_currency,
+    bridgeSourceDepositInstructions: mapBridgeSourceDepositInstructions(
+      row.bridge_source_deposit_instructions,
+    ),
+    bridgeDestinationTxHash: row.bridge_destination_tx_hash,
+    bridgeReceiptUrl: row.bridge_receipt_url,
     transactionSignature: row.transaction_signature,
     status: row.status,
     confirmedAt: row.confirmed_at ? row.confirmed_at.toISOString() : null,
@@ -263,6 +324,86 @@ function mapBalances(row: UserBalanceRow): SolanaBalancesResponse["balances"] {
       raw: row.usdc_raw,
     },
   };
+}
+
+function parseDecimalAmountToRaw(value: string, decimals: number) {
+  const trimmed = value.trim();
+  if (!/^\d+(\.\d+)?$/.test(trimmed)) {
+    throw new Error(`Invalid decimal amount: ${value}`);
+  }
+
+  const [wholePart, fractionPart = ""] = trimmed.split(".");
+  if (fractionPart.length > decimals) {
+    throw new Error(`Amount exceeds supported precision for ${decimals} decimal places.`);
+  }
+
+  const normalizedWhole = wholePart.replace(/^0+/, "") || "0";
+  const normalizedFraction = fractionPart.padEnd(decimals, "0");
+  return BigInt(`${normalizedWhole}${normalizedFraction}` || "0").toString();
+}
+
+function addBalanceDelta(
+  balanceDeltas: Map<number, { sol: bigint; usdc: bigint }>,
+  userId: number,
+  asset: TransferAsset,
+  amountRaw: bigint,
+) {
+  const current = balanceDeltas.get(userId) ?? { sol: 0n, usdc: 0n };
+
+  if (asset === "sol") {
+    current.sol += amountRaw;
+  } else {
+    current.usdc += amountRaw;
+  }
+
+  balanceDeltas.set(userId, current);
+}
+
+async function applyBalanceDeltas(
+  client: PoolClient,
+  balanceDeltas: Map<number, { sol: bigint; usdc: bigint }>,
+) {
+  for (const [userId, delta] of balanceDeltas.entries()) {
+    await ensureUserBalanceRecord(client, userId);
+
+    if (delta.sol !== 0n) {
+      await client.query(
+        `
+          UPDATE user_balances
+          SET sol_raw = ((sol_raw)::NUMERIC + $2::NUMERIC)::TEXT, updated_at = NOW()
+          WHERE user_id = $1
+        `,
+        [userId, delta.sol.toString()],
+      );
+    }
+
+    if (delta.usdc !== 0n) {
+      await client.query(
+        `
+          UPDATE user_balances
+          SET usdc_raw = ((usdc_raw)::NUMERIC + $2::NUMERIC)::TEXT, updated_at = NOW()
+          WHERE user_id = $1
+        `,
+        [userId, delta.usdc.toString()],
+      );
+    }
+  }
+}
+
+async function applyRecipientLastPayments(
+  client: PoolClient,
+  updatedRecipientPayments: Map<number, Date>,
+) {
+  for (const [recipientId, confirmedAt] of updatedRecipientPayments.entries()) {
+    await client.query(
+      `
+        UPDATE recipients
+        SET last_payment_at = $2, updated_at = NOW()
+        WHERE id = $1
+      `,
+      [recipientId, confirmedAt],
+    );
+  }
 }
 
 async function ensureUserBalanceRecord(client: PoolClient, userId: number) {
@@ -627,6 +768,296 @@ export async function getUserBalancesByUserId(userId: number): Promise<SolanaBal
   }
 }
 
+function buildOnrampCounterpartyName(paymentRail: string | null | undefined) {
+  const normalizedRail = paymentRail?.trim();
+  return normalizedRail ? `Bridge ${normalizedRail.toUpperCase()} On-ramp` : "Bridge On-ramp";
+}
+
+export interface CreatePendingOnrampTransactionInput {
+  userId: number;
+  walletAddress: string;
+  bridgeTransferId: string;
+  bridgeTransferStatus: BridgeTransferState;
+  sourceAmount: string;
+  sourceCurrency: string;
+  expectedDestinationAmount: string;
+  depositInstructions: BridgeSourceDepositInstructions | null;
+  receiptUrl?: string | null;
+}
+
+export async function createPendingOnrampTransaction(input: CreatePendingOnrampTransactionInput) {
+  const amountRaw = parseDecimalAmountToRaw(input.expectedDestinationAmount, 6);
+  const result = await pool.query<TransactionRow>(
+    `
+      INSERT INTO transactions (
+        user_id,
+        recipient_id,
+        direction,
+        entry_type,
+        asset,
+        amount_decimal,
+        amount_raw,
+        network,
+        tracked_wallet_address,
+        from_wallet_address,
+        counterparty_name,
+        counterparty_wallet_address,
+        bridge_transfer_id,
+        bridge_transfer_status,
+        bridge_source_amount,
+        bridge_source_currency,
+        bridge_source_deposit_instructions,
+        bridge_destination_tx_hash,
+        bridge_receipt_url,
+        transaction_signature,
+        webhook_event_id,
+        normalization_key,
+        status,
+        confirmed_at,
+        failed_at,
+        failure_reason
+      )
+      VALUES (
+        $1, NULL, 'inbound', 'onramp', 'usdc', $2, $3, 'solana-mainnet', $4, $5, $6, NULL, $7, $8,
+        $9, $10, $11::JSONB, NULL, $12, $7, NULL, $13, 'pending', NULL, NULL, NULL
+      )
+      RETURNING ${transactionSelection}
+    `,
+    [
+      input.userId,
+      input.expectedDestinationAmount,
+      amountRaw,
+      input.walletAddress,
+      input.bridgeTransferId,
+      buildOnrampCounterpartyName(input.depositInstructions?.paymentRail),
+      input.bridgeTransferId,
+      input.bridgeTransferStatus,
+      input.sourceAmount,
+      input.sourceCurrency,
+      input.depositInstructions ? JSON.stringify(input.depositInstructions) : null,
+      input.receiptUrl ?? null,
+      `onramp:${input.bridgeTransferId}`,
+    ],
+  );
+
+  return mapCollapsedTransaction(mapLedgerTransaction(result.rows[0]), null);
+}
+
+interface PendingOnrampMatchRow {
+  id: string;
+  user_id: string;
+  tracked_wallet_address: string;
+  bridge_transfer_id: string;
+  status: TransactionStatus;
+}
+
+interface ConfirmedTransferReconciliationRow {
+  id: string;
+  user_id: string;
+  tracked_wallet_address: string;
+  amount_decimal: string;
+  amount_raw: string;
+  confirmed_at: Date | null;
+  from_wallet_address: string;
+  counterparty_name: string | null;
+  counterparty_wallet_address: string | null;
+  transaction_signature: string;
+}
+
+export async function getPendingOnrampByDestinationTxHash(txHash: string) {
+  const result = await pool.query<PendingOnrampMatchRow>(
+    `
+      SELECT id, user_id, tracked_wallet_address, bridge_transfer_id
+      FROM transactions
+      WHERE entry_type = 'onramp'
+        AND status = 'pending'
+        AND bridge_destination_tx_hash = $1
+      LIMIT 1
+    `,
+    [txHash],
+  );
+
+  const row = result.rows[0];
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: Number(row.id),
+    userId: Number(row.user_id),
+    trackedWalletAddress: row.tracked_wallet_address,
+    bridgeTransferId: row.bridge_transfer_id,
+  };
+}
+
+async function reconcilePendingOnrampWithConfirmedTransfer(client: PoolClient, txHash: string) {
+  const pendingOnrampResult = await client.query<PendingOnrampMatchRow>(
+    `
+      SELECT id, user_id, tracked_wallet_address, bridge_transfer_id, status
+      FROM transactions
+      WHERE entry_type = 'onramp'
+        AND bridge_destination_tx_hash = $1::text
+        AND status IN ('pending', 'confirmed')
+      ORDER BY CASE WHEN status = 'pending' THEN 0 ELSE 1 END, id DESC
+      LIMIT 1
+      FOR UPDATE
+    `,
+    [txHash],
+  );
+
+  const pendingOnramp = pendingOnrampResult.rows[0];
+  if (!pendingOnramp) {
+    return null;
+  }
+
+  const confirmedTransferResult = await client.query<ConfirmedTransferReconciliationRow>(
+    `
+      SELECT
+        id,
+        user_id,
+        tracked_wallet_address,
+        amount_decimal,
+        amount_raw,
+        confirmed_at,
+        from_wallet_address,
+        counterparty_name,
+        counterparty_wallet_address,
+        transaction_signature
+      FROM transactions
+      WHERE entry_type = 'transfer'
+        AND status = 'confirmed'
+        AND direction = 'inbound'
+        AND asset = 'usdc'
+        AND transaction_signature = $1::text
+        AND user_id = $2::bigint
+        AND tracked_wallet_address = $3::text
+      ORDER BY COALESCE(confirmed_at, created_at) DESC, id DESC
+      LIMIT 1
+      FOR UPDATE
+    `,
+    [txHash, pendingOnramp.user_id, pendingOnramp.tracked_wallet_address],
+  );
+
+  const confirmedTransfer = confirmedTransferResult.rows[0];
+  if (!confirmedTransfer) {
+    return null;
+  }
+
+  if (pendingOnramp.status === "confirmed") {
+    await client.query(
+      `
+        DELETE FROM transactions
+        WHERE id = $1::bigint
+      `,
+      [confirmedTransfer.id],
+    );
+
+    return Number(pendingOnramp.user_id);
+  }
+
+  const updatedOnramp = await client.query<TransactionRow>(
+    `
+      UPDATE transactions
+      SET
+        status = 'confirmed',
+        confirmed_at = COALESCE($2::timestamptz, confirmed_at),
+        failed_at = NULL,
+        failure_reason = NULL,
+        amount_decimal = $3::numeric,
+        amount_raw = $4::text,
+        bridge_transfer_status = 'payment_processed',
+        transaction_signature = $1::text,
+        from_wallet_address = $5::text,
+        counterparty_name = COALESCE($6::text, counterparty_name),
+        counterparty_wallet_address = COALESCE($7::text, counterparty_wallet_address),
+        updated_at = NOW()
+      WHERE id = $8::bigint
+      RETURNING ${transactionSelection}
+    `,
+    [
+      confirmedTransfer.transaction_signature,
+      confirmedTransfer.confirmed_at,
+      confirmedTransfer.amount_decimal,
+      confirmedTransfer.amount_raw,
+      confirmedTransfer.from_wallet_address,
+      confirmedTransfer.counterparty_name ?? null,
+      confirmedTransfer.counterparty_wallet_address ?? null,
+      pendingOnramp.id,
+    ],
+  );
+
+  await client.query(
+    `
+      DELETE FROM transactions
+      WHERE id = $1::bigint
+    `,
+    [confirmedTransfer.id],
+  );
+
+  const row = updatedOnramp.rows[0];
+  return row ? Number(row.user_id) : Number(pendingOnramp.user_id);
+}
+
+async function deleteDuplicateConfirmedTransferForOnramp(
+  client: PoolClient,
+  input: {
+    txHash: string;
+    trackedWalletAddress: string;
+    userId: number;
+  },
+) {
+  const duplicateTransferResult = await client.query<{ id: string }>(
+    `
+      SELECT id
+      FROM transactions
+      WHERE entry_type = 'transfer'
+        AND status = 'confirmed'
+        AND direction = 'inbound'
+        AND asset = 'usdc'
+        AND transaction_signature = $1::text
+        AND user_id = $2::bigint
+        AND tracked_wallet_address = $3::text
+      ORDER BY COALESCE(confirmed_at, created_at) DESC, id DESC
+      LIMIT 1
+      FOR UPDATE
+    `,
+    [input.txHash, input.userId, input.trackedWalletAddress],
+  );
+
+  const duplicateTransfer = duplicateTransferResult.rows[0];
+  if (!duplicateTransfer) {
+    return false;
+  }
+
+  await client.query(
+    `
+      DELETE FROM transactions
+      WHERE id = $1::bigint
+    `,
+    [duplicateTransfer.id],
+  );
+
+  return true;
+}
+
+async function reconcilePendingOnrampWithConfirmedTransferByTxHash(txHash: string) {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const reconciledUserId = await reconcilePendingOnrampWithConfirmedTransfer(client, txHash);
+
+    await client.query("COMMIT");
+    return reconciledUserId;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export interface WebhookLedgerEntryInput {
   userId: number;
   recipientId: number | null;
@@ -645,13 +1076,236 @@ export interface WebhookLedgerEntryInput {
   confirmedAt: Date;
 }
 
-export async function applyWebhookLedgerEntries(input: {
+interface AlchemyOnrampCompletionEffectInput {
+  type: "onramp_completion";
+  txHash: string;
+  amountDecimal: string;
+  amountRaw: string;
+  fromWalletAddress: string;
+  counterpartyName?: string | null;
+  counterpartyWalletAddress?: string | null;
+  confirmedAt: Date;
+}
+
+type AlchemyWebhookEffectInput =
+  | {
+      type: "ledger";
+      entry: WebhookLedgerEntryInput;
+    }
+  | AlchemyOnrampCompletionEffectInput;
+
+function collectOnrampReconciliationTxHashes(effects: AlchemyWebhookEffectInput[]) {
+  const txHashes = new Set<string>();
+
+  for (const effect of effects) {
+    if (effect.type === "onramp_completion") {
+      txHashes.add(effect.txHash);
+      continue;
+    }
+
+    if (
+      effect.type === "ledger" &&
+      effect.entry.entryType === "transfer" &&
+      effect.entry.direction === "inbound" &&
+      effect.entry.asset === "usdc"
+    ) {
+      txHashes.add(effect.entry.transactionSignature);
+    }
+  }
+
+  return txHashes;
+}
+
+async function insertConfirmedLedgerEntry(client: PoolClient, entry: WebhookLedgerEntryInput) {
+  const result = await client.query<TransactionRow>(
+    `
+      INSERT INTO transactions (
+        user_id,
+        recipient_id,
+        direction,
+        entry_type,
+        asset,
+        amount_decimal,
+        amount_raw,
+        network,
+        tracked_wallet_address,
+        from_wallet_address,
+        counterparty_name,
+        counterparty_wallet_address,
+        transaction_signature,
+        webhook_event_id,
+        normalization_key,
+        status,
+        confirmed_at
+      )
+      VALUES (
+        $1, $2, $3, $4, $5, $6, $7, 'solana-mainnet', $8, $9, $10, $11, $12, $13, $14,
+        'confirmed', $15
+      )
+      ON CONFLICT (normalization_key) DO NOTHING
+      RETURNING ${transactionSelection}
+    `,
+    [
+      entry.userId,
+      entry.recipientId,
+      entry.direction,
+      entry.entryType,
+      entry.asset,
+      entry.amountDecimal,
+      entry.amountRaw,
+      entry.trackedWalletAddress,
+      entry.fromWalletAddress,
+      entry.counterpartyName ?? null,
+      entry.counterpartyWalletAddress ?? null,
+      entry.transactionSignature,
+      entry.webhookEventId,
+      entry.normalizationKey,
+      entry.confirmedAt,
+    ],
+  );
+
+  return result.rows[0] ?? null;
+}
+
+const bridgeFailureStates = new Set<BridgeTransferState>([
+  "undeliverable",
+  "returned",
+  "missing_return_policy",
+  "refunded",
+  "canceled",
+  "error",
+]);
+
+export async function applyBridgeOnrampWebhookUpdate(input: {
+  eventId: string;
+  webhookId: string;
+  eventObjectId: string;
+  bridgeTransferId: string;
+  bridgeTransferStatus: BridgeTransferState;
+  bridgeDestinationTxHash?: string | null;
+  destinationAmountDecimal?: string | null;
+  receiptUrl?: string | null;
+  eventCreatedAt?: Date | null;
+}) {
+  const client = await pool.connect();
+  const bridgeDestinationTxHash = input.bridgeDestinationTxHash ?? null;
+  let committed = false;
+
+  try {
+    await client.query("BEGIN");
+
+    const processed = await client.query<{ event_id: string }>(
+      `
+        INSERT INTO processed_bridge_webhook_events (event_id, webhook_id, event_object_id, event_created_at)
+        VALUES ($1::text, $2::text, $3::text, $4::timestamptz)
+        ON CONFLICT (event_id) DO NOTHING
+        RETURNING event_id
+      `,
+      [input.eventId, input.webhookId, input.eventObjectId, input.eventCreatedAt ?? null],
+    );
+
+    if (!processed.rows[0]) {
+      await client.query("COMMIT");
+      committed = true;
+
+      const affectedUserIds = new Set<number>();
+      if (bridgeDestinationTxHash) {
+        const reconciledUserId = await reconcilePendingOnrampWithConfirmedTransferByTxHash(
+          bridgeDestinationTxHash,
+        );
+
+        if (reconciledUserId !== null) {
+          affectedUserIds.add(reconciledUserId);
+        }
+      }
+
+      return {
+        affectedUserIds: Array.from(affectedUserIds),
+        applied: false,
+      };
+    }
+
+    const nextAmountDecimal =
+      typeof input.destinationAmountDecimal === "string" && input.destinationAmountDecimal.trim().length > 0
+        ? input.destinationAmountDecimal.trim()
+        : null;
+    const nextAmountRaw = nextAmountDecimal ? parseDecimalAmountToRaw(nextAmountDecimal, 6) : null;
+    const shouldMarkFailed = bridgeFailureStates.has(input.bridgeTransferStatus);
+
+    const result = await client.query<TransactionRow>(
+      `
+        UPDATE transactions
+        SET
+          bridge_transfer_status = $2::text,
+          bridge_destination_tx_hash = CASE
+            WHEN $3::text IS NOT NULL AND status <> 'confirmed' THEN $3::text
+            ELSE bridge_destination_tx_hash
+          END,
+          bridge_receipt_url = COALESCE($4::text, bridge_receipt_url),
+          amount_decimal = COALESCE($5::numeric, amount_decimal),
+          amount_raw = COALESCE($6::text, amount_raw),
+          status = CASE WHEN $7::boolean AND status = 'pending' THEN 'failed' ELSE status END,
+          failed_at = CASE
+            WHEN $7::boolean AND status = 'pending' THEN NOW()
+            ELSE failed_at
+          END,
+          failure_reason = CASE
+            WHEN $7::boolean AND status = 'pending' THEN CONCAT('Bridge transfer moved to ', $2::text, '.')
+            ELSE failure_reason
+          END,
+          updated_at = NOW()
+        WHERE bridge_transfer_id = $1::text
+        RETURNING ${transactionSelection}
+      `,
+      [
+        input.bridgeTransferId,
+        input.bridgeTransferStatus,
+        input.bridgeDestinationTxHash ?? null,
+        input.receiptUrl ?? null,
+        nextAmountDecimal,
+        nextAmountRaw,
+        shouldMarkFailed,
+      ],
+    );
+
+    const affectedUserIds = new Set(result.rows.map(row => Number(row.user_id)));
+
+    await client.query("COMMIT");
+    committed = true;
+
+    if (bridgeDestinationTxHash) {
+      const reconciledUserId = await reconcilePendingOnrampWithConfirmedTransferByTxHash(
+        bridgeDestinationTxHash,
+      );
+
+      if (reconciledUserId !== null) {
+        affectedUserIds.add(reconciledUserId);
+      }
+    }
+
+    return {
+      affectedUserIds: Array.from(affectedUserIds),
+      applied: true,
+    };
+  } catch (error) {
+    if (!committed) {
+      await client.query("ROLLBACK");
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function applyAlchemyWebhookEffects(input: {
   eventId: string;
   webhookId: string;
   eventCreatedAt?: Date | null;
-  entries: WebhookLedgerEntryInput[];
+  effects: AlchemyWebhookEffectInput[];
 }) {
   const client = await pool.connect();
+  const onrampReconciliationTxHashes = collectOnrampReconciliationTxHashes(input.effects);
+  let committed = false;
 
   try {
     await client.query("BEGIN");
@@ -668,136 +1322,145 @@ export async function applyWebhookLedgerEntries(input: {
 
     if (!processed.rows[0]) {
       await client.query("COMMIT");
+      committed = true;
+
+      const affectedUserIds = new Set<number>();
+      for (const txHash of onrampReconciliationTxHashes) {
+        const reconciledUserId = await reconcilePendingOnrampWithConfirmedTransferByTxHash(txHash);
+
+        if (reconciledUserId !== null) {
+          affectedUserIds.add(reconciledUserId);
+        }
+      }
+
       return {
-        affectedUserIds: [] as number[],
+        affectedUserIds: Array.from(affectedUserIds),
         applied: false,
       };
     }
 
-    const insertedUserIds = new Set<number>();
+    const affectedUserIds = new Set<number>();
     const balanceDeltas = new Map<number, { sol: bigint; usdc: bigint }>();
     const updatedRecipientPayments = new Map<number, Date>();
 
-    for (const entry of input.entries) {
-      const result = await client.query<TransactionRow>(
-        `
-          INSERT INTO transactions (
-            user_id,
-            recipient_id,
-            direction,
-            entry_type,
-            asset,
-            amount_decimal,
-            amount_raw,
-            network,
-            tracked_wallet_address,
-            from_wallet_address,
-            counterparty_name,
-            counterparty_wallet_address,
-            transaction_signature,
-            webhook_event_id,
-            normalization_key,
-            status,
-            confirmed_at
-          )
-          VALUES (
-            $1, $2, $3, $4, $5, $6, $7, 'solana-mainnet', $8, $9, $10, $11, $12, $13, $14,
-            'confirmed', $15
-          )
-          ON CONFLICT (normalization_key) DO NOTHING
-          RETURNING ${transactionSelection}
-        `,
-        [
-          entry.userId,
-          entry.recipientId,
-          entry.direction,
-          entry.entryType,
-          entry.asset,
-          entry.amountDecimal,
-          entry.amountRaw,
-          entry.trackedWalletAddress,
-          entry.fromWalletAddress,
-          entry.counterpartyName ?? null,
-          entry.counterpartyWalletAddress ?? null,
-          entry.transactionSignature,
-          entry.webhookEventId,
-          entry.normalizationKey,
-          entry.confirmedAt,
-        ],
-      );
+    for (const effect of input.effects) {
+      if (effect.type === "ledger") {
+        const inserted = await insertConfirmedLedgerEntry(client, effect.entry);
+        if (!inserted) {
+          continue;
+        }
 
-      if (!result.rows[0]) {
+        affectedUserIds.add(Number(inserted.user_id));
+        addBalanceDelta(
+          balanceDeltas,
+          Number(inserted.user_id),
+          inserted.asset,
+          inserted.direction === "inbound" ? BigInt(inserted.amount_raw) : BigInt(inserted.amount_raw) * -1n,
+        );
+
+        if (
+          inserted.recipient_id !== null &&
+          inserted.direction === "outbound" &&
+          inserted.entry_type === "transfer"
+        ) {
+          updatedRecipientPayments.set(Number(inserted.recipient_id), effect.entry.confirmedAt);
+        }
+
         continue;
       }
 
-      insertedUserIds.add(entry.userId);
-
-      const current = balanceDeltas.get(entry.userId) ?? { sol: 0n, usdc: 0n };
-      const signedAmount =
-        entry.direction === "inbound" ? BigInt(entry.amountRaw) : BigInt(entry.amountRaw) * -1n;
-
-      if (entry.asset === "sol") {
-        current.sol += signedAmount;
-      } else {
-        current.usdc += signedAmount;
-      }
-
-      balanceDeltas.set(entry.userId, current);
-
-      if (entry.recipientId !== null && entry.direction === "outbound" && entry.entryType === "transfer") {
-        updatedRecipientPayments.set(entry.recipientId, entry.confirmedAt);
-      }
-    }
-
-    for (const [userId, delta] of balanceDeltas.entries()) {
-      await ensureUserBalanceRecord(client, userId);
-
-      if (delta.sol !== 0n) {
-        await client.query(
-          `
-            UPDATE user_balances
-            SET sol_raw = ((sol_raw)::NUMERIC + $2::NUMERIC)::TEXT, updated_at = NOW()
-            WHERE user_id = $1
-          `,
-          [userId, delta.sol.toString()],
-        );
-      }
-
-      if (delta.usdc !== 0n) {
-        await client.query(
-          `
-            UPDATE user_balances
-            SET usdc_raw = ((usdc_raw)::NUMERIC + $2::NUMERIC)::TEXT, updated_at = NOW()
-            WHERE user_id = $1
-          `,
-          [userId, delta.usdc.toString()],
-        );
-      }
-    }
-
-    for (const [recipientId, confirmedAt] of updatedRecipientPayments.entries()) {
-      await client.query(
+      const completed = await client.query<TransactionRow>(
         `
-          UPDATE recipients
-          SET last_payment_at = $2, updated_at = NOW()
-          WHERE id = $1
+          UPDATE transactions
+          SET
+            status = 'confirmed',
+            confirmed_at = $2,
+            failed_at = NULL,
+            failure_reason = NULL,
+            amount_decimal = $3,
+            amount_raw = $4,
+            bridge_transfer_status = 'payment_processed',
+            transaction_signature = $1,
+            from_wallet_address = $5,
+            counterparty_name = COALESCE($6, counterparty_name),
+            counterparty_wallet_address = COALESCE($7, counterparty_wallet_address),
+            updated_at = NOW()
+          WHERE entry_type = 'onramp'
+            AND status = 'pending'
+            AND bridge_destination_tx_hash = $1
+          RETURNING ${transactionSelection}
         `,
-        [recipientId, confirmedAt],
+        [
+          effect.txHash,
+          effect.confirmedAt,
+          effect.amountDecimal,
+          effect.amountRaw,
+          effect.fromWalletAddress,
+          effect.counterpartyName ?? null,
+          effect.counterpartyWalletAddress ?? null,
+        ],
       );
+
+      const row = completed.rows[0];
+      if (!row) {
+        continue;
+      }
+
+      const userId = Number(row.user_id);
+      affectedUserIds.add(userId);
+
+      const removedDuplicateTransfer = await deleteDuplicateConfirmedTransferForOnramp(client, {
+        trackedWalletAddress: row.tracked_wallet_address,
+        txHash: effect.txHash,
+        userId,
+      });
+
+      if (!removedDuplicateTransfer) {
+        addBalanceDelta(balanceDeltas, userId, row.asset, BigInt(effect.amountRaw));
+      }
     }
+
+    await applyBalanceDeltas(client, balanceDeltas);
+    await applyRecipientLastPayments(client, updatedRecipientPayments);
 
     await client.query("COMMIT");
+    committed = true;
+
+    for (const txHash of onrampReconciliationTxHashes) {
+      const reconciledUserId = await reconcilePendingOnrampWithConfirmedTransferByTxHash(txHash);
+
+      if (reconciledUserId !== null) {
+        affectedUserIds.add(reconciledUserId);
+      }
+    }
 
     return {
-      affectedUserIds: Array.from(insertedUserIds),
+      affectedUserIds: Array.from(affectedUserIds),
       applied: true,
     };
   } catch (error) {
-    await client.query("ROLLBACK");
+    if (!committed) {
+      await client.query("ROLLBACK");
+    }
     throw error;
   } finally {
     client.release();
   }
+}
+
+export async function applyWebhookLedgerEntries(input: {
+  eventId: string;
+  webhookId: string;
+  eventCreatedAt?: Date | null;
+  entries: WebhookLedgerEntryInput[];
+}) {
+  return applyAlchemyWebhookEffects({
+    ...input,
+    effects: input.entries.map(entry => ({
+      entry,
+      type: "ledger" as const,
+    })),
+  });
 }
 
 export async function resolveRecipientIdByWalletAddressForUser(
@@ -929,7 +1592,7 @@ function collapseLedgerTransactions(rows: TransactionRow[]) {
 
     if (transaction.entryType === "network_fee" && transaction.direction === "outbound") {
       group.feeRaw += BigInt(transaction.amountRaw);
-    } else if (transaction.entryType === "transfer") {
+    } else if (transaction.entryType === "transfer" || transaction.entryType === "onramp") {
       group.transfers.push(transaction);
     }
 
@@ -951,13 +1614,9 @@ function collapseLedgerTransactions(rows: TransactionRow[]) {
       const shouldAttachFee =
         !feeAttached && transfer.direction === "outbound" && feeRaw !== null;
 
-      collapsedTransactions.push({
-        ...transfer,
-        amountDecimal: formatAssetAmount(transfer.amountRaw, transfer.asset),
-        amountDisplay: formatAssetAmount(transfer.amountRaw, transfer.asset),
-        networkFeeRaw: shouldAttachFee ? feeRaw : null,
-        networkFeeDisplay: shouldAttachFee ? feeDisplay : null,
-      });
+      collapsedTransactions.push(
+        mapCollapsedTransaction(transfer, shouldAttachFee ? { raw: feeRaw, display: feeDisplay } : null),
+      );
 
       if (shouldAttachFee) {
         feeAttached = true;
@@ -968,6 +1627,24 @@ function collapseLedgerTransactions(rows: TransactionRow[]) {
   collapsedTransactions.sort(compareTransactionsByMostRecent);
 
   return collapsedTransactions;
+}
+
+function mapCollapsedTransaction(
+  transaction: LedgerTransaction,
+  fee:
+    | {
+        raw: string | null;
+        display: string | null;
+      }
+    | null,
+): AppTransaction {
+  return {
+    ...transaction,
+    amountDecimal: formatAssetAmount(transaction.amountRaw, transaction.asset),
+    amountDisplay: formatAssetAmount(transaction.amountRaw, transaction.asset),
+    networkFeeRaw: fee?.raw ?? null,
+    networkFeeDisplay: fee?.display ?? null,
+  };
 }
 
 function paginateTransactions(

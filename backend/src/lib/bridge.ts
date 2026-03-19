@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, createVerify, randomUUID } from "node:crypto";
 
 import { config } from "../config.js";
 import { updateUserBridgeStatuses } from "../db.js";
@@ -8,6 +8,8 @@ import type {
   BankRecipientType,
   BridgeComplianceState,
   BridgeKycStatus,
+  BridgeSourceDepositInstructions,
+  BridgeTransferState,
   BridgeTosStatus,
 } from "../types.js";
 
@@ -44,6 +46,49 @@ interface BridgeExternalAccountResponse {
   updated_at: string;
 }
 
+interface BridgeTransferSourceDepositInstructionsResponse {
+  payment_rail?: string;
+  amount?: string;
+  currency?: string;
+  deposit_message?: string;
+  bank_name?: string;
+  bank_address?: string;
+  iban?: string;
+  bic?: string;
+  account_holder_name?: string;
+  bank_routing_number?: string;
+  bank_account_number?: string;
+  bank_beneficiary_name?: string;
+  bank_beneficiary_address?: string;
+}
+
+interface BridgeTransferReceiptResponse {
+  final_amount?: string;
+  converted_amount?: string;
+  subtotal_amount?: string;
+  destination_tx_hash?: string;
+  url?: string;
+}
+
+interface BridgeTransferResponse {
+  id: string;
+  amount: string;
+  state: BridgeTransferState;
+  source: {
+    currency?: string;
+    payment_rail?: string;
+  };
+  destination: {
+    currency?: string;
+    payment_rail?: string;
+    to_address?: string;
+  };
+  source_deposit_instructions?: BridgeTransferSourceDepositInstructionsResponse | null;
+  receipt?: BridgeTransferReceiptResponse | null;
+  created_at: string;
+  updated_at: string;
+}
+
 interface BridgeRequestOptions {
   body?: unknown;
   idempotencyKey?: string;
@@ -59,6 +104,11 @@ export class BridgeApiError extends Error {
     super(message);
     this.name = "BridgeApiError";
   }
+}
+
+interface BridgeWebhookSignatureVerificationResult {
+  isValid: boolean;
+  error?: string;
 }
 
 async function readBridgeJson<T>(response: Response): Promise<T> {
@@ -136,6 +186,94 @@ function createExternalAccountIdempotencyKey(input: {
   return `monra-recipient-${digest}`;
 }
 
+function readString(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function normalizeBridgeSourceDepositInstructions(
+  value: BridgeTransferSourceDepositInstructionsResponse | null | undefined,
+): BridgeSourceDepositInstructions | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  return {
+    paymentRail: readString(value.payment_rail),
+    amount: readString(value.amount),
+    currency: readString(value.currency),
+    depositMessage: readString(value.deposit_message),
+    bankName: readString(value.bank_name),
+    bankAddress: readString(value.bank_address),
+    iban: readString(value.iban),
+    bic: readString(value.bic),
+    accountHolderName: readString(value.account_holder_name),
+    bankRoutingNumber: readString(value.bank_routing_number),
+    bankAccountNumber: readString(value.bank_account_number),
+    bankBeneficiaryName: readString(value.bank_beneficiary_name),
+    bankBeneficiaryAddress: readString(value.bank_beneficiary_address),
+  };
+}
+
+function extractExpectedDestinationAmount(transfer: BridgeTransferResponse) {
+  return (
+    readString(transfer.receipt?.final_amount) ??
+    readString(transfer.receipt?.converted_amount) ??
+    readString(transfer.receipt?.subtotal_amount)
+  );
+}
+
+function normalizeBridgeWebhookSignatureValue(value: string) {
+  const normalized = value.trim();
+
+  if (normalized.startsWith('"') && normalized.endsWith('"')) {
+    return normalized.slice(1, -1).trim();
+  }
+
+  return normalized;
+}
+
+function parseBridgeWebhookSignatureHeader(signatureHeader: string) {
+  const signatureParts = signatureHeader
+    .split(",")
+    .map(part => part.trim())
+    .filter(Boolean);
+  const timestamp = signatureParts.find(part => part.startsWith("t="))?.slice(2)?.trim();
+  const signaturePart = signatureParts.find(part => part.startsWith("v0="));
+  const signature = signaturePart
+    ? normalizeBridgeWebhookSignatureValue(signaturePart.slice(3))
+    : undefined;
+
+  if (!timestamp || !signature) {
+    return null;
+  }
+
+  return {
+    signature,
+    timestamp,
+  };
+}
+
+export function describeBridgeWebhookSignatureHeader(signatureHeader: string) {
+  const parsedSignature = parseBridgeWebhookSignatureHeader(signatureHeader);
+  const signatureParts = signatureHeader
+    .split(",")
+    .map(part => part.trim())
+    .filter(Boolean);
+  const rawSignatureValue = signatureParts.find(part => part.startsWith("v0="))?.slice(3) ?? "";
+  const normalizedSignatureValue = normalizeBridgeWebhookSignatureValue(rawSignatureValue);
+
+  return {
+    hasPadding: /=+$/.test(normalizedSignatureValue),
+    hasQuotes: rawSignatureValue.trim().startsWith('"') && rawSignatureValue.trim().endsWith('"'),
+    hasUrlSafeCharacters: /[-_]/.test(normalizedSignatureValue),
+    hasWhitespace: /\s/.test(rawSignatureValue),
+    isParsable: Boolean(parsedSignature),
+    normalizedSignatureLength: normalizedSignatureValue.length,
+    partCount: signatureParts.length,
+    timestampLength: parsedSignature?.timestamp.length ?? 0,
+  };
+}
+
 export function buildStoredBridgeComplianceState(user: AppUser): BridgeComplianceState {
   const hasAcceptedTermsOfService = user.bridgeTosStatus === "approved";
   const customerStatus = user.bridgeKycStatus;
@@ -145,6 +283,48 @@ export function buildStoredBridgeComplianceState(user: AppUser): BridgeComplianc
     hasAcceptedTermsOfService,
     showKycAlert: Boolean(user.bridgeKycLink && customerStatus !== "active"),
     showTosAlert: Boolean(user.bridgeTosLink && !hasAcceptedTermsOfService),
+  };
+}
+
+export async function createBridgeOnrampTransfer(input: {
+  amount: string;
+  bridgeCustomerId: string;
+  destinationAddress: string;
+}) {
+  const transfer = await bridgeRequest<BridgeTransferResponse>({
+    method: "POST",
+    path: "/transfers",
+    idempotencyKey: randomUUID(),
+    body: {
+      on_behalf_of: input.bridgeCustomerId,
+      source: {
+        currency: "eur",
+        payment_rail: "sepa",
+      },
+      destination: {
+        currency: "usdc",
+        payment_rail: "solana",
+        to_address: input.destinationAddress,
+      },
+      amount: input.amount,
+      client_reference_id: randomUUID(),
+      dry_run: false,
+    },
+  });
+
+  const expectedDestinationAmount = extractExpectedDestinationAmount(transfer);
+  if (!expectedDestinationAmount) {
+    throw new BridgeApiError("Bridge transfer response did not include an expected destination amount.", 502);
+  }
+
+  return {
+    bridgeTransferId: transfer.id,
+    bridgeTransferStatus: transfer.state,
+    depositInstructions: normalizeBridgeSourceDepositInstructions(transfer.source_deposit_instructions),
+    destinationAmount: expectedDestinationAmount,
+    receiptUrl: readString(transfer.receipt?.url),
+    sourceAmount: transfer.amount,
+    sourceCurrency: readString(transfer.source.currency) ?? "eur",
   };
 }
 
@@ -245,6 +425,57 @@ export async function deleteBridgeExternalAccount(input: {
     method: "DELETE",
     path: `/customers/${input.bridgeCustomerId}/external_accounts/${input.externalAccountId}`,
   });
+}
+
+export function validateBridgeWebhookSignature(
+  rawBody: Buffer,
+  signatureHeader: string,
+): BridgeWebhookSignatureVerificationResult {
+  try {
+    const parsedSignature = parseBridgeWebhookSignatureHeader(signatureHeader);
+    if (!parsedSignature) {
+      return {
+        isValid: false,
+        error: "Missing Bridge webhook timestamp or signature.",
+      };
+    }
+
+    const timestampMs = Number.parseInt(parsedSignature.timestamp, 10);
+    if (!Number.isFinite(timestampMs)) {
+      return {
+        isValid: false,
+        error: "Invalid Bridge webhook timestamp.",
+      };
+    }
+
+    if (Math.abs(Date.now() - timestampMs) > config.bridgeWebhookMaxAgeMs) {
+      return {
+        isValid: false,
+        error: "Bridge webhook timestamp is outside the accepted window.",
+      };
+    }
+
+    const digest = createHash("sha256")
+      .update(`${parsedSignature.timestamp}.${rawBody.toString("utf8")}`)
+      .digest();
+
+    const verifier = createVerify("RSA-SHA256");
+    verifier.update(digest);
+    verifier.end();
+
+    return {
+      isValid: verifier.verify(
+        config.bridgeWebhookPublicKey,
+        normalizeBridgeWebhookSignatureValue(parsedSignature.signature),
+        "base64",
+      ),
+    };
+  } catch (error) {
+    return {
+      isValid: false,
+      error: error instanceof Error ? error.message : "Bridge webhook verification failed.",
+    };
+  }
 }
 
 export async function syncBridgeStatus(user: AppUser) {

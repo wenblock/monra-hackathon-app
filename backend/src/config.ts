@@ -51,6 +51,8 @@ export const config = {
     /\/$/,
     "",
   ),
+  bridgeWebhookPublicKey: readEnv("BRIDGE_WEBHOOK_PUBLIC_KEY").replace(/\\n/g, "\n"),
+  bridgeWebhookMaxAgeMs: Number(process.env.BRIDGE_WEBHOOK_MAX_AGE_MS ?? 600000),
   streamTokenSecret:
     readOptionalEnv("STREAM_TOKEN_SECRET") ??
     (process.env.NODE_ENV === "production"

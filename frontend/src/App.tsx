@@ -10,6 +10,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   API_BASE_URL,
   bootstrapSession,
+  createOnramp,
   createRecipient,
   deleteRecipient,
   fetchRecipients,
@@ -33,6 +34,7 @@ import type {
   AppUser,
   AuthIdentity,
   BridgeComplianceState,
+  CreateOnrampPayload,
   CreateRecipientPayload,
   FetchSolanaTransactionContextPayload,
   OnboardingPayload,
@@ -428,6 +430,21 @@ function App() {
     return response.recipient;
   };
 
+  const handleOnrampCreate = async (payload: CreateOnrampPayload) => {
+    const token = await getAccessToken();
+    if (!token) {
+      throw new Error("Unable to fetch a CDP access token.");
+    }
+
+    const response = await createOnramp(token, payload);
+    setTransactions(currentTransactions => [
+      response.transaction,
+      ...currentTransactions.filter(transaction => transaction.id !== response.transaction.id),
+    ]);
+    setTransactionsError(null);
+    return response.transaction;
+  };
+
   const handleRecipientDelete = async (recipientId: number) => {
     const token = await getAccessToken();
     if (!token) {
@@ -469,6 +486,7 @@ function App() {
             <Dashboard
               balances={balances}
               bridge={bridge ?? buildBridgeStateFromUser(user)}
+              onCreateOnramp={handleOnrampCreate}
               onCreateWalletRecipient={handleRecipientCreate}
               onFetchSolanaTransactionContext={handleSolanaTransactionContextFetch}
               onPersistSolanaAddress={handleSolanaAddressPersist}
