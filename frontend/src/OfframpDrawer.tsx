@@ -198,16 +198,17 @@ function OfframpDrawer({
       setIsBroadcasting(true);
 
       const mint = new PublicKey(getTransferAssetMintAddress(transaction.asset));
-      let recipientTokenAccountAddress = depositAddress;
-      let transactionContext = await onFetchTransactionContext({
+      const directTokenAccountContext = await onFetchTransactionContext({
         asset: transaction.asset,
         senderAddress,
         recipientAddress: depositAddress,
-        recipientTokenAccountAddress,
+        recipientTokenAccountAddress: depositAddress,
       });
+      const hasDirectTokenAccount = directTokenAccountContext.recipientTokenAccountExists ?? false;
+      let transactionContext = directTokenAccountContext;
 
-      if (!transactionContext.recipientTokenAccountExists) {
-        recipientTokenAccountAddress = findAssociatedTokenAddress(
+      if (!hasDirectTokenAccount) {
+        const recipientTokenAccountAddress = findAssociatedTokenAddress(
           new PublicKey(depositAddress),
           mint,
         ).toBase58();
@@ -224,7 +225,7 @@ function OfframpDrawer({
         asset: transaction.asset,
         recentBlockhash: transactionContext.recentBlockhash,
         recipientAddress: depositAddress,
-        recipientTokenAccountAddress,
+        recipientTokenAccountAddress: hasDirectTokenAccount ? depositAddress : undefined,
         recipientTokenAccountExists: transactionContext.recipientTokenAccountExists ?? false,
         senderAddress,
       });
