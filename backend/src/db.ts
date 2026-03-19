@@ -34,6 +34,50 @@ const pool = new Pool({
 
 let databaseInitialized: Promise<void> | null = null;
 
+const managedSerialSequences = [
+  {
+    columnName: "id",
+    tableName: "users",
+  },
+  {
+    columnName: "id",
+    tableName: "recipients",
+  },
+  {
+    columnName: "id",
+    tableName: "transactions",
+  },
+] as const;
+
+export function getSerialSequenceRepairState(maxId: number | null) {
+  if (maxId === null) {
+    return {
+      isCalled: false,
+      nextValue: 1,
+      setValue: 1,
+    };
+  }
+
+  return {
+    isCalled: true,
+    nextValue: maxId + 1,
+    setValue: maxId,
+  };
+}
+
+export async function repairManagedSerialSequences(client: Pool | PoolClient = pool) {
+  for (const sequence of managedSerialSequences) {
+    await client.query(`
+      SELECT setval(
+        pg_get_serial_sequence('${sequence.tableName}', '${sequence.columnName}'),
+        COALESCE(MAX(${sequence.columnName}), 1),
+        MAX(${sequence.columnName}) IS NOT NULL
+      )
+      FROM ${sequence.tableName}
+    `);
+  }
+}
+
 interface UserRow {
   id: string;
   cdp_user_id: string;
@@ -498,12 +542,12 @@ interface CreateUserInput {
   countryCode: string;
   countryName: string;
   businessName?: string;
-  bridgeCustomerId: string;
-  bridgeKycLink: string;
-  bridgeKycLinkId: string;
-  bridgeKycStatus: BridgeKycStatus;
-  bridgeTosLink: string;
-  bridgeTosStatus: BridgeTosStatus;
+  bridgeCustomerId?: string | null;
+  bridgeKycLink?: string | null;
+  bridgeKycLinkId?: string | null;
+  bridgeKycStatus?: BridgeKycStatus | null;
+  bridgeTosLink?: string | null;
+  bridgeTosStatus?: BridgeTosStatus | null;
 }
 
 export async function createUser(input: CreateUserInput) {
@@ -540,12 +584,12 @@ export async function createUser(input: CreateUserInput) {
         input.countryCode,
         input.countryName,
         input.businessName ?? null,
-        input.bridgeKycLinkId,
-        input.bridgeKycLink,
-        input.bridgeTosLink,
-        input.bridgeKycStatus,
-        input.bridgeTosStatus,
-        input.bridgeCustomerId,
+        input.bridgeKycLinkId ?? null,
+        input.bridgeKycLink ?? null,
+        input.bridgeTosLink ?? null,
+        input.bridgeKycStatus ?? null,
+        input.bridgeTosStatus ?? null,
+        input.bridgeCustomerId ?? null,
       ],
     );
 
@@ -598,9 +642,11 @@ export async function updateUserSolanaAddress(cdpUserId: string, solanaAddress: 
 
 export async function updateUserBridgeStatuses(input: {
   bridgeKycLink?: string;
+  bridgeKycLinkId?: string;
   bridgeKycStatus: BridgeKycStatus;
   bridgeTosLink?: string;
   bridgeTosStatus: BridgeTosStatus;
+  bridgeCustomerId?: string;
   cdpUserId?: string;
   userId?: number;
 }) {
@@ -615,20 +661,24 @@ export async function updateUserBridgeStatuses(input: {
     `
       UPDATE users
       SET
-        bridge_kyc_status = $2,
-        bridge_tos_status = $3,
+        bridge_kyc_link_id = COALESCE($2, bridge_kyc_link_id),
+        bridge_customer_id = COALESCE($3, bridge_customer_id),
         bridge_kyc_link = COALESCE($4, bridge_kyc_link),
-        bridge_tos_link = COALESCE($5, bridge_tos_link),
+        bridge_kyc_status = $5,
+        bridge_tos_link = COALESCE($6, bridge_tos_link),
+        bridge_tos_status = $7,
         updated_at = NOW()
       WHERE ${targetField} = $1
       RETURNING ${userSelection}
     `,
     [
       targetValue,
-      input.bridgeKycStatus,
-      input.bridgeTosStatus,
+      input.bridgeKycLinkId ?? null,
+      input.bridgeCustomerId ?? null,
       input.bridgeKycLink ?? null,
+      input.bridgeKycStatus,
       input.bridgeTosLink ?? null,
+      input.bridgeTosStatus,
     ],
   );
 
@@ -1591,6 +1641,8 @@ async function initializeDatabaseInternal() {
       throw error;
     }
   }
+
+  await repairManagedSerialSequences();
 }
 
 function isMissingDirectoryError(error: unknown) {

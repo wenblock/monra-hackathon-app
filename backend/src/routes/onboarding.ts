@@ -2,14 +2,15 @@ import { Router } from "express";
 import { z } from "zod";
 
 import { validateAccessToken } from "../auth/validateAccessToken.js";
-import { createUser, getUserByCdpUserId } from "../db.js";
-import {
-  buildStoredBridgeComplianceState,
-  createBridgeKycLink,
-  isBridgeApiError,
-} from "../lib/bridge.js";
+import { getUserByCdpUserId } from "../db.js";
+import { isBridgeApiError } from "../lib/bridge.js";
 import { sendError } from "../lib/http.js";
 import { getCountryName } from "../lib/countries.js";
+import {
+  OnboardingFlowError,
+  executeOnboardingFlow,
+  requiresOnboarding,
+} from "../lib/onboardingFlow.js";
 
 const onboardingSchema = z
   .object({
@@ -46,7 +47,7 @@ onboardingRouter.post("/", async (request, response) => {
     const identity = await validateAccessToken(parsedBody.data.accessToken);
 
     const existingUser = await getUserByCdpUserId(identity.cdpUserId);
-    if (existingUser) {
+    if (existingUser && !requiresOnboarding(existingUser)) {
       return sendError(response, 409, "A Monra user already exists for this account.");
     }
 
@@ -60,45 +61,82 @@ onboardingRouter.post("/", async (request, response) => {
       return sendError(response, 400, "Selected country is not supported.");
     }
 
-    const bridgeFullName =
-      parsedBody.data.accountType === "business"
-        ? parsedBody.data.businessName!.trim()
-        : parsedBody.data.fullName;
-    const bridgeKycLink = await createBridgeKycLink({
+    const onboarding = await executeOnboardingFlow(identity, {
       accountType: parsedBody.data.accountType,
-      cdpUserId: identity.cdpUserId,
-      email: identity.email,
-      fullName: bridgeFullName,
-    });
-
-    const user = await createUser({
-      cdpUserId: identity.cdpUserId,
-      email: identity.email,
-      accountType: parsedBody.data.accountType,
-      fullName: parsedBody.data.fullName,
+      businessName: parsedBody.data.businessName,
       countryCode,
       countryName,
-      businessName: parsedBody.data.businessName,
-      bridgeCustomerId: bridgeKycLink.customerId,
-      bridgeKycLink: bridgeKycLink.kycLink,
-      bridgeKycLinkId: bridgeKycLink.id,
-      bridgeKycStatus: bridgeKycLink.kycStatus,
-      bridgeTosLink: bridgeKycLink.tosLink,
-      bridgeTosStatus: bridgeKycLink.tosStatus,
+      fullName: parsedBody.data.fullName,
     });
 
-    return response.status(201).json({
-      bridge: buildStoredBridgeComplianceState(user),
+    return response.status(onboarding.createdLocalUser ? 201 : 200).json({
+      bridge: onboarding.bridge,
       status: "active",
       identity,
-      user,
+      user: onboarding.user,
     });
   } catch (error) {
-    console.error(error);
-    if (isBridgeApiError(error)) {
-      return sendError(response, 502, error.message);
+    const originalError = getOnboardingErrorCause(error);
+    const context = getOnboardingErrorContext(error);
+
+    console.error("Unable to complete onboarding.", {
+      bridgeRequestAttempted: context?.bridgeRequestAttempted ?? false,
+      cdpUserId: context?.cdpUserId ?? null,
+      error: originalError,
+      stage: context?.stage ?? "unknown",
+    });
+
+    if (isBridgeApiError(originalError)) {
+      return sendError(response, 502, originalError.message);
+    }
+
+    if (isUsersPrimaryKeyViolation(originalError)) {
+      return sendError(
+        response,
+        503,
+        "Unable to complete onboarding because local user storage is temporarily out of sync. Please try again.",
+      );
+    }
+
+    if (context?.bridgeRequestAttempted) {
+      return sendError(
+        response,
+        500,
+        "Unable to complete onboarding. Your profile was saved locally, so retrying will resume Bridge onboarding.",
+      );
     }
 
     return sendError(response, 500, "Unable to complete onboarding.");
   }
 });
+
+function getOnboardingErrorCause(error: unknown) {
+  if (error instanceof OnboardingFlowError) {
+    return error.originalError;
+  }
+
+  return error;
+}
+
+function getOnboardingErrorContext(error: unknown) {
+  if (!(error instanceof OnboardingFlowError)) {
+    return null;
+  }
+
+  return {
+    bridgeRequestAttempted: error.bridgeRequestAttempted,
+    cdpUserId: error.cdpUserId,
+    stage: error.stage,
+  };
+}
+
+function isUsersPrimaryKeyViolation(error: unknown) {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    "code" in error &&
+    error.code === "23505" &&
+    "constraint" in error &&
+    error.constraint === "users_pkey"
+  );
+}

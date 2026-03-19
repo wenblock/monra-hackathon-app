@@ -5,12 +5,18 @@ import { validateAccessToken } from "../auth/validateAccessToken.js";
 import { getUserByCdpUserId } from "../db.js";
 import { buildStoredBridgeComplianceState, syncBridgeStatus } from "../lib/bridge.js";
 import { sendError } from "../lib/http.js";
+import { requiresOnboarding } from "../lib/onboardingFlow.js";
+import type { AppUser } from "../types.js";
 
 const sessionSchema = z.object({
   accessToken: z.string().trim().min(1, "Missing accessToken parameter."),
 });
 
 export const authRouter = Router();
+
+export function getSessionStatus(user: AppUser | null) {
+  return requiresOnboarding(user) ? "needs_onboarding" : "active";
+}
 
 authRouter.post("/session", async (request, response) => {
   try {
@@ -26,12 +32,12 @@ authRouter.post("/session", async (request, response) => {
 
     const user = await getUserByCdpUserId(identity.cdpUserId);
 
-    if (!user) {
+    if (!user || getSessionStatus(user) === "needs_onboarding") {
       return response.json({
         bridge: null,
         status: "needs_onboarding",
         identity,
-        user: null,
+        user,
       });
     }
 
