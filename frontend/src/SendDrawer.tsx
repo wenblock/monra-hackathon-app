@@ -34,8 +34,8 @@ import {
   parseTransferAmount,
 } from "@/solana-transfer";
 import {
-  ensureSufficientSolForSplTransfer,
-  getSplTransferFeeHint,
+  ensureSufficientSolForTransfer,
+  getSolanaTransferFeeHint,
   normalizeSolanaSendError,
 } from "@/solana-send";
 import type {
@@ -89,12 +89,10 @@ function SendDrawer({
   const selectedRecipient =
     walletRecipients.find(recipient => String(recipient.id) === selectedRecipientId) ?? null;
   const availableRawBalance = balances?.[asset].raw ?? "0";
-  const splTransferFeeHint =
-    asset === "sol"
-      ? null
-      : getSplTransferFeeHint({
-          balances,
-        });
+  const transferFeeHint = getSolanaTransferFeeHint({
+    asset,
+    balances,
+  });
 
   const handleDrawerChange = (isOpen: boolean) => {
     if (!isOpen) {
@@ -134,6 +132,8 @@ function SendDrawer({
   };
 
   const handleSend = async () => {
+    let needsRecipientTokenAccountCreation = false;
+
     try {
       setError(null);
       setTransactionSignature(null);
@@ -166,13 +166,15 @@ function SendDrawer({
         recipientAddress: selectedRecipient.walletAddress,
         recipientTokenAccountAddress,
       });
+      needsRecipientTokenAccountCreation =
+        asset !== "sol" && !(transactionContext.recipientTokenAccountExists ?? false);
 
-      if (asset !== "sol") {
-        ensureSufficientSolForSplTransfer({
-          needsRecipientTokenAccountCreation: !(transactionContext.recipientTokenAccountExists ?? false),
-          solBalanceRaw: balances?.sol.raw,
-        });
-      }
+      ensureSufficientSolForTransfer({
+        asset,
+        amountRaw: parsedAmount.raw,
+        needsRecipientTokenAccountCreation,
+        solBalanceRaw: balances?.sol.raw,
+      });
 
       const transaction = buildSerializedTransferTransaction({
         amountRaw: parsedAmount.raw,
@@ -195,7 +197,10 @@ function SendDrawer({
     } catch (sendError) {
       console.error("Unable to prepare or send transaction.", sendError);
       setError(
-        normalizeSolanaSendError(sendError),
+        normalizeSolanaSendError(sendError, {
+          asset,
+          needsRecipientTokenAccountCreation,
+        }),
       );
     } finally {
       setIsSending(false);
@@ -283,9 +288,9 @@ function SendDrawer({
                 </span>
               </div>
 
-              {splTransferFeeHint ? (
+              {transferFeeHint ? (
                 <div className="rounded-[calc(var(--radius)+2px)] border border-border/70 bg-secondary/30 px-4 py-3 text-sm text-muted-foreground">
-                  {splTransferFeeHint}
+                  {transferFeeHint}
                 </div>
               ) : null}
 

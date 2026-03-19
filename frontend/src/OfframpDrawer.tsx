@@ -34,8 +34,8 @@ import {
   parseTransferAmount,
 } from "@/solana-transfer";
 import {
-  ensureSufficientSolForSplTransfer,
-  getSplTransferFeeHint,
+  ensureSufficientSolForTransfer,
+  getSolanaTransferFeeHint,
   normalizeSolanaSendError,
 } from "@/solana-send";
 import type {
@@ -115,7 +115,8 @@ function OfframpDrawer({
   const selectedRecipient =
     bankRecipients.find(recipient => String(recipient.id) === selectedRecipientId) ?? null;
   const availableRawBalance = balances?.[sourceAsset].raw ?? "0";
-  const splTransferFeeHint = getSplTransferFeeHint({
+  const splTransferFeeHint = getSolanaTransferFeeHint({
+    asset: sourceAsset,
     balances,
   });
 
@@ -201,6 +202,8 @@ function OfframpDrawer({
       throw new Error("Bridge did not return a Solana deposit address.");
     }
 
+    let needsRecipientTokenAccountCreation = false;
+
     try {
       setError(null);
       setIsBroadcasting(true);
@@ -227,10 +230,12 @@ function OfframpDrawer({
           recipientTokenAccountAddress,
         });
       }
+      needsRecipientTokenAccountCreation =
+        !hasDirectTokenAccount && !(transactionContext.recipientTokenAccountExists ?? false);
 
-      ensureSufficientSolForSplTransfer({
-        needsRecipientTokenAccountCreation:
-          !hasDirectTokenAccount && !(transactionContext.recipientTokenAccountExists ?? false),
+      ensureSufficientSolForTransfer({
+        asset: transaction.asset,
+        needsRecipientTokenAccountCreation,
         solBalanceRaw: balances?.sol.raw,
       });
 
@@ -254,7 +259,10 @@ function OfframpDrawer({
     } catch (broadcastError) {
       console.error("Unable to broadcast the off-ramp transaction.", broadcastError);
       setError(
-        normalizeSolanaSendError(broadcastError),
+        normalizeSolanaSendError(broadcastError, {
+          asset: transaction.asset,
+          needsRecipientTokenAccountCreation,
+        }),
       );
     } finally {
       setIsBroadcasting(false);
