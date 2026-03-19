@@ -33,6 +33,11 @@ import {
   findAssociatedTokenAddress,
   parseTransferAmount,
 } from "@/solana-transfer";
+import {
+  ensureSufficientSolForSplTransfer,
+  getSplTransferFeeHint,
+  normalizeSolanaSendError,
+} from "@/solana-send";
 import type {
   CreateRecipientPayload,
   FetchSolanaTransactionContextPayload,
@@ -84,6 +89,12 @@ function SendDrawer({
   const selectedRecipient =
     walletRecipients.find(recipient => String(recipient.id) === selectedRecipientId) ?? null;
   const availableRawBalance = balances?.[asset].raw ?? "0";
+  const splTransferFeeHint =
+    asset === "sol"
+      ? null
+      : getSplTransferFeeHint({
+          balances,
+        });
 
   const handleDrawerChange = (isOpen: boolean) => {
     if (!isOpen) {
@@ -155,6 +166,14 @@ function SendDrawer({
         recipientAddress: selectedRecipient.walletAddress,
         recipientTokenAccountAddress,
       });
+
+      if (asset !== "sol") {
+        ensureSufficientSolForSplTransfer({
+          needsRecipientTokenAccountCreation: !(transactionContext.recipientTokenAccountExists ?? false),
+          solBalanceRaw: balances?.sol.raw,
+        });
+      }
+
       const transaction = buildSerializedTransferTransaction({
         amountRaw: parsedAmount.raw,
         asset,
@@ -174,8 +193,9 @@ function SendDrawer({
 
       setTransactionSignature(result.transactionSignature);
     } catch (sendError) {
+      console.error("Unable to prepare or send transaction.", sendError);
       setError(
-        sendError instanceof Error ? sendError.message : "Unable to prepare or send transaction.",
+        normalizeSolanaSendError(sendError),
       );
     } finally {
       setIsSending(false);
@@ -262,6 +282,12 @@ function SendDrawer({
                   {`${balances?.[asset].formatted ?? "0"} ${getTransferAssetLabel(asset)}`}
                 </span>
               </div>
+
+              {splTransferFeeHint ? (
+                <div className="rounded-[calc(var(--radius)+2px)] border border-border/70 bg-secondary/30 px-4 py-3 text-sm text-muted-foreground">
+                  {splTransferFeeHint}
+                </div>
+              ) : null}
 
               <div className="space-y-3">
                 <div className="flex items-center justify-between gap-3">

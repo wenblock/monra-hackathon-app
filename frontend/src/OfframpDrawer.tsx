@@ -33,6 +33,11 @@ import {
   findAssociatedTokenAddress,
   parseTransferAmount,
 } from "@/solana-transfer";
+import {
+  ensureSufficientSolForSplTransfer,
+  getSplTransferFeeHint,
+  normalizeSolanaSendError,
+} from "@/solana-send";
 import type {
   AppTransaction,
   CreateOfframpPayload,
@@ -110,6 +115,9 @@ function OfframpDrawer({
   const selectedRecipient =
     bankRecipients.find(recipient => String(recipient.id) === selectedRecipientId) ?? null;
   const availableRawBalance = balances?.[sourceAsset].raw ?? "0";
+  const splTransferFeeHint = getSplTransferFeeHint({
+    balances,
+  });
 
   const handleOpenChange = (isOpen: boolean) => {
     if (!isOpen) {
@@ -220,6 +228,12 @@ function OfframpDrawer({
         });
       }
 
+      ensureSufficientSolForSplTransfer({
+        needsRecipientTokenAccountCreation:
+          !hasDirectTokenAccount && !(transactionContext.recipientTokenAccountExists ?? false),
+        solBalanceRaw: balances?.sol.raw,
+      });
+
       const serializedTransaction = buildSerializedTransferTransaction({
         amountRaw: BigInt(transaction.amountRaw),
         asset: transaction.asset,
@@ -238,12 +252,10 @@ function OfframpDrawer({
 
       setTransactionSignature(result.transactionSignature);
     } catch (broadcastError) {
+      console.error("Unable to broadcast the off-ramp transaction.", broadcastError);
       setError(
-        broadcastError instanceof Error
-          ? broadcastError.message
-          : "Unable to broadcast the off-ramp transaction.",
+        normalizeSolanaSendError(broadcastError),
       );
-      throw broadcastError;
     } finally {
       setIsBroadcasting(false);
     }
@@ -400,6 +412,10 @@ function OfframpDrawer({
                 <span className="font-medium text-foreground">
                   3 {displayCurrencyByAsset[sourceAsset]}
                 </span>
+              </div>
+
+              <div className="rounded-[calc(var(--radius)+2px)] border border-border/70 bg-secondary/30 px-4 py-3 text-sm text-muted-foreground">
+                {splTransferFeeHint}
               </div>
 
               <div className="space-y-3">
