@@ -88,7 +88,7 @@ export const quickActions: QuickAction[] = [
   {
     id: "offramp",
     label: "Offramp",
-    description: "Cash out once rails are live",
+    description: "Cash out to a saved SEPA bank recipient",
     icon: Landmark,
   },
 ];

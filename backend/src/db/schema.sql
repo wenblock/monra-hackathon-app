@@ -93,7 +93,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   recipient_id BIGINT NULL REFERENCES recipients(id) ON DELETE SET NULL,
   direction TEXT NOT NULL CHECK (direction IN ('inbound', 'outbound')),
-  entry_type TEXT NOT NULL CHECK (entry_type IN ('transfer', 'network_fee', 'onramp')),
+  entry_type TEXT NOT NULL CHECK (entry_type IN ('transfer', 'network_fee', 'onramp', 'offramp')),
   asset TEXT NOT NULL CHECK (asset IN ('sol', 'usdc', 'eurc')),
   amount_decimal NUMERIC(36, 9) NOT NULL,
   amount_raw TEXT NOT NULL,

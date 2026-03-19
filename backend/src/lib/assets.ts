@@ -1,4 +1,4 @@
-import type { TransferAsset } from "../types.js";
+import type { StablecoinAsset, TransferAsset } from "../types.js";
 
 export interface TransferAssetMetadata {
   decimals: number;
@@ -27,8 +27,9 @@ export const TRANSFER_ASSET_METADATA = {
 export const TRANSFER_ASSETS = Object.keys(TRANSFER_ASSET_METADATA) as TransferAsset[];
 export const SPL_TRANSFER_ASSETS = TRANSFER_ASSETS.filter(
   asset => TRANSFER_ASSET_METADATA[asset].mintAddress !== null,
-) as Exclude<TransferAsset, "sol">[];
+) as StablecoinAsset[];
 export const ONRAMP_DESTINATION_ASSETS = SPL_TRANSFER_ASSETS;
+export const OFFRAMP_SOURCE_ASSETS = SPL_TRANSFER_ASSETS;
 
 const splAssetMintToAsset = new Map(
   SPL_TRANSFER_ASSETS.map(asset => [TRANSFER_ASSET_METADATA[asset].mintAddress!, asset]),
@@ -44,10 +45,14 @@ export function getTransferAssetLabel(asset: TransferAsset) {
 
 export function getSplTokenAssetByMintAddress(
   value: string | null | undefined,
-): Exclude<TransferAsset, "sol"> | null {
+): StablecoinAsset | null {
   return value ? splAssetMintToAsset.get(value) ?? null : null;
 }
 
-export function isOnrampDestinationAsset(asset: TransferAsset): asset is Exclude<TransferAsset, "sol"> {
+export function isOnrampDestinationAsset(asset: TransferAsset): asset is StablecoinAsset {
+  return asset !== "sol";
+}
+
+export function isOfframpSourceAsset(asset: TransferAsset): asset is StablecoinAsset {
   return asset !== "sol";
 }

@@ -1,4 +1,4 @@
-import type { TransferAsset } from "./types";
+import type { StablecoinAsset, TransferAsset } from "./types";
 
 export interface TransferAssetMetadata {
   decimals: number;
@@ -27,8 +27,9 @@ export const TRANSFER_ASSET_METADATA = {
 export const TRANSFER_ASSETS = Object.keys(TRANSFER_ASSET_METADATA) as TransferAsset[];
 export const SPL_TRANSFER_ASSETS = TRANSFER_ASSETS.filter(
   asset => TRANSFER_ASSET_METADATA[asset].mintAddress !== null,
-) as Exclude<TransferAsset, "sol">[];
+) as StablecoinAsset[];
 export const ONRAMP_DESTINATION_ASSETS = SPL_TRANSFER_ASSETS;
+export const OFFRAMP_SOURCE_ASSETS = SPL_TRANSFER_ASSETS;
 
 export function getTransferAssetDecimals(asset: TransferAsset) {
   return TRANSFER_ASSET_METADATA[asset].decimals;
@@ -38,6 +39,6 @@ export function getTransferAssetLabel(asset: TransferAsset) {
   return TRANSFER_ASSET_METADATA[asset].label;
 }
 
-export function getTransferAssetMintAddress(asset: Exclude<TransferAsset, "sol">) {
+export function getTransferAssetMintAddress(asset: StablecoinAsset) {
   return TRANSFER_ASSET_METADATA[asset].mintAddress!;
 }

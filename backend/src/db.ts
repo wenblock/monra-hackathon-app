@@ -7,6 +7,7 @@ import { config } from "./config.js";
 import {
   TRANSFER_ASSETS,
   getTransferAssetDecimals,
+  isOfframpSourceAsset,
   isOnrampDestinationAsset,
 } from "./lib/assets.js";
 import type {
@@ -17,6 +18,7 @@ import type {
   BridgeSourceDepositInstructions,
   BridgeKycStatus,
   OnrampDestinationAsset,
+  OfframpSourceAsset,
   BridgeTransferState,
   BridgeTosStatus,
   Recipient,
@@ -301,6 +303,9 @@ function mapBridgeSourceDepositInstructions(value: unknown): BridgeSourceDeposit
     amount: readString("amount"),
     currency: readString("currency"),
     depositMessage: readString("depositMessage", "deposit_message"),
+    fromAddress: readString("fromAddress", "from_address"),
+    toAddress: readString("toAddress", "to_address"),
+    blockchainMemo: readString("blockchainMemo", "blockchain_memo"),
     bankName: readString("bankName", "bank_name"),
     bankAddress: readString("bankAddress", "bank_address"),
     iban: readString("iban"),
@@ -837,6 +842,10 @@ function buildOnrampCounterpartyName(paymentRail: string | null | undefined) {
   return normalizedRail ? `Bridge ${normalizedRail.toUpperCase()} On-ramp` : "Bridge On-ramp";
 }
 
+function buildOfframpNormalizationKey(bridgeTransferId: string) {
+  return `offramp:${bridgeTransferId}`;
+}
+
 export interface CreatePendingOnrampTransactionInput {
   asset: OnrampDestinationAsset;
   userId: number;
@@ -912,6 +921,81 @@ export async function createPendingOnrampTransaction(input: CreatePendingOnrampT
   return mapCollapsedTransaction(mapLedgerTransaction(result.rows[0]), null);
 }
 
+export interface CreatePendingOfframpTransactionInput {
+  asset: OfframpSourceAsset;
+  amount: string;
+  bridgeTransferId: string;
+  bridgeTransferStatus: BridgeTransferState;
+  depositInstructions: BridgeSourceDepositInstructions;
+  recipientId: number;
+  recipientName: string;
+  receiptUrl?: string | null;
+  sourceAmount: string;
+  sourceCurrency: string;
+  userId: number;
+  walletAddress: string;
+}
+
+export async function createPendingOfframpTransaction(input: CreatePendingOfframpTransactionInput) {
+  const amountRaw = parseDecimalAmountToRaw(input.amount, getTransferAssetDecimals(input.asset));
+  const result = await pool.query<TransactionRow>(
+    `
+      INSERT INTO transactions (
+        user_id,
+        recipient_id,
+        direction,
+        entry_type,
+        asset,
+        amount_decimal,
+        amount_raw,
+        network,
+        tracked_wallet_address,
+        from_wallet_address,
+        counterparty_name,
+        counterparty_wallet_address,
+        bridge_transfer_id,
+        bridge_transfer_status,
+        bridge_source_amount,
+        bridge_source_currency,
+        bridge_source_deposit_instructions,
+        bridge_destination_tx_hash,
+        bridge_receipt_url,
+        transaction_signature,
+        webhook_event_id,
+        normalization_key,
+        status,
+        confirmed_at,
+        failed_at,
+        failure_reason
+      )
+      VALUES (
+        $1, $2, 'outbound', 'offramp', $3, $4, $5, 'solana-mainnet', $6, $7, $8, NULL, $9, $10,
+        $11, $12, $13::JSONB, NULL, $14, $9, NULL, $15, 'pending', NULL, NULL, NULL
+      )
+      RETURNING ${transactionSelection}
+    `,
+    [
+      input.userId,
+      input.recipientId,
+      input.asset,
+      input.amount,
+      amountRaw,
+      input.walletAddress,
+      input.walletAddress,
+      input.recipientName,
+      input.bridgeTransferId,
+      input.bridgeTransferStatus,
+      input.sourceAmount,
+      input.sourceCurrency,
+      JSON.stringify(input.depositInstructions),
+      input.receiptUrl ?? null,
+      buildOfframpNormalizationKey(input.bridgeTransferId),
+    ],
+  );
+
+  return mapCollapsedTransaction(mapLedgerTransaction(result.rows[0]), null);
+}
+
 interface PendingOnrampMatchRow {
   id: string;
   user_id: string;
@@ -932,6 +1016,16 @@ interface ConfirmedTransferReconciliationRow {
   counterparty_name: string | null;
   counterparty_wallet_address: string | null;
   transaction_signature: string;
+}
+
+interface PendingOfframpMatchRow {
+  id: string;
+  user_id: string;
+  asset: OfframpSourceAsset;
+  tracked_wallet_address: string;
+  recipient_id: string | null;
+  transaction_signature: string;
+  status: TransactionStatus;
 }
 
 export async function getPendingOnrampByDestinationTxHash(txHash: string) {
@@ -959,6 +1053,62 @@ export async function getPendingOnrampByDestinationTxHash(txHash: string) {
     userId: Number(row.user_id),
     trackedWalletAddress: row.tracked_wallet_address,
     bridgeTransferId: row.bridge_transfer_id,
+  };
+}
+
+export async function getOfframpByBroadcastDetails(input: {
+  amountRaw: string;
+  asset: OfframpSourceAsset;
+  trackedWalletAddress: string;
+  userId: number;
+  walletAddress: string | null;
+}) {
+  if (!input.walletAddress) {
+    return null;
+  }
+
+  const result = await pool.query<PendingOfframpMatchRow>(
+    `
+      SELECT id, user_id, asset, tracked_wallet_address, recipient_id, transaction_signature, status
+      FROM transactions
+      WHERE entry_type = 'offramp'
+        AND status IN ('pending', 'confirmed')
+        AND user_id = $1::bigint
+        AND asset = $2::text
+        AND amount_raw = $3::text
+        AND tracked_wallet_address = $4::text
+        AND COALESCE(
+          bridge_source_deposit_instructions ->> 'toAddress',
+          bridge_source_deposit_instructions ->> 'to_address'
+        ) = $5::text
+      ORDER BY
+        CASE WHEN transaction_signature = bridge_transfer_id THEN 0 ELSE 1 END,
+        CASE WHEN status = 'pending' THEN 0 ELSE 1 END,
+        id DESC
+      LIMIT 1
+    `,
+    [
+      input.userId,
+      input.asset,
+      input.amountRaw,
+      input.trackedWalletAddress,
+      input.walletAddress,
+    ],
+  );
+
+  const row = result.rows[0];
+  if (!row) {
+    return null;
+  }
+
+  return {
+    asset: row.asset,
+    id: Number(row.id),
+    recipientId: row.recipient_id === null ? null : Number(row.recipient_id),
+    status: row.status,
+    trackedWalletAddress: row.tracked_wallet_address,
+    transactionSignature: row.transaction_signature,
+    userId: Number(row.user_id),
   };
 }
 
@@ -1114,6 +1264,49 @@ async function deleteDuplicateConfirmedTransferForOnramp(
   return true;
 }
 
+async function deleteDuplicateConfirmedTransferForOfframp(
+  client: PoolClient,
+  input: {
+    asset: OfframpSourceAsset;
+    txHash: string;
+    trackedWalletAddress: string;
+    userId: number;
+  },
+) {
+  const duplicateTransferResult = await client.query<{ id: string }>(
+    `
+      SELECT id
+      FROM transactions
+      WHERE entry_type = 'transfer'
+        AND status = 'confirmed'
+        AND direction = 'outbound'
+        AND asset = $4::text
+        AND transaction_signature = $1::text
+        AND user_id = $2::bigint
+        AND tracked_wallet_address = $3::text
+      ORDER BY COALESCE(confirmed_at, created_at) DESC, id DESC
+      LIMIT 1
+      FOR UPDATE
+    `,
+    [input.txHash, input.userId, input.trackedWalletAddress, input.asset],
+  );
+
+  const duplicateTransfer = duplicateTransferResult.rows[0];
+  if (!duplicateTransfer) {
+    return false;
+  }
+
+  await client.query(
+    `
+      DELETE FROM transactions
+      WHERE id = $1::bigint
+    `,
+    [duplicateTransfer.id],
+  );
+
+  return true;
+}
+
 async function reconcilePendingOnrampWithConfirmedTransferByTxHash(txHash: string) {
   const client = await pool.connect();
 
@@ -1161,12 +1354,24 @@ interface AlchemyOnrampCompletionEffectInput {
   confirmedAt: Date;
 }
 
+interface AlchemyOfframpBroadcastEffectInput {
+  type: "offramp_broadcast";
+  transactionId: number;
+  txHash: string;
+  amountDecimal: string;
+  amountRaw: string;
+  fromWalletAddress: string;
+  toWalletAddress?: string | null;
+  confirmedAt: Date;
+}
+
 type AlchemyWebhookEffectInput =
   | {
       type: "ledger";
       entry: WebhookLedgerEntryInput;
     }
-  | AlchemyOnrampCompletionEffectInput;
+  | AlchemyOnrampCompletionEffectInput
+  | AlchemyOfframpBroadcastEffectInput;
 
 function collectOnrampReconciliationTxHashes(effects: AlchemyWebhookEffectInput[]) {
   const txHashes = new Set<string>();
@@ -1241,6 +1446,70 @@ async function insertConfirmedLedgerEntry(client: PoolClient, entry: WebhookLedg
   return result.rows[0] ?? null;
 }
 
+async function applyOfframpBroadcastEffect(
+  client: PoolClient,
+  effect: AlchemyOfframpBroadcastEffectInput,
+) {
+  const existingResult = await client.query<PendingOfframpMatchRow>(
+    `
+      SELECT id, user_id, asset, tracked_wallet_address, recipient_id, transaction_signature, status
+      FROM transactions
+      WHERE id = $1::bigint
+        AND entry_type = 'offramp'
+      LIMIT 1
+      FOR UPDATE
+    `,
+    [effect.transactionId],
+  );
+
+  const existing = existingResult.rows[0];
+  if (!existing || !isOfframpSourceAsset(existing.asset)) {
+    return null;
+  }
+
+  const alreadyBroadcasted = existing.transaction_signature === effect.txHash;
+  const updated = await client.query<TransactionRow>(
+    `
+      UPDATE transactions
+      SET
+        transaction_signature = $2::text,
+        from_wallet_address = $3::text,
+        amount_decimal = $4::numeric,
+        amount_raw = $5::text,
+        counterparty_wallet_address = COALESCE($6::text, counterparty_wallet_address),
+        updated_at = NOW()
+      WHERE id = $1::bigint
+      RETURNING ${transactionSelection}
+    `,
+    [
+      effect.transactionId,
+      effect.txHash,
+      effect.fromWalletAddress,
+      effect.amountDecimal,
+      effect.amountRaw,
+      effect.toWalletAddress ?? null,
+    ],
+  );
+
+  const row = updated.rows[0];
+  if (!row || !isOfframpSourceAsset(row.asset)) {
+    return null;
+  }
+
+  const removedDuplicateTransfer = await deleteDuplicateConfirmedTransferForOfframp(client, {
+    asset: row.asset,
+    trackedWalletAddress: row.tracked_wallet_address,
+    txHash: effect.txHash,
+    userId: Number(row.user_id),
+  });
+
+  return {
+    alreadyBroadcasted,
+    removedDuplicateTransfer,
+    row,
+  };
+}
+
 const bridgeFailureStates = new Set<BridgeTransferState>([
   "undeliverable",
   "returned",
@@ -1250,7 +1519,7 @@ const bridgeFailureStates = new Set<BridgeTransferState>([
   "error",
 ]);
 
-export async function applyBridgeOnrampWebhookUpdate(input: {
+export async function applyBridgeTransferWebhookUpdate(input: {
   eventId: string;
   webhookId: string;
   eventObjectId: string;
@@ -1305,6 +1574,7 @@ export async function applyBridgeOnrampWebhookUpdate(input: {
         : null;
     const nextAmountRaw = nextAmountDecimal ? parseDecimalAmountToRaw(nextAmountDecimal, 6) : null;
     const shouldMarkFailed = bridgeFailureStates.has(input.bridgeTransferStatus);
+    const shouldConfirmOfframp = input.bridgeTransferStatus === "payment_processed";
 
     const result = await client.query<TransactionRow>(
       `
@@ -1312,19 +1582,35 @@ export async function applyBridgeOnrampWebhookUpdate(input: {
         SET
           bridge_transfer_status = $2::text,
           bridge_destination_tx_hash = CASE
-            WHEN $3::text IS NOT NULL AND status <> 'confirmed' THEN $3::text
+            WHEN entry_type = 'onramp' AND $3::text IS NOT NULL AND status <> 'confirmed' THEN $3::text
             ELSE bridge_destination_tx_hash
           END,
           bridge_receipt_url = COALESCE($4::text, bridge_receipt_url),
-          amount_decimal = COALESCE($5::numeric, amount_decimal),
-          amount_raw = COALESCE($6::text, amount_raw),
-          status = CASE WHEN $7::boolean AND status = 'pending' THEN 'failed' ELSE status END,
+          amount_decimal = CASE
+            WHEN entry_type = 'onramp' AND $5::numeric IS NOT NULL THEN $5::numeric
+            ELSE amount_decimal
+          END,
+          amount_raw = CASE
+            WHEN entry_type = 'onramp' AND $6::text IS NOT NULL THEN $6::text
+            ELSE amount_raw
+          END,
+          status = CASE
+            WHEN $7::boolean AND status = 'pending' THEN 'failed'
+            WHEN entry_type = 'offramp' AND $8::boolean AND status = 'pending' THEN 'confirmed'
+            ELSE status
+          END,
+          confirmed_at = CASE
+            WHEN entry_type = 'offramp' AND $8::boolean AND status = 'pending' THEN COALESCE($9::timestamptz, NOW())
+            ELSE confirmed_at
+          END,
           failed_at = CASE
             WHEN $7::boolean AND status = 'pending' THEN NOW()
+            WHEN entry_type = 'offramp' AND $8::boolean AND status = 'pending' THEN NULL
             ELSE failed_at
           END,
           failure_reason = CASE
             WHEN $7::boolean AND status = 'pending' THEN CONCAT('Bridge transfer moved to ', $2::text, '.')
+            WHEN entry_type = 'offramp' AND $8::boolean AND status = 'pending' THEN NULL
             ELSE failure_reason
           END,
           updated_at = NOW()
@@ -1339,10 +1625,25 @@ export async function applyBridgeOnrampWebhookUpdate(input: {
         nextAmountDecimal,
         nextAmountRaw,
         shouldMarkFailed,
+        shouldConfirmOfframp,
+        input.eventCreatedAt ?? null,
       ],
     );
 
     const affectedUserIds = new Set(result.rows.map(row => Number(row.user_id)));
+    const updatedRecipientPayments = new Map<number, Date>();
+
+    if (shouldConfirmOfframp) {
+      const recipientConfirmedAt = input.eventCreatedAt ?? new Date();
+
+      for (const row of result.rows) {
+        if (row.entry_type === "offramp" && row.recipient_id !== null) {
+          updatedRecipientPayments.set(Number(row.recipient_id), recipientConfirmedAt);
+        }
+      }
+    }
+
+    await applyRecipientLastPayments(client, updatedRecipientPayments);
 
     await client.query("COMMIT");
     committed = true;
@@ -1438,6 +1739,22 @@ export async function applyAlchemyWebhookEffects(input: {
           inserted.entry_type === "transfer"
         ) {
           updatedRecipientPayments.set(Number(inserted.recipient_id), effect.entry.confirmedAt);
+        }
+
+        continue;
+      }
+
+      if (effect.type === "offramp_broadcast") {
+        const applied = await applyOfframpBroadcastEffect(client, effect);
+        if (!applied) {
+          continue;
+        }
+
+        const userId = Number(applied.row.user_id);
+        affectedUserIds.add(userId);
+
+        if (!applied.alreadyBroadcasted && !applied.removedDuplicateTransfer) {
+          addBalanceDelta(balanceDeltas, userId, applied.row.asset, BigInt(effect.amountRaw) * -1n);
         }
 
         continue;
@@ -1673,7 +1990,11 @@ function collapseLedgerTransactions(rows: TransactionRow[]) {
 
     if (transaction.entryType === "network_fee" && transaction.direction === "outbound") {
       group.feeRaw += BigInt(transaction.amountRaw);
-    } else if (transaction.entryType === "transfer" || transaction.entryType === "onramp") {
+    } else if (
+      transaction.entryType === "transfer" ||
+      transaction.entryType === "onramp" ||
+      transaction.entryType === "offramp"
+    ) {
       group.transfers.push(transaction);
     }
 

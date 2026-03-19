@@ -5,6 +5,10 @@ export function isOnrampTransaction(transaction: AppTransaction) {
   return transaction.entryType === "onramp";
 }
 
+export function isOfframpTransaction(transaction: AppTransaction) {
+  return transaction.entryType === "offramp";
+}
+
 export function getTransactionDirectionTone(transaction: AppTransaction) {
   return transaction.direction === "inbound"
     ? "text-emerald-600"
@@ -54,6 +58,10 @@ export function formatActivityTitle(transaction: AppTransaction) {
     return `On-ramp to ${getTransferAssetLabel(transaction.asset)}`;
   }
 
+  if (isOfframpTransaction(transaction)) {
+    return `Off-ramp to ${transaction.counterpartyName ?? "bank recipient"}`;
+  }
+
   const counterpartyDisplay = getTransactionCounterpartyDisplay(transaction);
 
   return transaction.direction === "inbound"
@@ -68,7 +76,7 @@ export function formatActivityStatus(transaction: AppTransaction) {
     case "failed":
       return "Failed";
     default:
-      return "Pending";
+      return isOfframpTransaction(transaction) ? "Processing" : "Pending";
   }
 }
 
@@ -78,6 +86,13 @@ export function formatActivityAmount(transaction: AppTransaction) {
     const pendingAmount = formatPendingOnrampAmount(transaction);
     if (pendingAmount) {
       return `${prefix}${pendingAmount}`;
+    }
+  }
+
+  if (isOfframpTransaction(transaction)) {
+    const sourceAmount = formatOfframpSourceAmount(transaction);
+    if (sourceAmount) {
+      return `${prefix}${sourceAmount}`;
     }
   }
 
@@ -103,12 +118,20 @@ export function formatCounterpartyLabel(transaction: AppTransaction) {
     return "Destination wallet";
   }
 
+  if (isOfframpTransaction(transaction)) {
+    return "Bank recipient";
+  }
+
   return transaction.direction === "inbound" ? "From" : "To";
 }
 
 export function getTransactionCounterpartyDisplay(transaction: AppTransaction) {
   if (isOnrampTransaction(transaction)) {
     return transaction.counterpartyName ?? "Bridge On-ramp";
+  }
+
+  if (isOfframpTransaction(transaction)) {
+    return transaction.counterpartyName ?? "Bridge Off-ramp";
   }
 
   return (
@@ -121,6 +144,10 @@ export function getTransactionCounterpartyDisplay(transaction: AppTransaction) {
 export function getTransactionCounterpartyWalletAddress(transaction: AppTransaction) {
   if (isOnrampTransaction(transaction)) {
     return transaction.trackedWalletAddress;
+  }
+
+  if (isOfframpTransaction(transaction)) {
+    return transaction.bridgeSourceDepositInstructions?.toAddress ?? transaction.counterpartyWalletAddress ?? null;
   }
 
   return transaction.counterpartyWalletAddress ?? transaction.fromWalletAddress ?? null;
@@ -144,9 +171,25 @@ function formatPendingOnrampAmount(transaction: AppTransaction) {
     : transaction.bridgeSourceAmount;
 }
 
+function formatOfframpSourceAmount(transaction: AppTransaction) {
+  if (!transaction.bridgeSourceAmount) {
+    return null;
+  }
+
+  return transaction.bridgeSourceCurrency
+    ? `${transaction.bridgeSourceAmount} ${transaction.bridgeSourceCurrency.toUpperCase()}`
+    : transaction.bridgeSourceAmount;
+}
+
 export function getTransactionExplorerSignature(transaction: AppTransaction) {
   if (isOnrampTransaction(transaction)) {
     return transaction.bridgeDestinationTxHash ?? null;
+  }
+
+  if (isOfframpTransaction(transaction)) {
+    return transaction.transactionSignature === transaction.bridgeTransferId
+      ? null
+      : transaction.transactionSignature;
   }
 
   return transaction.transactionSignature;

@@ -22,21 +22,12 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TRANSFER_ASSETS, getTransferAssetLabel } from "@/assets";
 import { cn } from "@/lib/utils";
+import OfframpDrawer from "@/OfframpDrawer";
 import OnrampDrawer from "@/OnrampDrawer";
 import SendDrawer from "@/SendDrawer";
 import { navigateTo } from "@/router";
@@ -45,6 +36,7 @@ import type {
   AppTransaction,
   AppUser,
   BridgeComplianceState,
+  CreateOfframpPayload,
   CreateOnrampPayload,
   CreateRecipientPayload,
   FetchSolanaTransactionContextPayload,
@@ -56,10 +48,9 @@ import type {
 interface Props {
   balances?: SolanaBalancesResponse["balances"];
   bridge: BridgeComplianceState;
+  onCreateOfframp: (payload: CreateOfframpPayload) => Promise<AppTransaction>;
   onCreateOnramp: (payload: CreateOnrampPayload) => Promise<AppTransaction>;
-  onCreateWalletRecipient: (
-    payload: Extract<CreateRecipientPayload, { kind: "wallet" }>,
-  ) => Promise<Recipient>;
+  onCreateRecipient: (payload: CreateRecipientPayload) => Promise<Recipient>;
   onFetchSolanaTransactionContext: (
     payload: FetchSolanaTransactionContextPayload,
   ) => Promise<SolanaTransactionContextResponse>;
@@ -75,8 +66,9 @@ interface Props {
 function Dashboard({
   balances,
   bridge,
+  onCreateOfframp,
   onCreateOnramp,
-  onCreateWalletRecipient,
+  onCreateRecipient,
   onFetchSolanaTransactionContext,
   onPersistSolanaAddress,
   onRefreshBridgeStatus,
@@ -91,6 +83,7 @@ function Dashboard({
   const [isKycDialogOpen, setIsKycDialogOpen] = useState(false);
   const [isTosDialogOpen, setIsTosDialogOpen] = useState(false);
   const [isOnrampDrawerOpen, setIsOnrampDrawerOpen] = useState(false);
+  const [isOfframpDrawerOpen, setIsOfframpDrawerOpen] = useState(false);
   const [isSendDrawerOpen, setIsSendDrawerOpen] = useState(false);
   const [persistedSolanaAddress, setPersistedSolanaAddress] = useState<string | null>(null);
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string | null>(null);
@@ -314,22 +307,17 @@ function Dashboard({
                   }
 
                   return (
-                    <Dialog key={action.id}>
-                      <DialogTrigger asChild>
-                        <Button
-                          variant="outline"
-                          className="h-auto min-h-16 justify-start rounded-[calc(var(--radius)+4px)] px-4 py-3 text-left"
-                        >
-                          <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-secondary">
-                            <Icon />
-                          </span>
-                          <span className="min-w-0 text-base font-medium">{action.label}</span>
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent className="sm:max-w-xl">
-                        <PlaceholderActionForm kind={action.id} />
-                      </DialogContent>
-                    </Dialog>
+                    <Button
+                      key={action.id}
+                      variant="outline"
+                      className="h-auto min-h-16 justify-start rounded-[calc(var(--radius)+4px)] px-4 py-3 text-left"
+                      onClick={() => setIsOfframpDrawerOpen(true)}
+                    >
+                      <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-secondary">
+                        <Icon />
+                      </span>
+                      <span className="min-w-0 text-base font-medium">{action.label}</span>
+                    </Button>
                   );
                 })}
               </div>
@@ -420,9 +408,20 @@ function Dashboard({
         walletAddress={user.solanaAddress}
       />
 
+      <OfframpDrawer
+        balances={balances}
+        onCreateBankRecipient={onCreateRecipient}
+        onCreateOfframp={onCreateOfframp}
+        onFetchTransactionContext={onFetchSolanaTransactionContext}
+        onOpenChange={setIsOfframpDrawerOpen}
+        open={isOfframpDrawerOpen}
+        recipients={recipients}
+        senderAddress={effectiveSolanaAddress}
+      />
+
       <SendDrawer
         balances={balances}
-        onCreateWalletRecipient={onCreateWalletRecipient}
+        onCreateWalletRecipient={onCreateRecipient}
         onFetchTransactionContext={onFetchSolanaTransactionContext}
         onOpenChange={setIsSendDrawerOpen}
         open={isSendDrawerOpen}
@@ -499,59 +498,6 @@ function Dashboard({
         </DialogContent>
       </Dialog>
     </AppShell>
-  );
-}
-
-function PlaceholderActionForm({ kind }: { kind: "onramp" | "offramp" }) {
-  const isOnramp = kind === "onramp";
-
-  return (
-    <>
-      <DialogHeader>
-        <DialogTitle>{isOnramp ? "Onramp" : "Offramp"}</DialogTitle>
-        <DialogDescription>Backend integration pending.</DialogDescription>
-      </DialogHeader>
-
-      <div className="space-y-4">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor={`${kind}-amount`}>Amount</Label>
-            <Input id={`${kind}-amount`} placeholder={isOnramp ? "$250.00" : "$120.00"} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor={`${kind}-rail`}>Rail</Label>
-            <Select>
-              <SelectTrigger id={`${kind}-rail`}>
-                <SelectValue placeholder={isOnramp ? "Choose payment rail" : "Choose payout rail"} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="bank">{isOnramp ? "Bank transfer" : "Bank payout"}</SelectItem>
-                <SelectItem value="card">{isOnramp ? "Debit card" : "Debit card payout"}</SelectItem>
-                <SelectItem value="wire">Wire settlement</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor={`${kind}-destination`}>
-            {isOnramp ? "Destination wallet" : "Payout account"}
-          </Label>
-          <Input
-            id={`${kind}-destination`}
-            placeholder={isOnramp ? "Connected wallet" : "Primary payout method"}
-          />
-        </div>
-
-        <div className="rounded-[calc(var(--radius)+2px)] border border-dashed border-border bg-secondary/40 p-4 text-sm text-muted-foreground">
-          Backend integration pending.
-        </div>
-
-        <Button type="button" className="w-full" disabled>
-          Backend integration pending
-        </Button>
-      </div>
-    </>
   );
 }
 

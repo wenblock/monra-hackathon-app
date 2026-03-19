@@ -3,10 +3,12 @@ export type AccountType = "individual" | "business";
 export type RecipientKind = "wallet" | "bank";
 export type BankRecipientType = "individual" | "business";
 export type TransferAsset = "sol" | "usdc" | "eurc";
-export type OnrampDestinationAsset = Exclude<TransferAsset, "sol">;
+export type StablecoinAsset = Exclude<TransferAsset, "sol">;
+export type OnrampDestinationAsset = StablecoinAsset;
+export type OfframpSourceAsset = StablecoinAsset;
 export type TransactionStatus = "pending" | "confirmed" | "failed";
 export type TransactionDirection = "inbound" | "outbound";
-export type TransactionEntryType = "transfer" | "network_fee" | "onramp";
+export type TransactionEntryType = "transfer" | "network_fee" | "onramp" | "offramp";
 export type BridgeTransferState =
   | "pending"
   | "awaiting_funds"
@@ -111,6 +113,9 @@ export interface BridgeSourceDepositInstructions {
   amount: string | null;
   currency: string | null;
   depositMessage: string | null;
+  fromAddress: string | null;
+  toAddress: string | null;
+  blockchainMemo: string | null;
   bankName: string | null;
   bankAddress: string | null;
   iban: string | null;

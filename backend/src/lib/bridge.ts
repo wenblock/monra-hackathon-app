@@ -9,6 +9,7 @@ import type {
   BridgeComplianceState,
   BridgeKycStatus,
   OnrampDestinationAsset,
+  OfframpSourceAsset,
   BridgeSourceDepositInstructions,
   BridgeTransferState,
   BridgeTosStatus,
@@ -52,6 +53,9 @@ interface BridgeTransferSourceDepositInstructionsResponse {
   amount?: string;
   currency?: string;
   deposit_message?: string;
+  from_address?: string;
+  to_address?: string;
+  blockchain_memo?: string;
   bank_name?: string;
   bank_address?: string;
   iban?: string;
@@ -203,6 +207,9 @@ function normalizeBridgeSourceDepositInstructions(
     amount: readString(value.amount),
     currency: readString(value.currency),
     depositMessage: readString(value.deposit_message),
+    fromAddress: readString(value.from_address),
+    toAddress: readString(value.to_address),
+    blockchainMemo: readString(value.blockchain_memo),
     bankName: readString(value.bank_name),
     bankAddress: readString(value.bank_address),
     iban: readString(value.iban),
@@ -327,6 +334,57 @@ export async function createBridgeOnrampTransfer(input: {
     receiptUrl: readString(transfer.receipt?.url),
     sourceAmount: transfer.amount,
     sourceCurrency: readString(transfer.source.currency) ?? "eur",
+  };
+}
+
+export async function createBridgeOfframpTransfer(input: {
+  amount: string;
+  bridgeCustomerId: string;
+  externalAccountId: string;
+  returnAddress: string;
+  sourceAddress: string;
+  sourceAsset: OfframpSourceAsset;
+}) {
+  const transfer = await bridgeRequest<BridgeTransferResponse>({
+    method: "POST",
+    path: "/transfers",
+    idempotencyKey: randomUUID(),
+    body: {
+      on_behalf_of: input.bridgeCustomerId,
+      source: {
+        currency: input.sourceAsset,
+        payment_rail: "solana",
+        from_address: input.sourceAddress,
+      },
+      destination: {
+        currency: "eur",
+        payment_rail: "sepa",
+        external_account_id: input.externalAccountId,
+      },
+      amount: input.amount,
+      client_reference_id: randomUUID(),
+      dry_run: false,
+      return_instructions: {
+        address: input.returnAddress,
+      },
+    },
+  });
+
+  const depositInstructions = normalizeBridgeSourceDepositInstructions(transfer.source_deposit_instructions);
+  if (!depositInstructions?.toAddress) {
+    throw new BridgeApiError(
+      "Bridge transfer response did not include a Solana deposit address.",
+      502,
+    );
+  }
+
+  return {
+    bridgeTransferId: transfer.id,
+    bridgeTransferStatus: transfer.state,
+    depositInstructions,
+    receiptUrl: readString(transfer.receipt?.url),
+    sourceAmount: readString(transfer.amount) ?? input.amount,
+    sourceCurrency: readString(transfer.source.currency) ?? input.sourceAsset,
   };
 }
 

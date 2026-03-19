@@ -8,6 +8,7 @@ import { config } from "./config.js";
 import { sendError } from "./lib/http.js";
 import { authRouter } from "./routes/auth.js";
 import { bridgeRouter } from "./routes/bridge.js";
+import { offrampRouter } from "./routes/offramp.js";
 import { onboardingRouter } from "./routes/onboarding.js";
 import { onrampRouter } from "./routes/onramp.js";
 import { recipientsRouter } from "./routes/recipients.js";
@@ -46,6 +47,7 @@ app.get("/health", (_request, response) => {
 
 app.use("/api/auth", authRouter);
 app.use("/api/bridge", bridgeRouter);
+app.use("/api/offramp", offrampRouter);
 app.use("/api/onboarding", onboardingRouter);
 app.use("/api/onramp", onrampRouter);
 app.use("/api/recipients", recipientsRouter);

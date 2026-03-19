@@ -17,7 +17,11 @@ process.env.BRIDGE_API_KEY = "bridge-api-key";
 process.env.BRIDGE_WEBHOOK_PUBLIC_KEY = publicKeyPem;
 process.env.BRIDGE_WEBHOOK_MAX_AGE_MS = "600000";
 
-const { createBridgeOnrampTransfer, validateBridgeWebhookSignature } = await import("./bridge.js");
+const {
+  createBridgeOfframpTransfer,
+  createBridgeOnrampTransfer,
+  validateBridgeWebhookSignature,
+} = await import("./bridge.js");
 
 function signBridgeWebhookPayload(timestamp: string, rawBody: Buffer) {
   const digest = createHash("sha256")
@@ -183,6 +187,123 @@ test("createBridgeOnrampTransfer requests a EURC destination transfer", async ()
 
     assert.equal(requestedCurrency, "eurc");
     assert.equal(result.destinationAmount, "24.75");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("createBridgeOfframpTransfer requests a USDC source transfer with return instructions", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody:
+    | {
+        destination: { external_account_id: string };
+        return_instructions: { address: string };
+        source: { currency: string; from_address: string };
+      }
+    | null = null;
+
+  globalThis.fetch = async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body));
+
+    return new Response(
+      JSON.stringify({
+        amount: "25",
+        id: "bridge-offramp-transfer-id",
+        receipt: {
+          url: "https://bridge.example/offramp-receipt",
+        },
+        source: {
+          currency: "usdc",
+          payment_rail: "solana",
+        },
+        source_deposit_instructions: {
+          currency: "usdc",
+          from_address: "user-wallet-address",
+          payment_rail: "solana",
+          to_address: "bridge-deposit-wallet",
+        },
+        state: "awaiting_funds",
+      }),
+      {
+        headers: {
+          "Content-Type": "application/json",
+        },
+        status: 200,
+      },
+    );
+  };
+
+  try {
+    const result = await createBridgeOfframpTransfer({
+      amount: "25",
+      bridgeCustomerId: "customer-id",
+      externalAccountId: "external-account-id",
+      returnAddress: "user-wallet-address",
+      sourceAddress: "user-wallet-address",
+      sourceAsset: "usdc",
+    });
+
+    assert.equal(requestBody?.source.currency, "usdc");
+    assert.equal(requestBody?.source.from_address, "user-wallet-address");
+    assert.equal(requestBody?.destination.external_account_id, "external-account-id");
+    assert.equal(requestBody?.return_instructions.address, "user-wallet-address");
+    assert.equal(result.depositInstructions.toAddress, "bridge-deposit-wallet");
+    assert.equal(result.sourceCurrency, "usdc");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("createBridgeOfframpTransfer requests a EURC source transfer", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedCurrency: string | null = null;
+
+  globalThis.fetch = async (_input, init) => {
+    const body = JSON.parse(String(init?.body)) as {
+      source: { currency: string };
+    };
+    requestedCurrency = body.source.currency;
+
+    return new Response(
+      JSON.stringify({
+        amount: "42",
+        id: "bridge-offramp-transfer-id",
+        receipt: {
+          url: "https://bridge.example/offramp-receipt",
+        },
+        source: {
+          currency: "eurc",
+          payment_rail: "solana",
+        },
+        source_deposit_instructions: {
+          currency: "eurc",
+          payment_rail: "solana",
+          to_address: "bridge-deposit-wallet",
+        },
+        state: "awaiting_funds",
+      }),
+      {
+        headers: {
+          "Content-Type": "application/json",
+        },
+        status: 200,
+      },
+    );
+  };
+
+  try {
+    const result = await createBridgeOfframpTransfer({
+      amount: "42",
+      bridgeCustomerId: "customer-id",
+      externalAccountId: "external-account-id",
+      returnAddress: "user-wallet-address",
+      sourceAddress: "user-wallet-address",
+      sourceAsset: "eurc",
+    });
+
+    assert.equal(requestedCurrency, "eurc");
+    assert.equal(result.sourceCurrency, "eurc");
+    assert.equal(result.depositInstructions.toAddress, "bridge-deposit-wallet");
   } finally {
     globalThis.fetch = originalFetch;
   }

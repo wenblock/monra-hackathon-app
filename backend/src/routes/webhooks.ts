@@ -2,7 +2,8 @@ import express, { Router } from "express";
 
 import {
   applyAlchemyWebhookEffects,
-  applyBridgeOnrampWebhookUpdate,
+  applyBridgeTransferWebhookUpdate,
+  getOfframpByBroadcastDetails,
   getRecipientByWalletAddressForUser,
   getPendingOnrampByDestinationTxHash,
   getUserBalancesByUserId,
@@ -16,6 +17,7 @@ import {
   isSolanaTransactionSuccessful,
   validateAlchemyWebhookSignature,
 } from "../lib/alchemy.js";
+import { isOfframpSourceAsset } from "../lib/assets.js";
 import {
   describeBridgeWebhookSignatureHeader,
   validateBridgeWebhookSignature,
@@ -33,6 +35,16 @@ type AlchemyWebhookEffect =
   | {
       type: "ledger";
       entry: WebhookLedgerEntryInput;
+    }
+  | {
+      type: "offramp_broadcast";
+      transactionId: number;
+      txHash: string;
+      amountDecimal: string;
+      amountRaw: string;
+      fromWalletAddress: string;
+      toWalletAddress?: string | null;
+      confirmedAt: Date;
     }
   | {
       type: "onramp_completion";
@@ -85,7 +97,7 @@ bridgeWebhookRouter.post(
         return response.status(200).json({ ignored: true });
       }
 
-      const result = await applyBridgeOnrampWebhookUpdate({
+      const result = await applyBridgeTransferWebhookUpdate({
         bridgeDestinationTxHash: event.bridgeDestinationTxHash,
         bridgeTransferId: event.bridgeTransferId,
         bridgeTransferStatus: event.bridgeTransferStatus,
@@ -192,6 +204,34 @@ alchemyWebhookRouter.post(
               type: "onramp_completion",
             });
             continue;
+          }
+
+          if (
+            entry.entryType === "transfer" &&
+            entry.direction === "outbound" &&
+            isOfframpSourceAsset(entry.asset)
+          ) {
+            const pendingOfframp = await getOfframpByBroadcastDetails({
+              amountRaw: entry.amountRaw,
+              asset: entry.asset,
+              trackedWalletAddress: entry.trackedWalletAddress,
+              userId: entry.userId,
+              walletAddress: entry.counterpartyWalletAddress ?? null,
+            });
+
+            if (pendingOfframp) {
+              effects.push({
+                amountDecimal: entry.amountDecimal,
+                amountRaw: entry.amountRaw,
+                confirmedAt: entry.confirmedAt,
+                fromWalletAddress: entry.fromWalletAddress,
+                toWalletAddress: entry.counterpartyWalletAddress ?? null,
+                transactionId: pendingOfframp.id,
+                txHash: signature,
+                type: "offramp_broadcast",
+              });
+              continue;
+            }
           }
 
           const recipient =

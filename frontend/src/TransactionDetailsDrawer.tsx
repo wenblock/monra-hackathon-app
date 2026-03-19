@@ -17,6 +17,7 @@ import {
   getTransactionExplorerSignature,
   getTransactionCounterpartyDisplay,
   getTransactionCounterpartyWalletAddress,
+  isOfframpTransaction,
   isOnrampTransaction,
 } from "@/transaction-display";
 import type { AppTransaction } from "@/types";
@@ -56,6 +57,8 @@ function TransactionDetailsDrawer({
                     <SheetTitle className="text-xl text-foreground">
                       {isOnrampTransaction(transaction)
                         ? "On-ramp"
+                        : isOfframpTransaction(transaction)
+                          ? "Off-ramp"
                         : transaction.direction === "inbound"
                           ? "Received"
                           : "Send"}
@@ -76,6 +79,8 @@ function TransactionDetailsDrawer({
 
             {isOnrampTransaction(transaction) ? (
               <OnrampDetails transaction={transaction} explorerSignature={explorerSignature} />
+            ) : isOfframpTransaction(transaction) ? (
+              <OfframpDetails transaction={transaction} explorerSignature={explorerSignature} />
             ) : (
               <div className="space-y-5 p-6">
                 <DetailBlock
@@ -125,6 +130,95 @@ function TransactionDetailsDrawer({
         ) : null}
       </SheetContent>
     </Sheet>
+  );
+}
+
+function OfframpDetails({
+  explorerSignature,
+  transaction,
+}: {
+  explorerSignature: string | null;
+  transaction: AppTransaction;
+}) {
+  const instructions = transaction.bridgeSourceDepositInstructions;
+  const lifecycleLabel =
+    transaction.status === "confirmed"
+      ? "Completed"
+      : transaction.status === "failed"
+        ? "Failed"
+        : explorerSignature
+          ? "Broadcasted"
+          : "Created";
+
+  return (
+    <div className="space-y-5 p-6">
+      <DetailBlock
+        label={lifecycleLabel}
+        value={formatActivityAbsoluteTimestamp(transaction.confirmedAt ?? transaction.createdAt)}
+      />
+
+      <DetailBlock
+        label="Bank recipient"
+        value={transaction.counterpartyName ?? "Saved bank recipient"}
+      />
+
+      <DetailBlock
+        label="Source amount"
+        value={formatOfframpSourceAmount(transaction)}
+      />
+
+      <DetailBlock label="Bridge transfer" value={transaction.bridgeTransferId ?? "Unavailable"} monospace />
+
+      <DetailBlock
+        label="Bridge status"
+        value={formatBridgeTransferStatus(transaction.bridgeTransferStatus)}
+      />
+
+      <DetailBlock label="Source wallet" value={transaction.trackedWalletAddress} monospace />
+
+      {instructions?.toAddress ? (
+        <DetailBlock label="Bridge deposit address" value={instructions.toAddress} monospace />
+      ) : null}
+
+      {instructions?.blockchainMemo ? (
+        <DetailBlock label="Blockchain memo" value={instructions.blockchainMemo} monospace />
+      ) : null}
+
+      {explorerSignature ? (
+        <>
+          <DetailBlock label="Source tx hash" value={explorerSignature} monospace />
+          <a
+            className="inline-flex items-center gap-2 text-sm font-medium text-primary transition-colors hover:text-primary/80"
+            href={`https://explorer.solana.com/tx/${explorerSignature}`}
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            View on Solana Explorer
+            <ExternalLink className="size-4" />
+          </a>
+        </>
+      ) : null}
+
+      {transaction.bridgeReceiptUrl ? (
+        <a
+          className="inline-flex items-center gap-2 text-sm font-medium text-primary transition-colors hover:text-primary/80"
+          href={transaction.bridgeReceiptUrl}
+          rel="noopener noreferrer"
+          target="_blank"
+        >
+          Open Bridge receipt
+          <ExternalLink className="size-4" />
+        </a>
+      ) : null}
+
+      {transaction.networkFeeDisplay ? (
+        <DetailBlock label="Network fee" value={`${transaction.networkFeeDisplay} SOL`} />
+      ) : null}
+
+      {transaction.failureReason ? (
+        <DetailBlock label="Failure reason" value={transaction.failureReason} />
+      ) : null}
+    </div>
   );
 }
 
@@ -265,6 +359,28 @@ function formatSourceAmount(transaction: AppTransaction) {
   return transaction.bridgeSourceCurrency
     ? `${transaction.bridgeSourceAmount} ${transaction.bridgeSourceCurrency.toUpperCase()}`
     : transaction.bridgeSourceAmount;
+}
+
+function formatOfframpSourceAmount(transaction: AppTransaction) {
+  if (!transaction.bridgeSourceAmount) {
+    return `${transaction.amountDisplay} ${transaction.asset.toUpperCase()}`;
+  }
+
+  return transaction.bridgeSourceCurrency
+    ? `${transaction.bridgeSourceAmount} ${transaction.bridgeSourceCurrency.toUpperCase()}`
+    : transaction.bridgeSourceAmount;
+}
+
+function formatBridgeTransferStatus(status: AppTransaction["bridgeTransferStatus"]) {
+  if (!status) {
+    return "Unavailable";
+  }
+
+  return status
+    .split("_")
+    .filter(Boolean)
+    .map(part => part[0]?.toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 export default TransactionDetailsDrawer;
