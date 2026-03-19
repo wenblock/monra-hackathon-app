@@ -818,6 +818,23 @@ export async function resolveRecipientIdByWalletAddressForUser(
   }
 }
 
+export async function getRecipientByWalletAddressForUser(
+  userId: number,
+  walletAddress: string | null,
+) {
+  if (!walletAddress) {
+    return null;
+  }
+
+  const client = await pool.connect();
+
+  try {
+    return getRecipientByWalletAddressForUserClient(client, userId, walletAddress);
+  } finally {
+    client.release();
+  }
+}
+
 export async function closeDatabase() {
   await pool.end();
 }

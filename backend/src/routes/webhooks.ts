@@ -2,10 +2,10 @@ import express, { Router } from "express";
 
 import {
   applyWebhookLedgerEntries,
+  getRecipientByWalletAddressForUser,
   getUserBalancesByUserId,
   getUsersBySolanaAddresses,
   listTransactionsByUserIdPaginated,
-  resolveRecipientIdByWalletAddressForUser,
   type WebhookLedgerEntryInput,
 } from "../db.js";
 import {
@@ -69,9 +69,9 @@ alchemyWebhookRouter.post(
         });
 
         for (const entry of normalizedEntries) {
-          const recipientId =
+          const recipient =
             entry.direction === "outbound" && entry.entryType === "transfer"
-              ? await resolveRecipientIdByWalletAddressForUser(
+              ? await getRecipientByWalletAddressForUser(
                   entry.userId,
                   entry.counterpartyWalletAddress ?? null,
                 )
@@ -79,7 +79,11 @@ alchemyWebhookRouter.post(
 
           ledgerEntries.push({
             ...entry,
-            recipientId,
+            counterpartyName:
+              recipient?.displayName ??
+              entry.counterpartyName ??
+              null,
+            recipientId: recipient?.id ?? null,
             webhookEventId: event.eventId,
           });
         }

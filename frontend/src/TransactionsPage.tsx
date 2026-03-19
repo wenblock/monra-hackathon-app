@@ -1,5 +1,5 @@
 import { useGetAccessToken } from "@coinbase/cdp-hooks";
-import { ArrowDownLeft, ArrowUpRight, Send } from "lucide-react";
+import { Send } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import AppShell from "@/AppShell";
@@ -7,13 +7,7 @@ import { fetchTransactions } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  formatActivityAmount,
-  formatActivitySubtitle,
-  formatActivityTimestamp,
-  formatActivityTitle,
-  getTransactionDirectionTone,
-} from "@/transaction-display";
+import TransactionActivityList from "@/TransactionActivityList";
 import type { AppTransaction } from "@/types";
 
 const pageSize = 20;
@@ -135,40 +129,7 @@ function TransactionsPage() {
               </div>
             ) : (
               <>
-                <div className="space-y-3">
-                  {transactions.map(transaction => (
-                    <div
-                      key={transaction.id}
-                      className="flex flex-col gap-3 rounded-[calc(var(--radius)+2px)] border border-border/70 bg-background/70 px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <div className="flex min-w-0 items-center gap-4">
-                        <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-secondary text-foreground">
-                          {transaction.direction === "inbound" ? (
-                            <ArrowDownLeft className="size-5" />
-                          ) : (
-                            <ArrowUpRight className="size-5" />
-                          )}
-                        </span>
-                        <div className="min-w-0">
-                          <p className="font-semibold text-foreground">
-                            {formatActivityTitle(transaction)}
-                          </p>
-                          <p className="truncate text-sm text-muted-foreground">
-                            {formatActivitySubtitle(transaction)}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-between gap-4 sm:block sm:text-right">
-                        <p className={`text-lg font-semibold ${getTransactionDirectionTone(transaction)}`}>
-                          {formatActivityAmount(transaction)}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          {formatActivityTimestamp(transaction.confirmedAt ?? transaction.createdAt)}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <TransactionActivityList transactions={transactions} />
 
                 {nextCursor ? (
                   <div className="flex justify-center pt-2">
