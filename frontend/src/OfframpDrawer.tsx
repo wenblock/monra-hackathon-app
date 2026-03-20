@@ -1,13 +1,10 @@
 import { useSendSolanaTransaction } from "@coinbase/cdp-hooks";
-import { PublicKey } from "@solana/web3.js";
 import { ArrowUpRight, CheckCircle2, Landmark, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import {
   OFFRAMP_SOURCE_ASSETS,
-  getTransferAssetDecimals,
   getTransferAssetLabel,
-  getTransferAssetMintAddress,
 } from "@/assets";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,17 +24,12 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import {
+  buildBankRecipientPayload as buildSharedBankRecipientPayload,
+  type BankRecipientDraft,
+} from "@/features/recipients/recipient-payloads";
+import { getWalletTransferFeeHint } from "@/features/wallet/fee-hints";
 import { SEPA_COUNTRIES } from "@/sepa-countries";
-import {
-  buildSerializedTransferTransaction,
-  findAssociatedTokenAddress,
-  parseTransferAmount,
-} from "@/solana-transfer";
-import {
-  ensureSufficientSolForTransfer,
-  getSolanaTransferFeeHint,
-  normalizeSolanaSendError,
-} from "@/solana-send";
 import type {
   AppTransaction,
   CreateOfframpPayload,
@@ -64,11 +56,9 @@ interface OfframpDrawerProps {
   senderAddress: string | null;
 }
 
-type BankRecipientTypeOption = "individual" | "business" | "";
-
-const emptyBankForm = {
+const emptyBankForm: BankRecipientDraft = {
   bankCountryCode: "",
-  recipientType: "" as BankRecipientTypeOption,
+  recipientType: "",
   firstName: "",
   lastName: "",
   businessName: "",
@@ -115,7 +105,7 @@ function OfframpDrawer({
   const selectedRecipient =
     bankRecipients.find(recipient => String(recipient.id) === selectedRecipientId) ?? null;
   const availableRawBalance = balances?.[sourceAsset].raw ?? "0";
-  const splTransferFeeHint = getSolanaTransferFeeHint({
+  const splTransferFeeHint = getWalletTransferFeeHint({
     asset: sourceAsset,
     balances,
   });
@@ -158,8 +148,9 @@ function OfframpDrawer({
         throw new Error("Select a bank recipient.");
       }
 
-      const parsedAmount = parseTransferAmount(amount, getTransferAssetDecimals(sourceAsset));
-      const minimumRaw = 3n * 10n ** BigInt(getTransferAssetDecimals(sourceAsset));
+      const walletRuntime = await import("@/features/wallet/runtime");
+      const parsedAmount = walletRuntime.parseAssetAmount(amount, sourceAsset);
+      const minimumRaw = 3n * 10n ** BigInt(walletRuntime.getAssetDecimals(sourceAsset));
       const availableBalance = BigInt(availableRawBalance);
 
       if (parsedAmount.raw < minimumRaw) {
@@ -202,13 +193,14 @@ function OfframpDrawer({
       throw new Error("Bridge did not return a Solana deposit address.");
     }
 
+    let walletRuntime: typeof import("@/features/wallet/runtime") | null = null;
     let needsRecipientTokenAccountCreation = false;
 
     try {
       setError(null);
       setIsBroadcasting(true);
+      walletRuntime = await import("@/features/wallet/runtime");
 
-      const mint = new PublicKey(getTransferAssetMintAddress(transaction.asset));
       const directTokenAccountContext = await onFetchTransactionContext({
         asset: transaction.asset,
         senderAddress,
@@ -217,12 +209,14 @@ function OfframpDrawer({
       });
       const hasDirectTokenAccount = directTokenAccountContext.recipientTokenAccountExists ?? false;
       let transactionContext = directTokenAccountContext;
+      let recipientTokenAccountAddress: string | undefined =
+        hasDirectTokenAccount ? depositAddress : undefined;
 
       if (!hasDirectTokenAccount) {
-        const recipientTokenAccountAddress = findAssociatedTokenAddress(
-          new PublicKey(depositAddress),
-          mint,
-        ).toBase58();
+        recipientTokenAccountAddress = walletRuntime.getRecipientTokenAccountAddress(
+          transaction.asset,
+          depositAddress,
+        );
         transactionContext = await onFetchTransactionContext({
           asset: transaction.asset,
           senderAddress,
@@ -230,40 +224,37 @@ function OfframpDrawer({
           recipientTokenAccountAddress,
         });
       }
-      needsRecipientTokenAccountCreation =
-        !hasDirectTokenAccount && !(transactionContext.recipientTokenAccountExists ?? false);
 
-      ensureSufficientSolForTransfer({
-        asset: transaction.asset,
-        needsRecipientTokenAccountCreation,
-        solBalanceRaw: balances?.sol.raw,
-      });
-
-      const serializedTransaction = buildSerializedTransferTransaction({
+      const preparedTransaction = walletRuntime.prepareTransferTransaction({
         amountRaw: BigInt(transaction.amountRaw),
         asset: transaction.asset,
+        balances,
         recentBlockhash: transactionContext.recentBlockhash,
         recipientAddress: depositAddress,
-        recipientTokenAccountAddress: hasDirectTokenAccount ? depositAddress : undefined,
+        recipientTokenAccountAddress: hasDirectTokenAccount ? depositAddress : recipientTokenAccountAddress,
         recipientTokenAccountExists: transactionContext.recipientTokenAccountExists ?? false,
         senderAddress,
       });
+      needsRecipientTokenAccountCreation = preparedTransaction.needsRecipientTokenAccountCreation;
 
       const result = await sendSolanaTransaction({
         solanaAccount: senderAddress,
         network: "solana",
-        transaction: serializedTransaction,
+        transaction: preparedTransaction.serializedTransaction,
       });
 
       setTransactionSignature(result.transactionSignature);
     } catch (broadcastError) {
       console.error("Unable to broadcast the off-ramp transaction.", broadcastError);
-      setError(
-        normalizeSolanaSendError(broadcastError, {
-          asset: transaction.asset,
-          needsRecipientTokenAccountCreation,
-        }),
-      );
+      if (!walletRuntime) {
+        setError("Unable to load the wallet transaction runtime.");
+        return;
+      }
+
+      setError(walletRuntime.normalizeWalletTransactionError(broadcastError, {
+        asset: transaction.asset,
+        needsRecipientTokenAccountCreation,
+      }));
     } finally {
       setIsBroadcasting(false);
     }
@@ -440,7 +431,7 @@ function OfframpDrawer({
                   </Button>
                 </div>
 
-                <Select value={selectedRecipientId || undefined} onValueChange={setSelectedRecipientId}>
+                <Select value={selectedRecipientId} onValueChange={setSelectedRecipientId}>
                   <SelectTrigger>
                     <SelectValue placeholder="Choose a bank recipient" />
                   </SelectTrigger>
@@ -509,7 +500,7 @@ function OfframpDrawer({
                       onValueChange={value =>
                         setBankForm(current => ({
                           ...current,
-                          recipientType: value as BankRecipientTypeOption,
+                          recipientType: value as BankRecipientDraft["recipientType"],
                         }))
                       }
                     >
@@ -706,64 +697,7 @@ function DetailBlock({
 function buildBankRecipientPayload(
   bankForm: typeof emptyBankForm,
 ): Extract<CreateRecipientPayload, { kind: "bank" }> {
-  if (!bankForm.bankCountryCode) {
-    throw new Error("Bank country is required.");
-  }
-
-  if (!bankForm.recipientType) {
-    throw new Error("Recipient type is required.");
-  }
-
-  const bankName = bankForm.bankName.trim();
-  const iban = bankForm.iban.trim().toUpperCase().replace(/\s+/g, "");
-  const bic = bankForm.bic.trim().toUpperCase().replace(/\s+/g, "");
-
-  if (!bankName) {
-    throw new Error("Bank name is required.");
-  }
-
-  if (!iban) {
-    throw new Error("IBAN is required.");
-  }
-
-  if (!bic) {
-    throw new Error("BIC is required.");
-  }
-
-  if (bankForm.recipientType === "individual") {
-    const firstName = bankForm.firstName.trim();
-    const lastName = bankForm.lastName.trim();
-
-    if (!firstName || !lastName) {
-      throw new Error("First name and last name are required.");
-    }
-
-    return {
-      kind: "bank",
-      recipientType: "individual",
-      bankCountryCode: bankForm.bankCountryCode,
-      firstName,
-      lastName,
-      bankName,
-      iban,
-      bic,
-    };
-  }
-
-  const businessName = bankForm.businessName.trim();
-  if (!businessName) {
-    throw new Error("Business name is required.");
-  }
-
-  return {
-    kind: "bank",
-    recipientType: "business",
-    bankCountryCode: bankForm.bankCountryCode,
-    businessName,
-    bankName,
-    iban,
-    bic,
-  };
+  return buildSharedBankRecipientPayload(bankForm);
 }
 
 export default OfframpDrawer;

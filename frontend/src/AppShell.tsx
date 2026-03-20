@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { useSignOut, useSolanaAddress } from "@coinbase/cdp-hooks";
 import { Check, Copy, Menu, Wallet } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
@@ -5,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { sidebarItems } from "@/dashboard-view-models";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import InlineNotice from "@/components/ui/inline-notice";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -15,18 +17,20 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import { logRuntimeError } from "@/lib/log-runtime-error";
 import { cn } from "@/lib/utils";
-import { navigateTo, usePathname } from "@/router";
 
 interface AppShellProps {
   alerts?: ReactNode;
   children: ReactNode;
+  notice?: ReactNode;
 }
 
-function AppShell({ alerts, children }: AppShellProps) {
+function AppShell({ alerts, children, notice }: AppShellProps) {
   const { solanaAddress } = useSolanaAddress();
   const { signOut } = useSignOut();
   const [isCopied, setIsCopied] = useState(false);
+  const [clipboardError, setClipboardError] = useState<string | null>(null);
 
   const formattedAddress = useMemo(() => {
     if (!solanaAddress) return "Wallet pending";
@@ -39,8 +43,10 @@ function AppShell({ alerts, children }: AppShellProps) {
     try {
       await navigator.clipboard.writeText(solanaAddress);
       setIsCopied(true);
+      setClipboardError(null);
     } catch (error) {
-      console.error(error);
+      logRuntimeError("Unable to copy wallet address.", error);
+      setClipboardError("Unable to copy the wallet address. Copy it manually for now.");
     }
   }, [solanaAddress]);
 
@@ -49,6 +55,12 @@ function AppShell({ alerts, children }: AppShellProps) {
     const timeout = setTimeout(() => setIsCopied(false), 1800);
     return () => clearTimeout(timeout);
   }, [isCopied]);
+
+  useEffect(() => {
+    if (!solanaAddress) {
+      setClipboardError(null);
+    }
+  }, [solanaAddress]);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -113,6 +125,16 @@ function AppShell({ alerts, children }: AppShellProps) {
 
           <main className="flex-1">
             <div className="flex w-full flex-col py-4 sm:py-5">
+              {clipboardError ? (
+                <div className="mb-5">
+                  <InlineNotice variant="warning" title="Copy unavailable">
+                    {clipboardError}
+                  </InlineNotice>
+                </div>
+              ) : null}
+
+              {notice ? <div className="mb-5">{notice}</div> : null}
+
               <div className="mb-4 flex items-center justify-between gap-3 sm:hidden">
                 <div className="flex min-w-0 items-center gap-2">
                   <Badge variant="secondary">Solana Mainnet</Badge>
@@ -137,8 +159,6 @@ function AppShell({ alerts, children }: AppShellProps) {
 }
 
 function SidebarContent({ compact = false }: { compact?: boolean }) {
-  const pathname = usePathname();
-
   return (
     <ScrollArea className="flex-1">
       <div className={cn("flex min-h-full flex-col gap-6 p-6", compact && "pt-2")}>
@@ -161,37 +181,61 @@ function SidebarContent({ compact = false }: { compact?: boolean }) {
         <nav className="space-y-2">
           {sidebarItems.map(item => {
             const Icon = item.icon;
-            const isActive = item.href !== undefined && pathname === item.href;
             const isDisabled = item.href === undefined;
+
+            if (item.href) {
+              return (
+                <Link
+                  key={item.id}
+                  to={item.href}
+                  preload="intent"
+                  className="flex w-full items-start gap-3 rounded-3xl border px-4 py-3 text-left transition-colors"
+                  activeProps={{
+                    className:
+                      "border-sidebar-foreground/15 bg-sidebar-accent text-sidebar-foreground",
+                  }}
+                  inactiveProps={{
+                    className:
+                      "border-transparent text-sidebar-foreground/65 hover:border-sidebar-border hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+                  }}
+                >
+                  {({ isActive }) => (
+                    <>
+                      <span
+                        className={cn(
+                          "mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-2xl",
+                          isActive
+                            ? "bg-sidebar-foreground/10"
+                            : "bg-sidebar-accent/80",
+                        )}
+                      >
+                        <Icon className="size-4" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-sm font-semibold">{item.label}</span>
+                        <span className="block text-xs text-inherit/70">{item.caption}</span>
+                      </span>
+                    </>
+                  )}
+                </Link>
+              );
+            }
 
             return (
               <button
                 key={item.id}
                 type="button"
-                onClick={() => {
-                  if (!item.href) {
-                    return;
-                  }
-
-                  navigateTo(item.href);
-                }}
                 disabled={isDisabled}
                 className={cn(
                   "flex w-full items-start gap-3 rounded-3xl border px-4 py-3 text-left transition-colors",
-                  isActive
-                    ? "border-sidebar-foreground/15 bg-sidebar-accent text-sidebar-foreground"
-                    : "border-transparent text-sidebar-foreground/65 hover:border-sidebar-border hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+                  "border-transparent text-sidebar-foreground/65 hover:border-sidebar-border hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
                   isDisabled && "cursor-default opacity-80 hover:border-transparent hover:bg-transparent",
                 )}
               >
                 <span
                   className={cn(
                     "mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-2xl",
-                    isActive
-                      ? "bg-sidebar-foreground/10"
-                      : isDisabled
-                        ? "bg-sidebar-accent/40"
-                        : "bg-sidebar-accent/80",
+                    isDisabled ? "bg-sidebar-accent/40" : "bg-sidebar-accent/80",
                   )}
                 >
                   <Icon className="size-4" />

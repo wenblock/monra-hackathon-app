@@ -1,7 +1,7 @@
+import { Link } from "@tanstack/react-router";
 import { useSolanaAddress } from "@coinbase/cdp-hooks";
 import { ExternalLink, Mail, MapPin, Send, ShieldCheck, WalletCards } from "lucide-react";
-import QRCode from "qrcode";
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 
 import AppShell, { AlertBarItem } from "@/AppShell";
 import { quickActions } from "@/dashboard-view-models";
@@ -23,14 +23,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import InlineNotice from "@/components/ui/inline-notice";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TRANSFER_ASSETS, getTransferAssetLabel } from "@/assets";
+import { logRuntimeError } from "@/lib/log-runtime-error";
 import { cn } from "@/lib/utils";
-import OfframpDrawer from "@/OfframpDrawer";
-import OnrampDrawer from "@/OnrampDrawer";
-import SendDrawer from "@/SendDrawer";
-import { navigateTo } from "@/router";
 import TransactionActivityList from "@/TransactionActivityList";
 import type {
   AppTransaction,
@@ -44,6 +42,13 @@ import type {
   SolanaBalancesResponse,
   SolanaTransactionContextResponse,
 } from "@/types";
+
+const LazyOfframpDrawer = lazy(() => import("@/OfframpDrawer"));
+const LazyOnrampDrawer = lazy(() => import("@/OnrampDrawer"));
+const LazySendDrawer = lazy(() => import("@/SendDrawer"));
+
+const TOS_IFRAME_SANDBOX =
+  "allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts";
 
 interface Props {
   balances?: SolanaBalancesResponse["balances"];
@@ -87,6 +92,9 @@ function Dashboard({
   const [isSendDrawerOpen, setIsSendDrawerOpen] = useState(false);
   const [persistedSolanaAddress, setPersistedSolanaAddress] = useState<string | null>(null);
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string | null>(null);
+  const [dashboardNotice, setDashboardNotice] = useState<string | null>(null);
+  const [tosEmbedError, setTosEmbedError] = useState(false);
+  const [kycDialogNotice, setKycDialogNotice] = useState<string | null>(null);
 
   const effectiveSolanaAddress = user.solanaAddress ?? solanaAddress ?? null;
   const showKycAlert = bridge.showKycAlert;
@@ -105,8 +113,12 @@ function Dashboard({
   const refreshBridgeStatus = useCallback(async () => {
     try {
       await onRefreshBridgeStatus();
+      setDashboardNotice(null);
     } catch (error) {
-      console.error(error);
+      logRuntimeError("Unable to refresh Bridge status.", error);
+      setDashboardNotice(
+        "Unable to refresh your Bridge status right now. You can keep using the verification links and retry shortly.",
+      );
     }
   }, [onRefreshBridgeStatus]);
 
@@ -117,45 +129,64 @@ function Dashboard({
 
     setPersistedSolanaAddress(effectiveSolanaAddress);
     void onPersistSolanaAddress(effectiveSolanaAddress).catch(error => {
-      console.error(error);
+      logRuntimeError("Unable to persist Solana address.", error);
+      setDashboardNotice(
+        "Your wallet address could not be synced to the backend yet. Refresh the page and try again if this persists.",
+      );
       setPersistedSolanaAddress(null);
     });
   }, [effectiveSolanaAddress, onPersistSolanaAddress, persistedSolanaAddress, user.solanaAddress]);
 
   useEffect(() => {
-    if (!user.bridgeKycLink) {
+    const bridgeKycLink = user.bridgeKycLink;
+
+    if (!isKycDialogOpen || !bridgeKycLink) {
       setQrCodeDataUrl(null);
+      setKycDialogNotice(null);
       return;
     }
 
     let cancelled = false;
 
-    void QRCode.toDataURL(user.bridgeKycLink, {
-      margin: 1,
-      width: 280,
-    })
+    void import("qrcode")
+      .then(({ default: QRCode }) =>
+        QRCode.toDataURL(bridgeKycLink, {
+          margin: 1,
+          width: 280,
+        }),
+      )
       .then((result: string) => {
         if (!cancelled) {
           setQrCodeDataUrl(result);
+          setKycDialogNotice(null);
         }
       })
       .catch((error: unknown) => {
-        console.error(error);
+        logRuntimeError("Unable to generate Bridge KYC QR code.", error);
         if (!cancelled) {
           setQrCodeDataUrl(null);
+          setKycDialogNotice(
+            "We could not generate the QR code. Continue in a new tab on this device instead.",
+          );
         }
       });
 
     return () => {
       cancelled = true;
     };
-  }, [user.bridgeKycLink]);
+  }, [isKycDialogOpen, user.bridgeKycLink]);
 
   useEffect(() => {
     if (!bridge.showTosAlert) {
       setDismissedTosAlert(false);
     }
   }, [bridge.showTosAlert]);
+
+  useEffect(() => {
+    if (!isTosDialogOpen) {
+      setTosEmbedError(false);
+    }
+  }, [isTosDialogOpen]);
 
   useEffect(() => {
     if (!isTosDialogOpen || !user.bridgeTosLink) {
@@ -167,7 +198,10 @@ function Dashboard({
     try {
       tosOrigin = new URL(user.bridgeTosLink).origin;
     } catch (error) {
-      console.error(error);
+      logRuntimeError("Unable to parse Bridge terms URL.", error);
+      setDashboardNotice(
+        "The Bridge terms link could not be opened in-app. Use the external link to continue.",
+      );
       return;
     }
 
@@ -230,8 +264,14 @@ function Dashboard({
       </>
     ) : undefined;
 
+  const shellNotice = dashboardNotice ? (
+    <InlineNotice variant="warning" title="Action needed">
+      {dashboardNotice}
+    </InlineNotice>
+  ) : null;
+
   return (
-    <AppShell alerts={alerts}>
+    <AppShell alerts={alerts} notice={shellNotice}>
       <div className="space-y-6">
         <section className="grid gap-4 xl:grid-cols-[1.3fr_0.9fr]">
           <Card className="overflow-hidden">
@@ -365,8 +405,8 @@ function Dashboard({
           <CardHeader className="pb-5">
             <div className="flex items-center justify-between gap-3">
               <CardTitle>Recent Activity</CardTitle>
-              <Button type="button" variant="ghost" size="sm" onClick={() => navigateTo("/transactions")}>
-                See all
+              <Button type="button" variant="ghost" size="sm" asChild>
+                <Link to="/transactions">See all</Link>
               </Button>
             </div>
           </CardHeader>
@@ -401,33 +441,45 @@ function Dashboard({
         </Card>
       </div>
 
-      <OnrampDrawer
-        onCreateOnramp={onCreateOnramp}
-        onOpenChange={setIsOnrampDrawerOpen}
-        open={isOnrampDrawerOpen}
-        walletAddress={user.solanaAddress}
-      />
+      {isOnrampDrawerOpen ? (
+        <Suspense fallback={null}>
+          <LazyOnrampDrawer
+            onCreateOnramp={onCreateOnramp}
+            onOpenChange={setIsOnrampDrawerOpen}
+            open={isOnrampDrawerOpen}
+            walletAddress={user.solanaAddress}
+          />
+        </Suspense>
+      ) : null}
 
-      <OfframpDrawer
-        balances={balances}
-        onCreateBankRecipient={onCreateRecipient}
-        onCreateOfframp={onCreateOfframp}
-        onFetchTransactionContext={onFetchSolanaTransactionContext}
-        onOpenChange={setIsOfframpDrawerOpen}
-        open={isOfframpDrawerOpen}
-        recipients={recipients}
-        senderAddress={effectiveSolanaAddress}
-      />
+      {isOfframpDrawerOpen ? (
+        <Suspense fallback={null}>
+          <LazyOfframpDrawer
+            balances={balances}
+            onCreateBankRecipient={onCreateRecipient}
+            onCreateOfframp={onCreateOfframp}
+            onFetchTransactionContext={onFetchSolanaTransactionContext}
+            onOpenChange={setIsOfframpDrawerOpen}
+            open={isOfframpDrawerOpen}
+            recipients={recipients}
+            senderAddress={effectiveSolanaAddress}
+          />
+        </Suspense>
+      ) : null}
 
-      <SendDrawer
-        balances={balances}
-        onCreateWalletRecipient={onCreateRecipient}
-        onFetchTransactionContext={onFetchSolanaTransactionContext}
-        onOpenChange={setIsSendDrawerOpen}
-        open={isSendDrawerOpen}
-        recipients={recipients}
-        senderAddress={effectiveSolanaAddress}
-      />
+      {isSendDrawerOpen ? (
+        <Suspense fallback={null}>
+          <LazySendDrawer
+            balances={balances}
+            onCreateWalletRecipient={onCreateRecipient}
+            onFetchTransactionContext={onFetchSolanaTransactionContext}
+            onOpenChange={setIsSendDrawerOpen}
+            open={isSendDrawerOpen}
+            recipients={recipients}
+            senderAddress={effectiveSolanaAddress}
+          />
+        </Suspense>
+      ) : null}
 
       <Dialog open={isTosDialogOpen} onOpenChange={setIsTosDialogOpen}>
         <DialogContent className="sm:max-w-4xl">
@@ -438,11 +490,36 @@ function Dashboard({
             </DialogDescription>
           </DialogHeader>
           {user.bridgeTosLink ? (
-            <iframe
-              title="Bridge Terms of Service"
-              src={user.bridgeTosLink}
-              className="h-[70vh] w-full rounded-[calc(var(--radius)+2px)] border"
-            />
+            <div className="space-y-4">
+              {tosEmbedError ? (
+                <InlineNotice variant="warning" title="Embedded terms unavailable">
+                  This page could not be embedded. Open the terms in a new tab to continue.
+                </InlineNotice>
+              ) : null}
+              <iframe
+                title="Bridge Terms of Service"
+                src={user.bridgeTosLink}
+                className="h-[70vh] w-full rounded-[calc(var(--radius)+2px)] border"
+                loading="lazy"
+                referrerPolicy="strict-origin-when-cross-origin"
+                sandbox={TOS_IFRAME_SANDBOX}
+                onError={() => {
+                  setTosEmbedError(true);
+                  setDashboardNotice(
+                    "The embedded Bridge terms page could not be loaded. Use the external link to continue.",
+                  );
+                }}
+              />
+              <div className="rounded-[calc(var(--radius)+2px)] border border-dashed border-border bg-secondary/30 px-4 py-3 text-sm text-muted-foreground">
+                If the embedded terms page does not load, open it in a new tab and return here after accepting.
+              </div>
+              <Button type="button" variant="secondary" asChild>
+                <a href={user.bridgeTosLink} target="_blank" rel="noopener noreferrer">
+                  Open terms in new tab
+                  <ExternalLink className="size-4" />
+                </a>
+              </Button>
+            </div>
           ) : (
             <p className="text-sm text-muted-foreground">Terms link unavailable.</p>
           )}
@@ -459,6 +536,11 @@ function Dashboard({
           </DialogHeader>
 
           <div className="space-y-4">
+            {kycDialogNotice ? (
+              <InlineNotice variant="warning" title="QR code unavailable">
+                {kycDialogNotice}
+              </InlineNotice>
+            ) : null}
             <div className="flex justify-center rounded-[calc(var(--radius)+2px)] border bg-secondary/30 p-5">
               {qrCodeDataUrl ? (
                 <img
@@ -586,4 +668,5 @@ function formatBridgeStatus(status: string) {
     .join(" ");
 }
 
+export { TOS_IFRAME_SANDBOX };
 export default Dashboard;

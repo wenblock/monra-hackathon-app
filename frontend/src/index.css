@@ -1,5 +1,26 @@
-@import url("https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=Geist+Mono:wght@100..900&display=swap");
 @import "tailwindcss";
+
+@font-face {
+  font-family: "Geist";
+  src:
+    local("Geist"),
+    local("Geist Regular"),
+    local("Geist Variable");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 100 900;
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  src:
+    local("Geist Mono"),
+    local("GeistMono"),
+    local("Geist Mono Variable");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 100 900;
+}
 
 @theme inline {
   --color-background: var(--background);
@@ -68,7 +89,7 @@
   }
 
   html {
-    scroll-behavior: smooth;
+    scroll-behavior: auto;
   }
 
   body {
@@ -98,5 +119,26 @@
   ::selection {
     background: color-mix(in srgb, var(--primary) 28%, white);
     color: var(--foreground);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
   }
 }

@@ -1,13 +1,10 @@
 import type { LucideIcon } from "lucide-react";
 import {
-  ArrowDownLeft,
-  ArrowUpRight,
   CreditCard,
   Landmark,
   LayoutDashboard,
   ReceiptText,
   Send,
-  Sparkles,
   Users,
 } from "lucide-react";
 
@@ -33,16 +30,6 @@ export interface QuickAction {
   label: string;
   description: string;
   icon: LucideIcon;
-}
-
-export interface ActivityRow {
-  id: string;
-  label: string;
-  description: string;
-  amount: string;
-  direction: "credit" | "debit";
-  icon: LucideIcon;
-  timestamp: string;
 }
 
 export const sidebarItems: SidebarItem[] = [
@@ -87,38 +74,8 @@ export const quickActions: QuickAction[] = [
   },
   {
     id: "offramp",
-    label: "Offramp",
+    label: "Off-ramp",
     description: "Cash out to a saved SEPA bank recipient",
     icon: Landmark,
-  },
-];
-
-export const baseActivityRows: ActivityRow[] = [
-  {
-    id: "act-1",
-    label: "Onramp",
-    description: "Demo settlement from linked bank account",
-    amount: "+$100.00",
-    direction: "credit",
-    icon: ArrowDownLeft,
-    timestamp: "Today · 09:24",
-  },
-  {
-    id: "act-2",
-    label: "Offramp",
-    description: "Preview cash-out to saved payout method",
-    amount: "-$50.00",
-    direction: "debit",
-    icon: ArrowUpRight,
-    timestamp: "Yesterday · 16:08",
-  },
-  {
-    id: "act-3",
-    label: "Transfer",
-    description: "Internal wallet transfer preview",
-    amount: "-$10.00",
-    direction: "debit",
-    icon: Sparkles,
-    timestamp: "Yesterday · 10:41",
   },
 ];

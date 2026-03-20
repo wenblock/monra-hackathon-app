@@ -1,8 +1,10 @@
-import { AuthButton } from "@coinbase/cdp-react/components/AuthButton";
 import { ArrowUpRight, ShieldCheck, Sparkles, Wallet } from "lucide-react";
+import { Suspense, lazy } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+
+const LazyCoinbaseAuthButton = lazy(() => import("@/features/session/CoinbaseAuthButton"));
 
 interface Props {
   error?: string;
@@ -65,7 +67,15 @@ function SignInScreen({ error }: Props) {
             )}
 
             <div className="rounded-[calc(var(--radius)+4px)] border border-border/80 bg-secondary/35 p-5">
-              <AuthButton />
+              <Suspense
+                fallback={
+                  <div className="flex min-h-11 items-center justify-center rounded-[calc(var(--radius)+2px)] border border-border/70 bg-background/70 px-4 text-sm text-muted-foreground">
+                    Loading wallet sign-in...
+                  </div>
+                }
+              >
+                <LazyCoinbaseAuthButton />
+              </Suspense>
             </div>
 
             <div className="rounded-[calc(var(--radius)+2px)] border border-dashed border-border bg-background/70 p-4 text-sm text-muted-foreground">

@@ -1,16 +1,15 @@
-import { CDPReactProvider } from "@coinbase/cdp-react";
-import { StrictMode } from "react";
+import { StrictMode, Suspense, lazy } from "react";
 import { createRoot } from "react-dom/client";
 
-import App from "./App.tsx";
-import { CDP_CONFIG } from "./config.ts";
-import { theme } from "./theme.ts";
+import Loading from "./Loading.tsx";
 import "./index.css";
+
+const LazyCoinbaseAppRoot = lazy(() => import("./CoinbaseAppRoot.tsx"));
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <CDPReactProvider config={CDP_CONFIG} theme={theme}>
-      <App />
-    </CDPReactProvider>
+    <Suspense fallback={<Loading label="Loading Monra..." />}>
+      <LazyCoinbaseAppRoot />
+    </Suspense>
   </StrictMode>,
 );

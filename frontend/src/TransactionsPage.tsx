@@ -1,93 +1,29 @@
-import { useGetAccessToken } from "@coinbase/cdp-hooks";
 import { Send } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
 
 import AppShell from "@/AppShell";
-import { fetchTransactions } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import TransactionActivityList from "@/TransactionActivityList";
 import type { AppTransaction } from "@/types";
 
-const pageSize = 20;
+interface TransactionsPageProps {
+  isLoading: boolean;
+  isLoadingMore: boolean;
+  loadError: string | null;
+  nextCursor: string | null;
+  onLoadMore: () => Promise<void>;
+  transactions: AppTransaction[];
+}
 
-function TransactionsPage() {
-  const { getAccessToken } = useGetAccessToken();
-  const [transactions, setTransactions] = useState<AppTransaction[]>([]);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  const loadTransactions = useCallback(
-    async (cursor?: string | null) => {
-      const token = await getAccessToken();
-      if (!token) {
-        throw new Error("Unable to fetch a CDP access token.");
-      }
-
-      return fetchTransactions(token, {
-        cursor,
-        limit: pageSize,
-      });
-    },
-    [getAccessToken],
-  );
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadInitialTransactions = async () => {
-      try {
-        setIsLoading(true);
-        setLoadError(null);
-        const response = await loadTransactions();
-
-        if (cancelled) {
-          return;
-        }
-
-        setTransactions(response.transactions);
-        setNextCursor(response.nextCursor);
-      } catch (error) {
-        if (!cancelled) {
-          setLoadError(
-            error instanceof Error ? error.message : "Unable to load transactions right now.",
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    void loadInitialTransactions();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [loadTransactions]);
-
-  const handleLoadMore = async () => {
-    if (!nextCursor) {
-      return;
-    }
-
-    try {
-      setIsLoadingMore(true);
-      setLoadError(null);
-      const response = await loadTransactions(nextCursor);
-      setTransactions(currentTransactions => [...currentTransactions, ...response.transactions]);
-      setNextCursor(response.nextCursor);
-    } catch (error) {
-      setLoadError(error instanceof Error ? error.message : "Unable to load more transactions.");
-    } finally {
-      setIsLoadingMore(false);
-    }
-  };
-
+function TransactionsPage({
+  isLoading,
+  isLoadingMore,
+  loadError,
+  nextCursor,
+  onLoadMore,
+  transactions,
+}: TransactionsPageProps) {
   return (
     <AppShell>
       <div className="space-y-6">
@@ -133,7 +69,7 @@ function TransactionsPage() {
 
                 {nextCursor ? (
                   <div className="flex justify-center pt-2">
-                    <Button type="button" variant="outline" onClick={() => void handleLoadMore()} disabled={isLoadingMore}>
+                    <Button type="button" variant="outline" onClick={() => void onLoadMore()} disabled={isLoadingMore}>
                       {isLoadingMore ? "Loading..." : "Load more"}
                     </Button>
                   </div>

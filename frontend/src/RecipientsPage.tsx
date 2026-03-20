@@ -1,4 +1,3 @@
-import { PublicKey } from "@solana/web3.js";
 import { Landmark, Plus, Trash2, Wallet, type LucideIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -36,6 +35,12 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import {
+  buildBankRecipientPayload,
+  buildWalletRecipientPayload,
+  type BankRecipientDraft,
+  type WalletRecipientDraft,
+} from "@/features/recipients/recipient-payloads";
 import { SEPA_COUNTRIES } from "@/sepa-countries";
 import type { CreateRecipientPayload, Recipient } from "@/types";
 
@@ -48,16 +53,15 @@ interface RecipientsPageProps {
 }
 
 type RecipientFormKind = "wallet" | "bank" | null;
-type BankRecipientTypeOption = "individual" | "business" | "";
 
-const emptyWalletForm = {
+const emptyWalletForm: WalletRecipientDraft = {
   fullName: "",
   walletAddress: "",
 };
 
-const emptyBankForm = {
+const emptyBankForm: BankRecipientDraft = {
   bankCountryCode: "",
-  recipientType: "" as BankRecipientTypeOption,
+  recipientType: "",
   firstName: "",
   lastName: "",
   businessName: "",
@@ -98,7 +102,7 @@ function RecipientsPage({
     try {
       setFormError(null);
 
-      const payload = buildCreatePayload(selectedKind, walletForm, bankForm);
+      const payload = await buildCreatePayload(selectedKind, walletForm, bankForm);
       setIsSubmitting(true);
       await onCreateRecipient(payload);
       setIsCreateSheetOpen(false);
@@ -292,7 +296,7 @@ function RecipientsPage({
                     onValueChange={value =>
                       setBankForm(current => ({
                         ...current,
-                        recipientType: value as BankRecipientTypeOption,
+                        recipientType: value as BankRecipientDraft["recipientType"],
                       }))
                     }
                   >
@@ -509,7 +513,13 @@ function RecipientMobileCard({
               ) : null}
             </div>
           </div>
-          <Button type="button" variant="ghost" onClick={onDelete} disabled={isDeleting}>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={onDelete}
+            disabled={isDeleting}
+            aria-label="Delete recipient"
+          >
             <Trash2 className="size-4 text-[var(--danger)]" />
           </Button>
         </div>
@@ -586,98 +596,20 @@ function Field({
   );
 }
 
-function buildCreatePayload(
+async function buildCreatePayload(
   selectedKind: RecipientFormKind,
   walletForm: typeof emptyWalletForm,
   bankForm: typeof emptyBankForm,
-): CreateRecipientPayload {
+): Promise<CreateRecipientPayload> {
   if (selectedKind === "wallet") {
-    const fullName = walletForm.fullName.trim();
-    const walletAddress = walletForm.walletAddress.trim();
-
-    if (!fullName) {
-      throw new Error("Full name is required.");
-    }
-
-    if (!walletAddress) {
-      throw new Error("Solana wallet address is required.");
-    }
-
-    try {
-      new PublicKey(walletAddress);
-    } catch {
-      throw new Error("Solana wallet address is invalid.");
-    }
-
-    return {
-      kind: "wallet",
-      fullName,
-      walletAddress,
-    };
+    return await buildWalletRecipientPayload(walletForm);
   }
 
   if (selectedKind !== "bank") {
     throw new Error("Choose Wallet or Bank before saving.");
   }
 
-  if (!bankForm.bankCountryCode) {
-    throw new Error("Bank country is required.");
-  }
-
-  if (!bankForm.recipientType) {
-    throw new Error("Recipient type is required.");
-  }
-
-  const bankName = bankForm.bankName.trim();
-  const iban = bankForm.iban.trim().toUpperCase().replace(/\s+/g, "");
-  const bic = bankForm.bic.trim().toUpperCase().replace(/\s+/g, "");
-
-  if (!bankName) {
-    throw new Error("Bank name is required.");
-  }
-
-  if (!iban) {
-    throw new Error("IBAN is required.");
-  }
-
-  if (!bic) {
-    throw new Error("BIC is required.");
-  }
-
-  if (bankForm.recipientType === "individual") {
-    const firstName = bankForm.firstName.trim();
-    const lastName = bankForm.lastName.trim();
-
-    if (!firstName || !lastName) {
-      throw new Error("First name and last name are required.");
-    }
-
-    return {
-      kind: "bank",
-      recipientType: "individual",
-      bankCountryCode: bankForm.bankCountryCode,
-      firstName,
-      lastName,
-      bankName,
-      iban,
-      bic,
-    };
-  }
-
-  const businessName = bankForm.businessName.trim();
-  if (!businessName) {
-    throw new Error("Business name is required.");
-  }
-
-  return {
-    kind: "bank",
-    recipientType: "business",
-    bankCountryCode: bankForm.bankCountryCode,
-    businessName,
-    bankName,
-    iban,
-    bic,
-  };
+  return buildBankRecipientPayload(bankForm);
 }
 
 function getRecipientAccount(recipient: Recipient) {

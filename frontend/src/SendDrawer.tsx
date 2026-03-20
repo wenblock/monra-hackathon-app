@@ -1,13 +1,10 @@
 import { useSendSolanaTransaction } from "@coinbase/cdp-hooks";
-import { PublicKey } from "@solana/web3.js";
 import { ArrowUpRight, CheckCircle2, Plus, Wallet } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import {
   TRANSFER_ASSETS,
-  getTransferAssetDecimals,
   getTransferAssetLabel,
-  getTransferAssetMintAddress,
 } from "@/assets";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,17 +24,8 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import {
-  assertValidSolanaAddress,
-  buildSerializedTransferTransaction,
-  findAssociatedTokenAddress,
-  parseTransferAmount,
-} from "@/solana-transfer";
-import {
-  ensureSufficientSolForTransfer,
-  getSolanaTransferFeeHint,
-  normalizeSolanaSendError,
-} from "@/solana-send";
+import { buildWalletRecipientPayload } from "@/features/recipients/recipient-payloads";
+import { getWalletTransferFeeHint } from "@/features/wallet/fee-hints";
 import type {
   CreateRecipientPayload,
   FetchSolanaTransactionContextPayload,
@@ -89,7 +77,7 @@ function SendDrawer({
   const selectedRecipient =
     walletRecipients.find(recipient => String(recipient.id) === selectedRecipientId) ?? null;
   const availableRawBalance = balances?.[asset].raw ?? "0";
-  const transferFeeHint = getSolanaTransferFeeHint({
+  const transferFeeHint = getWalletTransferFeeHint({
     asset,
     balances,
   });
@@ -106,20 +94,14 @@ function SendDrawer({
     try {
       setError(null);
       const fullName = newRecipientFullName.trim();
-      const walletAddress = newRecipientWalletAddress.trim();
-
-      if (!fullName) {
-        throw new Error("Full name is required.");
-      }
-
-      assertValidSolanaAddress(walletAddress);
 
       setIsSavingRecipient(true);
-      const recipient = await onCreateWalletRecipient({
-        kind: "wallet",
-        fullName,
-        walletAddress,
-      });
+      const recipient = await onCreateWalletRecipient(
+        await buildWalletRecipientPayload({
+          fullName,
+          walletAddress: newRecipientWalletAddress,
+        }),
+      );
       setSelectedRecipientId(String(recipient.id));
       setIsRecipientFormOpen(false);
       setNewRecipientFullName("");
@@ -132,6 +114,7 @@ function SendDrawer({
   };
 
   const handleSend = async () => {
+    let walletRuntime: typeof import("@/features/wallet/runtime") | null = null;
     let needsRecipientTokenAccountCreation = false;
 
     try {
@@ -142,66 +125,60 @@ function SendDrawer({
         throw new Error("Wallet connection is still initializing.");
       }
 
-      const parsedAmount = parseTransferAmount(amount, getTransferAssetDecimals(asset));
-      const availableBalance = BigInt(availableRawBalance);
-
       if (!selectedRecipient?.walletAddress) {
         throw new Error("Select a wallet recipient.");
       }
+
+      setIsSending(true);
+      walletRuntime = await import("@/features/wallet/runtime");
+
+      const parsedAmount = walletRuntime.parseAssetAmount(amount, asset);
+      const availableBalance = BigInt(availableRawBalance);
 
       if (parsedAmount.raw > availableBalance) {
         throw new Error("Amount exceeds the available balance.");
       }
 
-      const recipientTokenAccountAddress =
-        asset !== "sol"
-          ? findAssociatedTokenAddress(
-              new PublicKey(selectedRecipient.walletAddress),
-              new PublicKey(getTransferAssetMintAddress(asset)),
-            ).toBase58()
-          : undefined;
+      const recipientTokenAccountAddress = walletRuntime.getRecipientTokenAccountAddress(
+        asset,
+        selectedRecipient.walletAddress,
+      );
       const transactionContext = await onFetchTransactionContext({
         asset,
         senderAddress,
         recipientAddress: selectedRecipient.walletAddress,
         recipientTokenAccountAddress,
       });
-      needsRecipientTokenAccountCreation =
-        asset !== "sol" && !(transactionContext.recipientTokenAccountExists ?? false);
-
-      ensureSufficientSolForTransfer({
-        asset,
-        amountRaw: parsedAmount.raw,
-        needsRecipientTokenAccountCreation,
-        solBalanceRaw: balances?.sol.raw,
-      });
-
-      const transaction = buildSerializedTransferTransaction({
+      const preparedTransaction = walletRuntime.prepareTransferTransaction({
         amountRaw: parsedAmount.raw,
         asset,
+        balances,
         recentBlockhash: transactionContext.recentBlockhash,
         recipientAddress: selectedRecipient.walletAddress,
+        recipientTokenAccountAddress,
         recipientTokenAccountExists: transactionContext.recipientTokenAccountExists ?? false,
         senderAddress,
       });
-
-      setIsSending(true);
+      needsRecipientTokenAccountCreation = preparedTransaction.needsRecipientTokenAccountCreation;
 
       const result = await sendSolanaTransaction({
         solanaAccount: senderAddress,
         network: "solana",
-        transaction,
+        transaction: preparedTransaction.serializedTransaction,
       });
 
       setTransactionSignature(result.transactionSignature);
     } catch (sendError) {
       console.error("Unable to prepare or send transaction.", sendError);
-      setError(
-        normalizeSolanaSendError(sendError, {
-          asset,
-          needsRecipientTokenAccountCreation,
-        }),
-      );
+      if (!walletRuntime) {
+        setError("Unable to load the wallet transaction runtime.");
+        return;
+      }
+
+      setError(walletRuntime.normalizeWalletTransactionError(sendError, {
+        asset,
+        needsRecipientTokenAccountCreation,
+      }));
     } finally {
       setIsSending(false);
     }
@@ -308,7 +285,7 @@ function SendDrawer({
                   </Button>
                 </div>
 
-                <Select value={selectedRecipientId || undefined} onValueChange={setSelectedRecipientId}>
+                <Select value={selectedRecipientId} onValueChange={setSelectedRecipientId}>
                   <SelectTrigger>
                     <SelectValue placeholder="Choose a wallet recipient" />
                   </SelectTrigger>

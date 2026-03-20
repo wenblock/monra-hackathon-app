@@ -9,13 +9,15 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:analyze": "node ./scripts/build-analyze.mjs",
     "lint": "eslint .",
+    "test": "vitest run",
     "preview": "vite preview"
   },
   "dependencies": {
-    "@coinbase/cdp-core": "latest",
-    "@coinbase/cdp-hooks": "latest",
-    "@coinbase/cdp-react": "latest",
+    "@coinbase/cdp-core": "0.0.96",
+    "@coinbase/cdp-hooks": "0.0.96",
+    "@coinbase/cdp-react": "0.0.96",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-label": "^2.1.8",
     "@radix-ui/react-scroll-area": "^1.2.10",
@@ -36,6 +38,11 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.30.1",
+    "@tanstack/react-query": "^5.91.2",
+    "@tanstack/react-router": "^1.167.5",
+    "@tanstack/react-router-devtools": "^1.166.9",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@types/react": "~19.1.8",
     "@types/react-dom": "~19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
@@ -43,8 +50,11 @@
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",
     "globals": "^16.3.0",
+    "jsdom": "^29.0.0",
+    "rollup-plugin-visualizer": "^7.0.1",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.35.1",
-    "vite": "^7.0.4"
+    "vite": "^7.0.4",
+    "vitest": "^4.1.0"
   }
 }

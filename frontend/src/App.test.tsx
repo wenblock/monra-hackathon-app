@@ -1,0 +1,136 @@
+import { screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import App from "@/App";
+import { renderWithQueryClient } from "@/test-utils";
+import type { SessionBootstrapResponse } from "@/types";
+
+const cdpHooksMock = vi.hoisted(() => ({
+  useCurrentUser: vi.fn(),
+  useIsInitialized: vi.fn(),
+  useIsSignedIn: vi.fn(),
+  useSignOut: vi.fn(),
+}));
+
+const sessionBootstrapMock = vi.hoisted(() => ({
+  useSessionBootstrap: vi.fn(),
+}));
+
+const sessionMutationMock = vi.hoisted(() => ({
+  useSubmitOnboardingMutation: vi.fn(),
+}));
+
+vi.mock("@coinbase/cdp-hooks", () => cdpHooksMock);
+vi.mock("@tanstack/react-router", () => ({
+  Outlet: () => <div data-testid="app-outlet" />,
+}));
+vi.mock("@/SignInScreen", () => ({
+  default: ({ error }: { error?: string }) => (
+    <div>
+      <div>Secure access</div>
+      {error ? <div>{error}</div> : null}
+    </div>
+  ),
+}));
+vi.mock("@/OnboardingScreen", () => ({
+  default: () => <div>Set up your Monra account</div>,
+}));
+vi.mock("@/features/session/use-session-bootstrap", () => sessionBootstrapMock);
+vi.mock("@/features/session/use-session-mutations", () => sessionMutationMock);
+
+describe("App", () => {
+  beforeEach(() => {
+    cdpHooksMock.useCurrentUser.mockReturnValue({ currentUser: null });
+    cdpHooksMock.useIsInitialized.mockReturnValue({ isInitialized: true });
+    cdpHooksMock.useIsSignedIn.mockReturnValue({ isSignedIn: false });
+    cdpHooksMock.useSignOut.mockReturnValue({ signOut: vi.fn().mockResolvedValue(undefined) });
+    sessionBootstrapMock.useSessionBootstrap.mockReturnValue({
+      data: undefined,
+      error: null,
+      isError: false,
+      isPending: false,
+    });
+    sessionMutationMock.useSubmitOnboardingMutation.mockReturnValue({
+      error: null,
+      isPending: false,
+      mutateAsync: vi.fn(),
+      reset: vi.fn(),
+    });
+  });
+
+  it("renders the sign-in screen when unauthenticated", async () => {
+    renderWithQueryClient(<App />);
+
+    expect(await screen.findByText("Secure access")).toBeInTheDocument();
+  });
+
+  it("renders onboarding when the session needs onboarding", async () => {
+    cdpHooksMock.useCurrentUser.mockReturnValue({ currentUser: { userId: "cdp-user-1" } });
+    cdpHooksMock.useIsSignedIn.mockReturnValue({ isSignedIn: true });
+    sessionBootstrapMock.useSessionBootstrap.mockReturnValue({
+      data: buildSession({
+        status: "needs_onboarding",
+        bridge: null,
+        user: null,
+      }),
+      error: null,
+      isError: false,
+      isPending: false,
+    });
+
+    renderWithQueryClient(<App />);
+
+    expect(await screen.findByText("Set up your Monra account")).toBeInTheDocument();
+  });
+
+  it("renders the authenticated outlet when the session is active", () => {
+    cdpHooksMock.useCurrentUser.mockReturnValue({ currentUser: { userId: "cdp-user-1" } });
+    cdpHooksMock.useIsSignedIn.mockReturnValue({ isSignedIn: true });
+    sessionBootstrapMock.useSessionBootstrap.mockReturnValue({
+      data: buildSession(),
+      error: null,
+      isError: false,
+      isPending: false,
+    });
+
+    renderWithQueryClient(<App />);
+
+    expect(screen.getByTestId("app-outlet")).toBeInTheDocument();
+  });
+});
+
+function buildSession(overrides: Partial<SessionBootstrapResponse> = {}): SessionBootstrapResponse {
+  return {
+    status: "active",
+    identity: {
+      cdpUserId: "cdp-user-1",
+      email: "user@example.com",
+    },
+    bridge: {
+      customerStatus: "active",
+      hasAcceptedTermsOfService: true,
+      showKycAlert: false,
+      showTosAlert: false,
+    },
+    user: {
+      id: 1,
+      cdpUserId: "cdp-user-1",
+      email: "user@example.com",
+      accountType: "individual",
+      fullName: "Monra User",
+      countryCode: "UA",
+      countryName: "Ukraine",
+      businessName: null,
+      solanaAddress: "11111111111111111111111111111111",
+      bridgeKycLinkId: null,
+      bridgeKycLink: null,
+      bridgeTosLink: null,
+      bridgeKycStatus: "active",
+      bridgeTosStatus: "approved",
+      bridgeCustomerId: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    },
+    ...overrides,
+  };
+}

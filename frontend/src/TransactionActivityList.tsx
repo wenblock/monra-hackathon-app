@@ -1,7 +1,6 @@
 import { ArrowDownLeft, ArrowUpRight } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 
-import TransactionDetailsDrawer from "@/TransactionDetailsDrawer";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import {
@@ -12,6 +11,8 @@ import {
   getTransactionDirectionTone,
 } from "@/transaction-display";
 import type { AppTransaction } from "@/types";
+
+const LazyTransactionDetailsDrawer = lazy(() => import("@/TransactionDetailsDrawer"));
 
 interface TransactionActivityListProps {
   transactions: AppTransaction[];
@@ -76,15 +77,19 @@ function TransactionActivityList({ transactions }: TransactionActivityListProps)
         ))}
       </div>
 
-      <TransactionDetailsDrawer
-        open={selectedTransaction !== null}
-        onOpenChange={isOpen => {
-          if (!isOpen) {
-            setSelectedTransaction(null);
-          }
-        }}
-        transaction={selectedTransaction}
-      />
+      {selectedTransaction ? (
+        <Suspense fallback={null}>
+          <LazyTransactionDetailsDrawer
+            open={selectedTransaction !== null}
+            onOpenChange={isOpen => {
+              if (!isOpen) {
+                setSelectedTransaction(null);
+              }
+            }}
+            transaction={selectedTransaction}
+          />
+        </Suspense>
+      ) : null}
     </>
   );
 }
