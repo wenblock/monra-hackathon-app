@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { formatActivityStatus, formatActivityTimestamp } from "@/transaction-display";
+import {
+  formatActivityAmount,
+  formatActivityStatus,
+  formatActivityTimestamp,
+  formatActivityTitle,
+} from "@/transaction-display";
 import type { AppTransaction } from "@/types";
 
 describe("transaction-display", () => {
@@ -21,6 +26,25 @@ describe("transaction-display", () => {
         status: "pending",
       }),
     ).toBe("Processing");
+  });
+
+  it("formats swap activity titles and amounts", () => {
+    expect(
+      formatActivityTitle({
+        ...buildTransaction(),
+        asset: "usdc",
+        entryType: "swap",
+        outputAsset: "eurc",
+      }),
+    ).toBe("Swap USDC → EURC");
+
+    expect(
+      formatActivityAmount({
+        ...buildTransaction(),
+        asset: "usdc",
+        entryType: "swap",
+      }),
+    ).toBe("-1.00 USDC");
   });
 });
 
@@ -47,6 +71,10 @@ function buildTransaction(): AppTransaction {
     bridgeSourceDepositInstructions: null,
     bridgeDestinationTxHash: null,
     bridgeReceiptUrl: null,
+    outputAsset: null,
+    outputAmountDecimal: null,
+    outputAmountRaw: null,
+    outputAmountDisplay: null,
     networkFeeRaw: null,
     networkFeeDisplay: null,
     transactionSignature: "sig-1",

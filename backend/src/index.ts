@@ -12,6 +12,7 @@ import { offrampRouter } from "./routes/offramp.js";
 import { onboardingRouter } from "./routes/onboarding.js";
 import { onrampRouter } from "./routes/onramp.js";
 import { recipientsRouter } from "./routes/recipients.js";
+import { swapsRouter } from "./routes/swaps.js";
 import { transactionsRouter } from "./routes/transactions.js";
 import { usersRouter } from "./routes/users.js";
 import { alchemyWebhookRouter, bridgeWebhookRouter } from "./routes/webhooks.js";
@@ -51,6 +52,7 @@ app.use("/api/offramp", offrampRouter);
 app.use("/api/onboarding", onboardingRouter);
 app.use("/api/onramp", onrampRouter);
 app.use("/api/recipients", recipientsRouter);
+app.use("/api/swaps", swapsRouter);
 app.use("/api/transactions", transactionsRouter);
 app.use("/api/users", usersRouter);
 

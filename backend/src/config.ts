@@ -51,6 +51,11 @@ export const config = {
     /\/$/,
     "",
   ),
+  jupiterApiBaseUrl: (process.env.JUPITER_API_BASE_URL ?? "https://api.jup.ag/swap/v2").replace(
+    /\/$/,
+    "",
+  ),
+  jupiterApiKey: readOptionalEnv("JUPITER_API_KEY"),
   bridgeWebhookPublicKey: readEnv("BRIDGE_WEBHOOK_PUBLIC_KEY").replace(/\\n/g, "\n"),
   bridgeWebhookMaxAgeMs: Number(process.env.BRIDGE_WEBHOOK_MAX_AGE_MS ?? 600000),
   streamTokenSecret:

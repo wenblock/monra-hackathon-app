@@ -1,8 +1,10 @@
 import type {
   BridgeStatusResponse,
+  CreateSwapOrderPayload,
   CreateOfframpPayload,
   CreateOnrampPayload,
   CreateRecipientPayload,
+  ExecuteSwapPayload,
   FetchSolanaTransactionContextPayload,
   OnboardingPayload,
   Recipient,
@@ -10,6 +12,8 @@ import type {
   SessionBootstrapResponse,
   SolanaBalancesResponse,
   SolanaTransactionContextResponse,
+  SwapExecuteResponse,
+  SwapOrderResponse,
   StreamTokenResponse,
   TransactionListResponse,
 } from "@/types";
@@ -182,6 +186,22 @@ export function createApiClient(getAccessToken: AccessTokenProvider) {
     },
     createOfframp(payload: CreateOfframpPayload, signal?: AbortSignal) {
       return request<{ transaction: TransactionListResponse["transactions"][number] }>("/api/offramp", {
+        authMode: "body",
+        method: "POST",
+        body: payload,
+        signal,
+      });
+    },
+    fetchSwapOrder(payload: CreateSwapOrderPayload, signal?: AbortSignal) {
+      return request<SwapOrderResponse>("/api/swaps/order", {
+        authMode: "body",
+        method: "POST",
+        body: payload,
+        signal,
+      });
+    },
+    executeSwap(payload: ExecuteSwapPayload, signal?: AbortSignal) {
+      return request<SwapExecuteResponse>("/api/swaps/execute", {
         authMode: "body",
         method: "POST",
         body: payload,

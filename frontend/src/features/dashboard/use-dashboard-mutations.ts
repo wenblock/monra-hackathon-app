@@ -1,8 +1,7 @@
 import { useCallback } from "react";
-import { useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { useApiClient } from "@/features/session/use-api-client";
-import type { DashboardSnapshot } from "@/api";
 import type {
   AppTransaction,
   CreateOfframpPayload,
@@ -11,7 +10,7 @@ import type {
 } from "@/types";
 
 import { transactionsKeys } from "../transactions/query-keys";
-import { dashboardKeys } from "./query-keys";
+import { mergeDashboardTransaction, mergeTransactionHistory } from "./cache";
 
 function useCreateOnrampMutation(userId: string) {
   const client = useApiClient();
@@ -21,6 +20,7 @@ function useCreateOnrampMutation(userId: string) {
     mutationFn: payload => client.createOnramp(payload),
     onSuccess: response => {
       mergeDashboardTransaction(queryClient, userId, response.transaction);
+      mergeTransactionHistory(queryClient, userId, response.transaction);
       void queryClient.invalidateQueries({
         queryKey: transactionsKeys.history(userId),
       });
@@ -36,6 +36,7 @@ function useCreateOfframpMutation(userId: string) {
     mutationFn: payload => client.createOfframp(payload),
     onSuccess: response => {
       mergeDashboardTransaction(queryClient, userId, response.transaction);
+      mergeTransactionHistory(queryClient, userId, response.transaction);
       void queryClient.invalidateQueries({
         queryKey: transactionsKeys.history(userId),
       });
@@ -50,29 +51,6 @@ function useFetchSolanaTransactionContext() {
     (payload: FetchSolanaTransactionContextPayload) =>
       client.fetchSolanaTransactionContext(payload),
     [client],
-  );
-}
-
-function mergeDashboardTransaction(
-  queryClient: QueryClient,
-  userId: string,
-  transaction: AppTransaction,
-) {
-  queryClient.setQueryData<DashboardSnapshot | undefined>(
-    dashboardKeys.snapshot(userId),
-    current =>
-      current
-        ? {
-            ...current,
-            transactions: [
-              transaction,
-              ...current.transactions.filter(
-                (currentTransaction: AppTransaction) =>
-                  currentTransaction.id !== transaction.id,
-              ),
-            ],
-          }
-        : current,
   );
 }
 

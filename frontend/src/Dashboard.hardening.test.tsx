@@ -57,13 +57,14 @@ describe("Dashboard hardening", () => {
         onCreateOnramp={vi.fn()}
         onCreateRecipient={vi.fn()}
         onFetchSolanaTransactionContext={vi.fn()}
-        onPersistSolanaAddress={vi.fn()}
         onRefreshBridgeStatus={vi.fn()}
         recipients={[]}
         transactions={[]}
         transactionsError={null}
         transactionsLoading={false}
         user={buildUser()}
+        walletAddress="11111111111111111111111111111111"
+        walletSyncError={null}
       />,
     );
 
@@ -90,13 +91,14 @@ describe("Dashboard hardening", () => {
         onCreateOnramp={vi.fn()}
         onCreateRecipient={vi.fn()}
         onFetchSolanaTransactionContext={vi.fn()}
-        onPersistSolanaAddress={vi.fn()}
         onRefreshBridgeStatus={vi.fn()}
         recipients={[]}
         transactions={[]}
         transactionsError={null}
         transactionsLoading={false}
         user={buildUser()}
+        walletAddress="11111111111111111111111111111111"
+        walletSyncError={null}
       />,
     );
 
@@ -119,13 +121,14 @@ describe("Dashboard hardening", () => {
         onCreateOnramp={vi.fn()}
         onCreateRecipient={vi.fn()}
         onFetchSolanaTransactionContext={vi.fn()}
-        onPersistSolanaAddress={vi.fn()}
         onRefreshBridgeStatus={vi.fn()}
         recipients={[]}
         transactions={[]}
         transactionsError={null}
         transactionsLoading={false}
         user={buildUser()}
+        walletAddress="11111111111111111111111111111111"
+        walletSyncError={null}
       />,
     );
 
@@ -154,13 +157,14 @@ describe("Dashboard hardening", () => {
         onCreateOnramp={vi.fn()}
         onCreateRecipient={vi.fn()}
         onFetchSolanaTransactionContext={vi.fn()}
-        onPersistSolanaAddress={vi.fn()}
         onRefreshBridgeStatus={vi.fn()}
         recipients={[]}
         transactions={[]}
         transactionsError={null}
         transactionsLoading={false}
         user={buildUser()}
+        walletAddress="11111111111111111111111111111111"
+        walletSyncError={null}
       />,
     );
 
@@ -188,13 +192,14 @@ describe("Dashboard hardening", () => {
         onCreateOnramp={vi.fn()}
         onCreateRecipient={vi.fn()}
         onFetchSolanaTransactionContext={vi.fn()}
-        onPersistSolanaAddress={vi.fn()}
         onRefreshBridgeStatus={vi.fn()}
         recipients={[]}
         transactions={[]}
         transactionsError={null}
         transactionsLoading={false}
         user={buildUser()}
+        walletAddress="11111111111111111111111111111111"
+        walletSyncError={null}
       />,
     );
 
@@ -217,13 +222,14 @@ describe("Dashboard hardening", () => {
         onCreateOnramp={vi.fn()}
         onCreateRecipient={vi.fn()}
         onFetchSolanaTransactionContext={vi.fn()}
-        onPersistSolanaAddress={vi.fn()}
         onRefreshBridgeStatus={vi.fn()}
         recipients={[]}
         transactions={[]}
         transactionsError={null}
         transactionsLoading={false}
         user={buildUser()}
+        walletAddress="11111111111111111111111111111111"
+        walletSyncError={null}
       />,
     );
 

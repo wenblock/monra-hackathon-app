@@ -150,6 +150,9 @@ interface TransactionRow {
   bridge_source_deposit_instructions: BridgeSourceDepositInstructions | null;
   bridge_destination_tx_hash: string | null;
   bridge_receipt_url: string | null;
+  output_asset: TransferAsset | null;
+  output_amount_decimal: string | null;
+  output_amount_raw: string | null;
   transaction_signature: string;
   webhook_event_id: string | null;
   normalization_key: string;
@@ -182,6 +185,9 @@ interface LedgerTransaction {
   bridgeSourceDepositInstructions: BridgeSourceDepositInstructions | null;
   bridgeDestinationTxHash: string | null;
   bridgeReceiptUrl: string | null;
+  outputAsset: TransferAsset | null;
+  outputAmountDecimal: string | null;
+  outputAmountRaw: string | null;
   transactionSignature: string;
   status: TransactionStatus;
   confirmedAt: string | null;
@@ -227,6 +233,7 @@ const transactionSelection = `
   tracked_wallet_address, from_wallet_address, counterparty_name, counterparty_wallet_address,
   bridge_transfer_id, bridge_transfer_status, bridge_source_amount, bridge_source_currency,
   bridge_source_deposit_instructions, bridge_destination_tx_hash, bridge_receipt_url,
+  output_asset, output_amount_decimal, output_amount_raw,
   transaction_signature, webhook_event_id, normalization_key, status, confirmed_at,
   failed_at, failure_reason, created_at, updated_at
 `;
@@ -342,6 +349,9 @@ function mapLedgerTransaction(row: TransactionRow): LedgerTransaction {
     ),
     bridgeDestinationTxHash: row.bridge_destination_tx_hash,
     bridgeReceiptUrl: row.bridge_receipt_url,
+    outputAsset: row.output_asset,
+    outputAmountDecimal: row.output_amount_decimal,
+    outputAmountRaw: row.output_amount_raw,
     transactionSignature: row.transaction_signature,
     status: row.status,
     confirmedAt: row.confirmed_at ? row.confirmed_at.toISOString() : null,
@@ -846,6 +856,10 @@ function buildOfframpNormalizationKey(bridgeTransferId: string) {
   return `offramp:${bridgeTransferId}`;
 }
 
+function buildSwapNormalizationKey(transactionSignature: string, trackedWalletAddress: string) {
+  return `swap:${transactionSignature}:${trackedWalletAddress}`;
+}
+
 export interface CreatePendingOnrampTransactionInput {
   asset: OnrampDestinationAsset;
   userId: number;
@@ -994,6 +1008,141 @@ export async function createPendingOfframpTransaction(input: CreatePendingOffram
   );
 
   return mapCollapsedTransaction(mapLedgerTransaction(result.rows[0]), null);
+}
+
+export interface CreateConfirmedSwapTransactionInput {
+  inputAmountRaw: string;
+  inputAsset: TransferAsset;
+  outputAmountRaw: string;
+  outputAsset: TransferAsset;
+  transactionSignature: string;
+  userId: number;
+  walletAddress: string;
+}
+
+export async function createConfirmedSwapTransaction(input: CreateConfirmedSwapTransactionInput) {
+  const client = await pool.connect();
+  const normalizationKey = buildSwapNormalizationKey(input.transactionSignature, input.walletAddress);
+  let committed = false;
+
+  try {
+    await client.query("BEGIN");
+
+    const inserted = await client.query<TransactionRow>(
+      `
+        INSERT INTO transactions (
+          user_id,
+          recipient_id,
+          direction,
+          entry_type,
+          asset,
+          amount_decimal,
+          amount_raw,
+          network,
+          tracked_wallet_address,
+          from_wallet_address,
+          counterparty_name,
+          counterparty_wallet_address,
+          bridge_transfer_id,
+          bridge_transfer_status,
+          bridge_source_amount,
+          bridge_source_currency,
+          bridge_source_deposit_instructions,
+          bridge_destination_tx_hash,
+          bridge_receipt_url,
+          output_asset,
+          output_amount_decimal,
+          output_amount_raw,
+          transaction_signature,
+          webhook_event_id,
+          normalization_key,
+          status,
+          confirmed_at,
+          failed_at,
+          failure_reason
+        )
+        VALUES (
+          $1, NULL, 'outbound', 'swap', $2, $3, $4, 'solana-mainnet', $5, $6, NULL, NULL, NULL, NULL,
+          NULL, NULL, NULL, NULL, NULL, $7, $8, $9, $10, NULL, $11, 'confirmed', NOW(), NULL, NULL
+        )
+        ON CONFLICT (normalization_key) DO NOTHING
+        RETURNING ${transactionSelection}
+      `,
+      [
+        input.userId,
+        input.inputAsset,
+        formatAssetAmount(input.inputAmountRaw, input.inputAsset),
+        input.inputAmountRaw,
+        input.walletAddress,
+        input.walletAddress,
+        input.outputAsset,
+        formatAssetAmount(input.outputAmountRaw, input.outputAsset),
+        input.outputAmountRaw,
+        input.transactionSignature,
+        normalizationKey,
+      ],
+    );
+
+    const row =
+      inserted.rows[0] ??
+      (
+        await client.query<TransactionRow>(
+          `
+            SELECT ${transactionSelection}
+            FROM transactions
+            WHERE normalization_key = $1::text
+            LIMIT 1
+          `,
+          [normalizationKey],
+        )
+      ).rows[0];
+
+    if (!row) {
+      throw new Error("Unable to load the stored swap transaction.");
+    }
+
+    if (inserted.rows[0]) {
+      const balanceDeltas = new Map<number, Record<TransferAsset, bigint>>();
+      addBalanceDelta(balanceDeltas, input.userId, input.inputAsset, BigInt(input.inputAmountRaw) * -1n);
+      addBalanceDelta(balanceDeltas, input.userId, input.outputAsset, BigInt(input.outputAmountRaw));
+      await applyBalanceDeltas(client, balanceDeltas);
+    }
+
+    const balanceRow = await getUserBalanceRow(client, input.userId);
+
+    await client.query("COMMIT");
+    committed = true;
+
+    return {
+      balances: balanceRow
+        ? mapBalances(balanceRow)
+        : (Object.fromEntries(
+            TRANSFER_ASSETS.map(asset => [asset, createEmptyBalance(getTransferAssetDecimals(asset))]),
+          ) as SolanaBalancesResponse["balances"]),
+      transaction: mapCollapsedTransaction(mapLedgerTransaction(row), null),
+    };
+  } catch (error) {
+    if (!committed) {
+      await client.query("ROLLBACK");
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function getSwapTransactionUserIdsBySignature(signature: string) {
+  const result = await pool.query<{ user_id: string }>(
+    `
+      SELECT DISTINCT user_id
+      FROM transactions
+      WHERE entry_type = 'swap'
+        AND transaction_signature = $1::text
+    `,
+    [signature],
+  );
+
+  return result.rows.map(row => Number(row.user_id));
 }
 
 interface PendingOnrampMatchRow {
@@ -1993,7 +2142,8 @@ function collapseLedgerTransactions(rows: TransactionRow[]) {
     } else if (
       transaction.entryType === "transfer" ||
       transaction.entryType === "onramp" ||
-      transaction.entryType === "offramp"
+      transaction.entryType === "offramp" ||
+      transaction.entryType === "swap"
     ) {
       group.transfers.push(transaction);
     }
@@ -2044,6 +2194,10 @@ function mapCollapsedTransaction(
     ...transaction,
     amountDecimal: formatAssetAmount(transaction.amountRaw, transaction.asset),
     amountDisplay: formatAssetAmount(transaction.amountRaw, transaction.asset),
+    outputAmountDisplay:
+      transaction.outputAmountRaw && transaction.outputAsset
+        ? formatAssetAmount(transaction.outputAmountRaw, transaction.outputAsset)
+        : null,
     networkFeeRaw: fee?.raw ?? null,
     networkFeeDisplay: fee?.display ?? null,
   };

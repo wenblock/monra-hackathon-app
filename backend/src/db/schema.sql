@@ -93,7 +93,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   recipient_id BIGINT NULL REFERENCES recipients(id) ON DELETE SET NULL,
   direction TEXT NOT NULL CHECK (direction IN ('inbound', 'outbound')),
-  entry_type TEXT NOT NULL CHECK (entry_type IN ('transfer', 'network_fee', 'onramp', 'offramp')),
+  entry_type TEXT NOT NULL CHECK (entry_type IN ('transfer', 'network_fee', 'onramp', 'offramp', 'swap')),
   asset TEXT NOT NULL CHECK (asset IN ('sol', 'usdc', 'eurc')),
   amount_decimal NUMERIC(36, 9) NOT NULL,
   amount_raw TEXT NOT NULL,
@@ -109,6 +109,9 @@ CREATE TABLE IF NOT EXISTS transactions (
   bridge_source_deposit_instructions JSONB NULL,
   bridge_destination_tx_hash TEXT NULL,
   bridge_receipt_url TEXT NULL,
+  output_asset TEXT NULL CHECK (output_asset IS NULL OR output_asset IN ('sol', 'usdc', 'eurc')),
+  output_amount_decimal NUMERIC(36, 9) NULL,
+  output_amount_raw TEXT NULL,
   transaction_signature TEXT NOT NULL,
   webhook_event_id TEXT NULL REFERENCES processed_webhook_events(event_id) ON DELETE SET NULL,
   normalization_key TEXT NOT NULL UNIQUE,
@@ -117,7 +120,12 @@ CREATE TABLE IF NOT EXISTS transactions (
   failed_at TIMESTAMPTZ NULL,
   failure_reason TEXT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK (
+    (entry_type = 'swap' AND output_asset IS NOT NULL AND output_amount_decimal IS NOT NULL AND output_amount_raw IS NOT NULL)
+    OR
+    (entry_type <> 'swap' AND output_asset IS NULL AND output_amount_decimal IS NULL AND output_amount_raw IS NULL)
+  )
 );
 
 CREATE INDEX IF NOT EXISTS transactions_user_id_created_at_idx

@@ -5,6 +5,7 @@ import {
   applyBridgeTransferWebhookUpdate,
   getOfframpByBroadcastDetails,
   getRecipientByWalletAddressForUser,
+  getSwapTransactionUserIdsBySignature,
   getPendingOnrampByDestinationTxHash,
   getUserBalancesByUserId,
   getUsersBySolanaAddresses,
@@ -183,9 +184,14 @@ alchemyWebhookRouter.post(
           signature,
           usersByAddress,
         });
+        const swapUserIds = new Set(await getSwapTransactionUserIdsBySignature(signature));
         const pendingOnramp = await getPendingOnrampByDestinationTxHash(signature);
 
         for (const entry of normalizedEntries) {
+          if (entry.entryType === "transfer" && swapUserIds.has(entry.userId)) {
+            continue;
+          }
+
           const matchesPendingOnramp =
             pendingOnramp &&
             entry.asset === pendingOnramp.asset &&

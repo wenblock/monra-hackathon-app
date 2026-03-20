@@ -8,7 +8,7 @@ export type OnrampDestinationAsset = StablecoinAsset;
 export type OfframpSourceAsset = StablecoinAsset;
 export type TransactionStatus = "pending" | "confirmed" | "failed";
 export type TransactionDirection = "inbound" | "outbound";
-export type TransactionEntryType = "transfer" | "network_fee" | "onramp" | "offramp";
+export type TransactionEntryType = "transfer" | "network_fee" | "onramp" | "offramp" | "swap";
 export type BridgeTransferState =
   | "pending"
   | "awaiting_funds"
@@ -159,6 +159,10 @@ export interface AppTransaction {
   bridgeSourceDepositInstructions: BridgeSourceDepositInstructions | null;
   bridgeDestinationTxHash: string | null;
   bridgeReceiptUrl: string | null;
+  outputAsset: TransferAsset | null;
+  outputAmountDecimal: string | null;
+  outputAmountRaw: string | null;
+  outputAmountDisplay: string | null;
   networkFeeRaw: string | null;
   networkFeeDisplay: string | null;
   transactionSignature: string;

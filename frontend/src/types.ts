@@ -7,7 +7,7 @@ export type OnrampDestinationAsset = StablecoinAsset;
 export type OfframpSourceAsset = StablecoinAsset;
 export type TransactionStatus = "pending" | "confirmed" | "failed";
 export type TransactionDirection = "inbound" | "outbound";
-export type TransactionEntryType = "transfer" | "network_fee" | "onramp" | "offramp";
+export type TransactionEntryType = "transfer" | "network_fee" | "onramp" | "offramp" | "swap";
 export type BridgeTransferState =
   | "pending"
   | "awaiting_funds"
@@ -152,6 +152,17 @@ export interface CreateOfframpPayload {
   recipientId: number;
 }
 
+export interface CreateSwapOrderPayload {
+  amount: string;
+  inputAsset: TransferAsset;
+  outputAsset: TransferAsset;
+}
+
+export interface ExecuteSwapPayload {
+  requestId: string;
+  signedTransaction: string;
+}
+
 export type CreateRecipientPayload =
   | {
       kind: "wallet";
@@ -223,6 +234,10 @@ export interface AppTransaction {
   bridgeSourceDepositInstructions: BridgeSourceDepositInstructions | null;
   bridgeDestinationTxHash: string | null;
   bridgeReceiptUrl: string | null;
+  outputAsset: TransferAsset | null;
+  outputAmountDecimal: string | null;
+  outputAmountRaw: string | null;
+  outputAmountDisplay: string | null;
   networkFeeRaw: string | null;
   networkFeeDisplay: string | null;
   transactionSignature: string;
@@ -242,6 +257,29 @@ export interface TransactionListResponse {
 export interface StreamTokenResponse {
   token: string;
   expiresAt: string;
+}
+
+export interface SwapOrderResponse {
+  requestId: string;
+  quotedAt: string;
+  quote: {
+    feeBps: number | null;
+    feeMint: string | null;
+    inputAmountDecimal: string;
+    inputAmountRaw: string;
+    inputAsset: TransferAsset;
+    mode: string | null;
+    outputAmountDecimal: string;
+    outputAmountRaw: string;
+    outputAsset: TransferAsset;
+    router: string | null;
+  };
+  transaction: string;
+}
+
+export interface SwapExecuteResponse {
+  balances: SolanaBalancesResponse["balances"];
+  transaction: AppTransaction;
 }
 
 export interface TransactionStreamResponse {

@@ -1,6 +1,7 @@
 import { CDPReactProvider } from "@coinbase/cdp-react/components/CDPReactProvider";
 import { QueryClientProvider } from "@tanstack/react-query";
 
+import { ToastProvider } from "@/components/ui/toast-provider";
 import { CDP_CONFIG } from "@/config";
 import { ApiClientProvider } from "@/features/session/api-client-context";
 import { createQueryClient } from "@/lib/query-client";
@@ -14,7 +15,9 @@ function CoinbaseAppRoot() {
     <CDPReactProvider config={CDP_CONFIG} theme={theme}>
       <ApiClientProvider>
         <QueryClientProvider client={queryClient}>
-          <AppRouterProvider />
+          <ToastProvider>
+            <AppRouterProvider />
+          </ToastProvider>
         </QueryClientProvider>
       </ApiClientProvider>
     </CDPReactProvider>

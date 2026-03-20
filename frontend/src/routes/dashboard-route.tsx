@@ -8,11 +8,9 @@ import { useDashboardSnapshot } from "@/features/dashboard/use-dashboard-snapsho
 import { useDashboardStream } from "@/features/dashboard/use-dashboard-stream";
 import { useCreateRecipientMutation } from "@/features/recipients/use-recipient-mutations";
 import { useRecipientsQuery } from "@/features/recipients/use-recipients-query";
+import { usePersistedSolanaAddress } from "@/features/session/use-persisted-solana-address";
 import { useSession } from "@/features/session/use-session";
-import {
-  useSaveSolanaAddressMutation,
-  useSyncBridgeStatusMutation,
-} from "@/features/session/use-session-mutations";
+import { useSyncBridgeStatusMutation } from "@/features/session/use-session-mutations";
 
 function DashboardRouteComponent() {
   const { bridge, user } = useSession();
@@ -24,8 +22,11 @@ function DashboardRouteComponent() {
   const createOnrampMutation = useCreateOnrampMutation(userId);
   const createOfframpMutation = useCreateOfframpMutation(userId);
   const syncBridgeStatusMutation = useSyncBridgeStatusMutation(userId);
-  const saveSolanaAddressMutation = useSaveSolanaAddressMutation(userId);
   const fetchSolanaTransactionContext = useFetchSolanaTransactionContext();
+  const { effectiveSolanaAddress, persistenceError } = usePersistedSolanaAddress(
+    userId,
+    user.solanaAddress,
+  );
 
   const snapshotError =
     dashboardSnapshotQuery.error instanceof Error ? dashboardSnapshotQuery.error.message : null;
@@ -39,9 +40,6 @@ function DashboardRouteComponent() {
       onCreateOnramp={async payload => (await createOnrampMutation.mutateAsync(payload)).transaction}
       onCreateRecipient={async payload => (await createRecipientMutation.mutateAsync(payload)).recipient}
       onFetchSolanaTransactionContext={fetchSolanaTransactionContext}
-      onPersistSolanaAddress={async solanaAddress => {
-        await saveSolanaAddressMutation.mutateAsync(solanaAddress);
-      }}
       onRefreshBridgeStatus={async () => {
         await syncBridgeStatusMutation.mutateAsync();
       }}
@@ -50,6 +48,8 @@ function DashboardRouteComponent() {
       transactionsError={streamTransactionsError ?? snapshotError}
       transactionsLoading={dashboardSnapshotQuery.isPending}
       user={user}
+      walletAddress={effectiveSolanaAddress}
+      walletSyncError={persistenceError}
     />
   );
 }

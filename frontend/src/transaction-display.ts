@@ -9,6 +9,10 @@ export function isOfframpTransaction(transaction: AppTransaction) {
   return transaction.entryType === "offramp";
 }
 
+export function isSwapTransaction(transaction: AppTransaction) {
+  return transaction.entryType === "swap";
+}
+
 export function getTransactionDirectionTone(transaction: AppTransaction) {
   return transaction.direction === "inbound"
     ? "text-emerald-600"
@@ -62,6 +66,10 @@ export function formatActivityTitle(transaction: AppTransaction) {
     return `Off-ramp to ${transaction.counterpartyName ?? "bank recipient"}`;
   }
 
+  if (isSwapTransaction(transaction)) {
+    return `Swap ${getTransferAssetLabel(transaction.asset)} → ${getTransferAssetLabel(transaction.outputAsset ?? transaction.asset)}`;
+  }
+
   const counterpartyDisplay = getTransactionCounterpartyDisplay(transaction);
 
   return transaction.direction === "inbound"
@@ -81,6 +89,10 @@ export function formatActivityStatus(transaction: AppTransaction) {
 }
 
 export function formatActivityAmount(transaction: AppTransaction) {
+  if (isSwapTransaction(transaction)) {
+    return `-${transaction.amountDisplay} ${getAssetLabel(transaction.asset)}`;
+  }
+
   const prefix = transaction.direction === "inbound" ? "+" : "-";
   if (isOnrampTransaction(transaction)) {
     const pendingAmount = formatPendingOnrampAmount(transaction);
@@ -122,6 +134,10 @@ export function formatCounterpartyLabel(transaction: AppTransaction) {
     return "Bank recipient";
   }
 
+  if (isSwapTransaction(transaction)) {
+    return "Received";
+  }
+
   return transaction.direction === "inbound" ? "From" : "To";
 }
 
@@ -132,6 +148,12 @@ export function getTransactionCounterpartyDisplay(transaction: AppTransaction) {
 
   if (isOfframpTransaction(transaction)) {
     return transaction.counterpartyName ?? "Bridge Off-ramp";
+  }
+
+  if (isSwapTransaction(transaction)) {
+    return transaction.outputAmountDisplay && transaction.outputAsset
+      ? `${transaction.outputAmountDisplay} ${getTransferAssetLabel(transaction.outputAsset)}`
+      : "Quoted output";
   }
 
   return (
@@ -148,6 +170,10 @@ export function getTransactionCounterpartyWalletAddress(transaction: AppTransact
 
   if (isOfframpTransaction(transaction)) {
     return transaction.bridgeSourceDepositInstructions?.toAddress ?? transaction.counterpartyWalletAddress ?? null;
+  }
+
+  if (isSwapTransaction(transaction)) {
+    return transaction.trackedWalletAddress;
   }
 
   return transaction.counterpartyWalletAddress ?? transaction.fromWalletAddress ?? null;

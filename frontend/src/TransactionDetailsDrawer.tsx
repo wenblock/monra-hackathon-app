@@ -1,4 +1,4 @@
-import { ArrowDownLeft, ArrowUpRight, ExternalLink } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, ArrowLeftRight, ExternalLink } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import {
@@ -19,6 +19,7 @@ import {
   getTransactionCounterpartyWalletAddress,
   isOfframpTransaction,
   isOnrampTransaction,
+  isSwapTransaction,
 } from "@/transaction-display";
 import type { AppTransaction } from "@/types";
 
@@ -46,7 +47,9 @@ function TransactionDetailsDrawer({
             <SheetHeader className="border-b border-border/80 bg-background pb-5">
               <div className="flex items-start gap-4">
                 <span className="mt-1 flex size-11 shrink-0 items-center justify-center rounded-2xl bg-secondary text-foreground">
-                  {transaction.direction === "inbound" ? (
+                  {isSwapTransaction(transaction) ? (
+                    <ArrowLeftRight className="size-5" />
+                  ) : transaction.direction === "inbound" ? (
                     <ArrowDownLeft className="size-5" />
                   ) : (
                     <ArrowUpRight className="size-5" />
@@ -59,9 +62,11 @@ function TransactionDetailsDrawer({
                         ? "On-ramp"
                         : isOfframpTransaction(transaction)
                           ? "Off-ramp"
-                        : transaction.direction === "inbound"
-                          ? "Received"
-                          : "Send"}
+                          : isSwapTransaction(transaction)
+                            ? "Swap"
+                          : transaction.direction === "inbound"
+                            ? "Received"
+                            : "Send"}
                     </SheetTitle>
                     <Badge variant={transaction.status === "confirmed" ? "success" : "secondary"}>
                       {formatActivityStatus(transaction)}
@@ -81,6 +86,8 @@ function TransactionDetailsDrawer({
               <OnrampDetails transaction={transaction} explorerSignature={explorerSignature} />
             ) : isOfframpTransaction(transaction) ? (
               <OfframpDetails transaction={transaction} explorerSignature={explorerSignature} />
+            ) : isSwapTransaction(transaction) ? (
+              <SwapDetails transaction={transaction} explorerSignature={explorerSignature} />
             ) : (
               <div className="space-y-5 p-6">
                 <DetailBlock
@@ -130,6 +137,63 @@ function TransactionDetailsDrawer({
         ) : null}
       </SheetContent>
     </Sheet>
+  );
+}
+
+function SwapDetails({
+  explorerSignature,
+  transaction,
+}: {
+  explorerSignature: string | null;
+  transaction: AppTransaction;
+}) {
+  return (
+    <div className="space-y-5 p-6">
+      <DetailBlock
+        label={transaction.status === "confirmed" ? "Completed" : "Created"}
+        value={formatActivityAbsoluteTimestamp(transaction.confirmedAt ?? transaction.createdAt)}
+      />
+
+      <DetailBlock
+        label="Sold"
+        value={`${transaction.amountDisplay} ${transaction.asset.toUpperCase()}`}
+      />
+
+      <DetailBlock
+        label="Received"
+        value={
+          transaction.outputAmountDisplay && transaction.outputAsset
+            ? `${transaction.outputAmountDisplay} ${transaction.outputAsset.toUpperCase()}`
+            : "Unavailable"
+        }
+      />
+
+      <DetailBlock label="Wallet" value={transaction.trackedWalletAddress} monospace />
+
+      <DetailBlock label="Signature" value={transaction.transactionSignature} monospace />
+
+      {explorerSignature ? (
+        <a
+          className="inline-flex items-center gap-2 text-sm font-medium text-primary transition-colors hover:text-primary/80"
+          href={`https://explorer.solana.com/tx/${explorerSignature}`}
+          rel="noopener noreferrer"
+          target="_blank"
+        >
+          View on Solana Explorer
+          <ExternalLink className="size-4" />
+        </a>
+      ) : null}
+
+      <DetailBlock label="Network" value="Solana Mainnet" />
+
+      {transaction.networkFeeDisplay ? (
+        <DetailBlock label="Network fee" value={`${transaction.networkFeeDisplay} SOL`} />
+      ) : null}
+
+      {transaction.failureReason ? (
+        <DetailBlock label="Failure reason" value={transaction.failureReason} />
+      ) : null}
+    </div>
   );
 }
 

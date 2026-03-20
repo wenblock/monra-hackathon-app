@@ -1,5 +1,4 @@
 import { Link } from "@tanstack/react-router";
-import { useSolanaAddress } from "@coinbase/cdp-hooks";
 import { ExternalLink, Mail, MapPin, Send, ShieldCheck, WalletCards } from "lucide-react";
 import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 
@@ -64,13 +63,14 @@ interface Props {
   onFetchSolanaTransactionContext: (
     payload: FetchSolanaTransactionContextPayload,
   ) => Promise<SolanaTransactionContextResponse>;
-  onPersistSolanaAddress: (solanaAddress: string) => Promise<void>;
   onRefreshBridgeStatus: () => Promise<void>;
   recipients: Recipient[];
   transactions: AppTransaction[];
   transactionsError: string | null;
   transactionsLoading: boolean;
   user: AppUser;
+  walletAddress: string | null;
+  walletSyncError: string | null;
 }
 
 function Dashboard({
@@ -81,15 +81,15 @@ function Dashboard({
   onCreateOnramp,
   onCreateRecipient,
   onFetchSolanaTransactionContext,
-  onPersistSolanaAddress,
   onRefreshBridgeStatus,
   recipients,
   transactions,
   transactionsError,
   transactionsLoading,
   user,
+  walletAddress,
+  walletSyncError,
 }: Props) {
-  const { solanaAddress } = useSolanaAddress();
   const [dismissedTosAlert, setDismissedTosAlert] = useState(false);
   const [isKycDialogOpen, setIsKycDialogOpen] = useState(false);
   const [isTosDialogOpen, setIsTosDialogOpen] = useState(false);
@@ -97,13 +97,12 @@ function Dashboard({
   const [isOnrampDrawerOpen, setIsOnrampDrawerOpen] = useState(false);
   const [isOfframpDrawerOpen, setIsOfframpDrawerOpen] = useState(false);
   const [isSendDrawerOpen, setIsSendDrawerOpen] = useState(false);
-  const [persistedSolanaAddress, setPersistedSolanaAddress] = useState<string | null>(null);
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string | null>(null);
   const [dashboardNotice, setDashboardNotice] = useState<string | null>(null);
   const [tosEmbedError, setTosEmbedError] = useState(false);
   const [kycDialogNotice, setKycDialogNotice] = useState<string | null>(null);
 
-  const effectiveSolanaAddress = user.solanaAddress ?? solanaAddress ?? null;
+  const effectiveSolanaAddress = walletAddress;
   const showKycAlert = bridge.showKycAlert;
   const showTosAlert = bridge.showTosAlert && !dismissedTosAlert;
   const displayedKycStatus = bridge.customerStatus ?? user.bridgeKycStatus ?? "not_started";
@@ -135,21 +134,6 @@ function Dashboard({
       );
     }
   }, [onRefreshBridgeStatus]);
-
-  useEffect(() => {
-    if (!effectiveSolanaAddress || user.solanaAddress || persistedSolanaAddress === effectiveSolanaAddress) {
-      return;
-    }
-
-    setPersistedSolanaAddress(effectiveSolanaAddress);
-    void onPersistSolanaAddress(effectiveSolanaAddress).catch(error => {
-      logRuntimeError("Unable to persist Solana address.", error);
-      setDashboardNotice(
-        "Your wallet address could not be synced to the backend yet. Refresh the page and try again if this persists.",
-      );
-      setPersistedSolanaAddress(null);
-    });
-  }, [effectiveSolanaAddress, onPersistSolanaAddress, persistedSolanaAddress, user.solanaAddress]);
 
   useEffect(() => {
     const bridgeKycLink = user.bridgeKycLink;
@@ -278,9 +262,9 @@ function Dashboard({
       </>
     ) : undefined;
 
-  const shellNotice = dashboardNotice ? (
+  const shellNotice = dashboardNotice ?? walletSyncError ? (
     <InlineNotice variant="warning" title="Action needed">
-      {dashboardNotice}
+      {dashboardNotice ?? walletSyncError}
     </InlineNotice>
   ) : null;
 

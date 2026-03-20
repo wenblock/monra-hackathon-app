@@ -1,4 +1,4 @@
-import { ArrowDownLeft, ArrowUpRight } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, ArrowLeftRight } from "lucide-react";
 import { Suspense, lazy, useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +9,7 @@ import {
   formatActivityTimestamp,
   formatActivityTitle,
   getTransactionDirectionTone,
+  isSwapTransaction,
 } from "@/transaction-display";
 import type { AppTransaction } from "@/types";
 
@@ -48,7 +49,9 @@ function TransactionActivityList({ transactions }: TransactionActivityListProps)
           >
             <div className="flex min-w-0 items-center gap-4">
               <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-secondary text-foreground">
-                {transaction.direction === "inbound" ? (
+                {isSwapTransaction(transaction) ? (
+                  <ArrowLeftRight className="size-5" />
+                ) : transaction.direction === "inbound" ? (
                   <ArrowDownLeft className="size-5" />
                 ) : (
                   <ArrowUpRight className="size-5" />
