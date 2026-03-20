@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 import { config } from "../config.js";
 import {
+  TRANSFER_ASSETS,
   SPL_TRANSFER_ASSETS,
   getSplTokenAssetByMintAddress,
   getTransferAssetDecimals,
@@ -10,12 +11,27 @@ import type {
   TransferAsset,
   SolanaBalancesResponse,
   SolanaTransactionContextResponse,
+  TreasuryValuation,
 } from "../types.js";
 
 const ALCHEMY_API_BASE_URL = "https://api.g.alchemy.com";
 const ALCHEMY_DASHBOARD_API_BASE_URL = "https://dashboard.alchemy.com/api";
 const ALCHEMY_SOLANA_RPC_URL = `https://solana-mainnet.g.alchemy.com/v2/${config.alchemyApiKey}`;
 const SOLANA_MAINNET_NETWORK = "solana-mainnet";
+const TREASURY_PRICE_TTL_MS = 15_000;
+const TREASURY_PRICE_MAX_STALE_MS = 120_000;
+const PRICE_SYMBOL_BY_ASSET: Record<TransferAsset, string> = {
+  sol: "SOL",
+  usdc: "USDC",
+  eurc: "EURC",
+};
+
+interface TreasuryPriceSnapshot {
+  pricesUsd: Partial<Record<TransferAsset, string>>;
+  lastUpdatedAt: string | null;
+  fetchedAt: number;
+  expiresAt: number;
+}
 
 interface AlchemyTokenBalance {
   network?: string;
@@ -28,6 +44,22 @@ interface AlchemyTokenBalancesPayload {
     pageKey?: string | null;
     tokens?: AlchemyTokenBalance[];
   };
+}
+
+interface AlchemyPricePoint {
+  currency?: string;
+  value?: string;
+  lastUpdatedAt?: string;
+}
+
+interface AlchemyTokenPriceEntry {
+  symbol?: string;
+  prices?: AlchemyPricePoint[];
+  error?: string;
+}
+
+interface AlchemyTokenPricesPayload {
+  data?: AlchemyTokenPriceEntry[];
 }
 
 interface AlchemyLatestBlockhashPayload {
@@ -107,6 +139,9 @@ export class AlchemyApiError extends Error {
   }
 }
 
+let treasuryPriceCache: TreasuryPriceSnapshot | null = null;
+let treasuryPriceRefreshInFlight: Promise<TreasuryPriceSnapshot | null> | null = null;
+
 function normalizeRawAmount(value: string) {
   const trimmed = value.trim();
   if (trimmed.startsWith("0x")) {
@@ -146,6 +181,27 @@ function isNativeSolBalance(tokenAddress?: string | null) {
 
   const normalizedAddress = tokenAddress.trim().toLowerCase();
   return normalizedAddress === "" || normalizedAddress === "native" || normalizedAddress === "sol";
+}
+
+export function createUnavailableTreasuryValuation(
+  unavailableAssets: TransferAsset[] = [...TRANSFER_ASSETS],
+): TreasuryValuation {
+  return {
+    treasuryValueUsd: null,
+    assetValuesUsd: {
+      sol: null,
+      usdc: null,
+      eurc: null,
+    },
+    pricesUsd: {
+      sol: null,
+      usdc: null,
+      eurc: null,
+    },
+    lastUpdatedAt: null,
+    isStale: true,
+    unavailableAssets,
+  };
 }
 
 async function readAlchemyJson<T>(response: Response): Promise<T> {
@@ -219,6 +275,23 @@ async function fetchAlchemyTokenBalances(address: string, pageKey?: string) {
   );
 
   return readAlchemyJson<AlchemyTokenBalancesPayload>(response);
+}
+
+async function fetchAlchemyTokenPricesBySymbol(symbols: string[]) {
+  const url = new URL(`${ALCHEMY_API_BASE_URL}/prices/v1/${config.alchemyApiKey}/tokens/by-symbol`);
+
+  for (const symbol of symbols) {
+    url.searchParams.append("symbols", symbol);
+  }
+
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  return readAlchemyJson<AlchemyTokenPricesPayload>(response);
 }
 
 async function fetchAlchemyRpc<T>(method: string, params: unknown[]) {
@@ -302,7 +375,119 @@ export async function fetchSolanaBalances(address: string): Promise<SolanaBalanc
       sol,
     },
     network: "solana-mainnet",
+    valuation: createUnavailableTreasuryValuation(),
   };
+}
+
+async function refreshTreasuryPrices(now: number) {
+  if (treasuryPriceRefreshInFlight) {
+    return treasuryPriceRefreshInFlight;
+  }
+
+  treasuryPriceRefreshInFlight = (async () => {
+    try {
+      const payload = await fetchAlchemyTokenPricesBySymbol(
+        TRANSFER_ASSETS.map(asset => PRICE_SYMBOL_BY_ASSET[asset]),
+      );
+      const priceEntries = Array.isArray(payload.data) ? payload.data : [];
+      const pricesUsd: Partial<Record<TransferAsset, string>> = {};
+      let lastUpdatedAt: string | null = null;
+
+      for (const asset of TRANSFER_ASSETS) {
+        const symbol = PRICE_SYMBOL_BY_ASSET[asset];
+        const entry = priceEntries.find(candidate => candidate.symbol?.trim().toUpperCase() === symbol);
+        const usdPrice = entry?.prices?.find(
+          price => price.currency?.trim().toLowerCase() === "usd" && typeof price.value === "string",
+        );
+
+        if (!usdPrice?.value) {
+          continue;
+        }
+
+        pricesUsd[asset] = usdPrice.value;
+
+        if (usdPrice.lastUpdatedAt) {
+          lastUpdatedAt = getMostRecentTimestamp(lastUpdatedAt, usdPrice.lastUpdatedAt);
+        }
+      }
+
+      const snapshot: TreasuryPriceSnapshot = {
+        pricesUsd,
+        lastUpdatedAt,
+        fetchedAt: now,
+        expiresAt: now + TREASURY_PRICE_TTL_MS,
+      };
+
+      treasuryPriceCache = snapshot;
+      return snapshot;
+    } catch (error) {
+      console.error("Unable to refresh treasury prices.", error);
+      return null;
+    } finally {
+      treasuryPriceRefreshInFlight = null;
+    }
+  })();
+
+  return treasuryPriceRefreshInFlight;
+}
+
+export async function getTreasuryPrices(now = Date.now()) {
+  if (treasuryPriceCache && now <= treasuryPriceCache.expiresAt) {
+    return treasuryPriceCache;
+  }
+
+  if (
+    treasuryPriceCache &&
+    now - treasuryPriceCache.fetchedAt <= TREASURY_PRICE_MAX_STALE_MS
+  ) {
+    if (!treasuryPriceRefreshInFlight) {
+      void refreshTreasuryPrices(now);
+    }
+
+    return treasuryPriceCache;
+  }
+
+  return refreshTreasuryPrices(now);
+}
+
+export function resetTreasuryPriceCacheForTests() {
+  treasuryPriceCache = null;
+  treasuryPriceRefreshInFlight = null;
+}
+
+export function buildTreasuryValuation(
+  balances: SolanaBalancesResponse["balances"],
+  treasuryPrices: TreasuryPriceSnapshot | null,
+  now = Date.now(),
+): TreasuryValuation {
+  if (!treasuryPrices) {
+    return createUnavailableTreasuryValuation();
+  }
+
+  const valuation = createUnavailableTreasuryValuation([]);
+  let treasuryTotalUsd = 0;
+
+  for (const asset of TRANSFER_ASSETS) {
+    const usdPrice = treasuryPrices.pricesUsd[asset];
+    const parsedPrice = usdPrice ? Number.parseFloat(usdPrice) : Number.NaN;
+    const parsedBalance = Number.parseFloat(balances[asset].formatted);
+
+    if (!Number.isFinite(parsedPrice) || !Number.isFinite(parsedBalance)) {
+      valuation.unavailableAssets.push(asset);
+      continue;
+    }
+
+    valuation.pricesUsd[asset] = usdPrice ?? null;
+    valuation.assetValuesUsd[asset] = formatUsdAmount(parsedBalance * parsedPrice);
+    treasuryTotalUsd += parsedBalance * parsedPrice;
+  }
+
+  valuation.lastUpdatedAt = treasuryPrices.lastUpdatedAt;
+  valuation.isStale = now > treasuryPrices.expiresAt;
+  valuation.treasuryValueUsd =
+    valuation.unavailableAssets.length === 0 ? formatUsdAmount(treasuryTotalUsd) : null;
+
+  return valuation;
 }
 
 export async function fetchLatestSolanaBlockhash() {
@@ -424,4 +609,16 @@ export function isAlchemyApiError(error: unknown): error is AlchemyApiError {
 
 export function isSupportedSplTokenMintAddress(value: string | null | undefined) {
   return getSplTokenAssetByMintAddress(value) !== null;
+}
+
+function formatUsdAmount(value: number) {
+  return value.toFixed(2);
+}
+
+function getMostRecentTimestamp(current: string | null, next: string) {
+  if (!current) {
+    return next;
+  }
+
+  return Date.parse(next) > Date.parse(current) ? next : current;
 }

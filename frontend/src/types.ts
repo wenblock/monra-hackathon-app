@@ -90,6 +90,15 @@ export interface TokenBalanceAmount {
   formatted: string;
 }
 
+export interface TreasuryValuation {
+  treasuryValueUsd: string | null;
+  assetValuesUsd: Record<TransferAsset, string | null>;
+  isStale: boolean;
+  pricesUsd: Record<TransferAsset, string | null>;
+  lastUpdatedAt: string | null;
+  unavailableAssets: TransferAsset[];
+}
+
 export interface SolanaBalancesResponse {
   network: "solana-mainnet";
   balances: {
@@ -97,6 +106,7 @@ export interface SolanaBalancesResponse {
     usdc: TokenBalanceAmount;
     eurc: TokenBalanceAmount;
   };
+  valuation: TreasuryValuation;
 }
 
 export interface SolanaTransactionContextResponse {
@@ -236,5 +246,6 @@ export interface StreamTokenResponse {
 
 export interface TransactionStreamResponse {
   balances: SolanaBalancesResponse["balances"];
+  valuation: TreasuryValuation;
   transactions: AppTransaction[];
 }

@@ -103,6 +103,22 @@ describe("DashboardRouteComponent", () => {
           usdc: { formatted: "25.00", raw: "25000000" },
           eurc: { formatted: "10.00", raw: "10000000" },
         },
+        valuation: {
+          treasuryValueUsd: "186.80",
+          assetValuesUsd: {
+            sol: "150.00",
+            usdc: "25.00",
+            eurc: "10.80",
+          },
+          pricesUsd: {
+            sol: "150.00",
+            usdc: "1.00",
+            eurc: "1.08",
+          },
+          lastUpdatedAt: "2026-03-20T09:00:02.000Z",
+          isStale: false,
+          unavailableAssets: [],
+        },
         transactions: [],
       },
       error: null,
@@ -133,7 +149,7 @@ describe("DashboardRouteComponent", () => {
   it("renders the dashboard shell", () => {
     renderWithQueryClient(<DashboardRouteComponent />);
 
-    expect(screen.getByText("Balances")).toBeInTheDocument();
+    expect(screen.getByText("Treasury Value")).toBeInTheDocument();
     expect(screen.getByText("Recent Activity")).toBeInTheDocument();
   });
 });

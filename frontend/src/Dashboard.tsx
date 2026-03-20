@@ -24,9 +24,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import InlineNotice from "@/components/ui/inline-notice";
-import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { TRANSFER_ASSETS, getTransferAssetLabel } from "@/assets";
+import {
+  TRANSFER_ASSETS,
+  getTransferAssetIconPath,
+  getTransferAssetLabel,
+} from "@/assets";
 import { logRuntimeError } from "@/lib/log-runtime-error";
 import { cn } from "@/lib/utils";
 import TransactionActivityList from "@/TransactionActivityList";
@@ -46,12 +49,14 @@ import type {
 const LazyOfframpDrawer = lazy(() => import("@/OfframpDrawer"));
 const LazyOnrampDrawer = lazy(() => import("@/OnrampDrawer"));
 const LazySendDrawer = lazy(() => import("@/SendDrawer"));
+const LazyDepositDrawer = lazy(() => import("@/DepositDrawer"));
 
 const TOS_IFRAME_SANDBOX =
   "allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts";
 
 interface Props {
   balances?: SolanaBalancesResponse["balances"];
+  valuation?: SolanaBalancesResponse["valuation"];
   bridge: BridgeComplianceState;
   onCreateOfframp: (payload: CreateOfframpPayload) => Promise<AppTransaction>;
   onCreateOnramp: (payload: CreateOnrampPayload) => Promise<AppTransaction>;
@@ -70,6 +75,7 @@ interface Props {
 
 function Dashboard({
   balances,
+  valuation,
   bridge,
   onCreateOfframp,
   onCreateOnramp,
@@ -87,6 +93,7 @@ function Dashboard({
   const [dismissedTosAlert, setDismissedTosAlert] = useState(false);
   const [isKycDialogOpen, setIsKycDialogOpen] = useState(false);
   const [isTosDialogOpen, setIsTosDialogOpen] = useState(false);
+  const [isDepositDrawerOpen, setIsDepositDrawerOpen] = useState(false);
   const [isOnrampDrawerOpen, setIsOnrampDrawerOpen] = useState(false);
   const [isOfframpDrawerOpen, setIsOfframpDrawerOpen] = useState(false);
   const [isSendDrawerOpen, setIsSendDrawerOpen] = useState(false);
@@ -101,14 +108,24 @@ function Dashboard({
   const showTosAlert = bridge.showTosAlert && !dismissedTosAlert;
   const displayedKycStatus = bridge.customerStatus ?? user.bridgeKycStatus ?? "not_started";
   const recentTransactions = transactions.slice(0, 5);
+  const treasuryValueDisplay = valuation?.treasuryValueUsd
+    ? formatUsdCurrency(valuation.treasuryValueUsd)
+    : null;
+  const treasuryFreshnessLabel = getTreasuryFreshnessLabel(valuation);
+  const assetRows = TRANSFER_ASSETS.map(asset => {
+    const tokenAmount = balances ? `${balances[asset].formatted} ${getTransferAssetLabel(asset)}` : null;
+    const assetValueUsd = valuation?.assetValuesUsd[asset];
 
-  const balanceMetrics = TRANSFER_ASSETS.map(asset => ({
-    id: asset,
-    label: getTransferAssetLabel(asset),
-    value: balances ? `${balances[asset].formatted} ${getTransferAssetLabel(asset)}` : undefined,
-    note: "Live",
-    tone: "live" as const,
-  }));
+    return {
+      asset,
+      iconPath: getTransferAssetIconPath(asset),
+      label: getTransferAssetLabel(asset),
+      primaryValue:
+        asset === "sol" ? tokenAmount : assetValueUsd ? formatUsdCurrency(assetValueUsd) : tokenAmount,
+      secondaryValue:
+        asset === "sol" ? (assetValueUsd ? formatUsdCurrency(assetValueUsd) : "Valuation unavailable") : tokenAmount,
+    };
+  });
 
   const refreshBridgeStatus = useCallback(async () => {
     try {
@@ -275,91 +292,96 @@ function Dashboard({
       <div className="space-y-6">
         <section className="grid gap-4 xl:grid-cols-[1.3fr_0.9fr]">
           <Card className="overflow-hidden">
-            <CardHeader className="pb-4">
-              <div className="flex items-center justify-between gap-3">
-                <CardTitle className="text-3xl">Balances</CardTitle>
-              </div>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-3xl">Treasury Value</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-3">
-                {balanceMetrics.map(metric => (
-                  <div
-                    key={metric.id}
+            <CardContent className="space-y-8">
+              <div className="space-y-2">
+                {treasuryValueDisplay ? (
+                  <p className="text-[clamp(3rem,9vw,5.75rem)] font-semibold tracking-tight text-foreground">
+                    {treasuryValueDisplay}
+                  </p>
+                ) : balances ? (
+                  <p className="text-2xl font-medium text-muted-foreground">Unavailable</p>
+                ) : (
+                  <Skeleton className="h-16 w-72 rounded-full sm:h-20 sm:w-96" />
+                )}
+                {balances ? (
+                  <p
                     className={cn(
-                      "rounded-[calc(var(--radius)+2px)] border p-5",
-                      "border-primary/15 bg-primary/5",
+                      "text-sm",
+                      valuation?.isStale || !treasuryValueDisplay
+                        ? "text-muted-foreground"
+                        : "text-foreground/70",
                     )}
                   >
-                    <p className="font-mono text-xs uppercase tracking-[0.26em] text-muted-foreground">
-                      {metric.label}
-                    </p>
-                    {metric.value === undefined ? (
-                      <>
-                        <Skeleton className="mt-4 h-10 w-32 rounded-full" />
-                        <Skeleton className="mt-3 h-4 w-24 rounded-full" />
-                      </>
-                    ) : (
-                      <>
-                        <p className="mt-4 text-3xl font-semibold tracking-tight text-foreground">
-                          {metric.value}
-                        </p>
-                        <p className="mt-2 text-sm text-muted-foreground">{metric.note}</p>
-                      </>
-                    )}
-                  </div>
-                ))}
+                    {treasuryFreshnessLabel}
+                  </p>
+                ) : null}
               </div>
 
-              <div className="grid gap-3 md:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 {quickActions.map(action => {
                   const Icon = action.icon;
-
-                  if (action.id === "onramp") {
-                    return (
-                      <Button
-                        key={action.id}
-                        variant="outline"
-                        className="h-auto min-h-16 justify-start rounded-[calc(var(--radius)+4px)] px-4 py-3 text-left"
-                        onClick={() => setIsOnrampDrawerOpen(true)}
-                      >
-                        <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-secondary">
-                          <Icon />
-                        </span>
-                        <span className="min-w-0 text-base font-medium">{action.label}</span>
-                      </Button>
-                    );
-                  }
-
-                  if (action.id === "send") {
-                    return (
-                      <Button
-                        key={action.id}
-                        variant="default"
-                        className="h-auto min-h-16 justify-start rounded-[calc(var(--radius)+4px)] px-4 py-3 text-left"
-                        onClick={() => setIsSendDrawerOpen(true)}
-                      >
-                        <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-white/15">
-                          <Icon />
-                        </span>
-                        <span className="min-w-0 text-base font-medium">{action.label}</span>
-                      </Button>
-                    );
-                  }
+                  const isSendAction = action.id === "send";
+                  const isDepositAction = action.id === "deposit";
+                  const onClick =
+                    action.id === "deposit"
+                      ? () => setIsDepositDrawerOpen(true)
+                      : action.id === "onramp"
+                        ? () => setIsOnrampDrawerOpen(true)
+                        : action.id === "send"
+                          ? () => setIsSendDrawerOpen(true)
+                          : () => setIsOfframpDrawerOpen(true);
 
                   return (
                     <Button
                       key={action.id}
-                      variant="outline"
-                      className="h-auto min-h-16 justify-start rounded-[calc(var(--radius)+4px)] px-4 py-3 text-left"
-                      onClick={() => setIsOfframpDrawerOpen(true)}
+                      type="button"
+                      variant={isSendAction ? "default" : "outline"}
+                      className={cn(
+                        "h-auto min-h-14 justify-start rounded-full px-5 py-4 text-left text-base",
+                        isSendAction
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-transparent bg-foreground text-background hover:bg-foreground/92 hover:text-background",
+                      )}
+                      disabled={isDepositAction && !effectiveSolanaAddress}
+                      onClick={onClick}
                     >
-                      <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-secondary">
-                        <Icon />
+                      <span
+                        className={cn(
+                          "flex size-9 shrink-0 items-center justify-center rounded-full",
+                          isSendAction ? "bg-white/15" : "bg-white/10",
+                        )}
+                      >
+                        <Icon className="size-4" />
                       </span>
                       <span className="min-w-0 text-base font-medium">{action.label}</span>
                     </Button>
                   );
                 })}
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-2xl font-semibold tracking-tight text-foreground">Your Assets</p>
+                  {valuation?.unavailableAssets.length ? (
+                    <span className="text-sm text-muted-foreground">Some valuations unavailable</span>
+                  ) : null}
+                </div>
+
+                <div className="space-y-3">
+                  {assetRows.map(row => (
+                    <TreasuryAssetRow
+                      key={row.asset}
+                      iconPath={row.iconPath}
+                      label={row.label}
+                      loading={!balances}
+                      primaryValue={row.primaryValue}
+                      secondaryValue={row.secondaryValue}
+                    />
+                  ))}
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -387,16 +409,6 @@ function Dashboard({
               <InfoRow icon={MapPin} label="Country" value={user.countryName} />
               <InfoRow icon={Mail} label="Email" value={user.email} />
               <StatusRow label="KYC status" status={displayedKycStatus} />
-              <Separator />
-              <div className="rounded-[calc(var(--radius)+2px)] border border-dashed border-border bg-secondary/40 p-4">
-                <p className="text-sm font-medium">Wallet</p>
-                <p className="mt-2 break-all font-mono text-xs text-muted-foreground">
-                  {effectiveSolanaAddress ?? "Address will appear after wallet initialization."}
-                </p>
-                <p className="mt-3 text-xs text-muted-foreground">
-                  Receive SOL, USDC, or EURC at this Solana address.
-                </p>
-              </div>
             </CardContent>
           </Card>
         </section>
@@ -441,13 +453,23 @@ function Dashboard({
         </Card>
       </div>
 
+      {isDepositDrawerOpen ? (
+        <Suspense fallback={null}>
+          <LazyDepositDrawer
+            onOpenChange={setIsDepositDrawerOpen}
+            open={isDepositDrawerOpen}
+            walletAddress={effectiveSolanaAddress}
+          />
+        </Suspense>
+      ) : null}
+
       {isOnrampDrawerOpen ? (
         <Suspense fallback={null}>
           <LazyOnrampDrawer
             onCreateOnramp={onCreateOnramp}
             onOpenChange={setIsOnrampDrawerOpen}
             open={isOnrampDrawerOpen}
-            walletAddress={user.solanaAddress}
+            walletAddress={effectiveSolanaAddress}
           />
         </Suspense>
       ) : null}
@@ -605,6 +627,50 @@ function InfoRow({
   );
 }
 
+function TreasuryAssetRow({
+  iconPath,
+  label,
+  loading,
+  primaryValue,
+  secondaryValue,
+}: {
+  iconPath: string;
+  label: string;
+  loading: boolean;
+  primaryValue: string | null;
+  secondaryValue: string | null;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 rounded-[calc(var(--radius)+4px)] border border-border/70 bg-card/70 px-4 py-3">
+      <div className="flex min-w-0 items-center gap-3">
+        <img
+          src={iconPath}
+          alt={`${label} token icon`}
+          className="size-12 shrink-0 rounded-full bg-white object-contain p-1.5"
+        />
+        <div className="min-w-0">
+          <p className="text-xl font-medium text-foreground">{label}</p>
+          {loading ? (
+            <Skeleton className="mt-2 h-4 w-24 rounded-full" />
+          ) : secondaryValue ? (
+            <p className="mt-1 truncate text-sm text-muted-foreground">{secondaryValue}</p>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="shrink-0 text-right">
+        {loading ? (
+          <Skeleton className="h-6 w-20 rounded-full" />
+        ) : (
+          <p className="text-xl font-semibold tracking-tight text-foreground">
+            {primaryValue ?? "Unavailable"}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function StatusRow({
   label,
   status,
@@ -666,6 +732,51 @@ function formatBridgeStatus(status: string) {
     .filter(Boolean)
     .map(part => part[0]?.toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function formatUsdCurrency(value: string) {
+  const parsedValue = Number.parseFloat(value);
+
+  if (!Number.isFinite(parsedValue)) {
+    return "Unavailable";
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    currency: "USD",
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
+    style: "currency",
+  }).format(parsedValue);
+}
+
+function getTreasuryFreshnessLabel(valuation: SolanaBalancesResponse["valuation"] | undefined) {
+  if (!valuation || !valuation.lastUpdatedAt) {
+    return "Price unavailable";
+  }
+
+  const timestampLabel = formatTreasuryTimestamp(valuation.lastUpdatedAt);
+
+  if (valuation.isStale) {
+    return timestampLabel ? `Price delayed · Last update ${timestampLabel}` : "Price delayed";
+  }
+
+  return timestampLabel ? `Live pricing · Updated ${timestampLabel}` : "Live pricing";
+}
+
+function formatTreasuryTimestamp(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  const year = date.getUTCFullYear();
+  const month = `${date.getUTCMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getUTCDate()}`.padStart(2, "0");
+  const hours = `${date.getUTCHours()}`.padStart(2, "0");
+  const minutes = `${date.getUTCMinutes()}`.padStart(2, "0");
+
+  return `${year}-${month}-${day} ${hours}:${minutes} UTC`;
 }
 
 export { TOS_IFRAME_SANDBOX };

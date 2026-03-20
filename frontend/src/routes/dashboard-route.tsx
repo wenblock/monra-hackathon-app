@@ -33,6 +33,7 @@ function DashboardRouteComponent() {
   return (
     <Dashboard
       balances={dashboardSnapshotQuery.data?.balances}
+      valuation={dashboardSnapshotQuery.data?.valuation}
       bridge={bridge}
       onCreateOfframp={async payload => (await createOfframpMutation.mutateAsync(payload)).transaction}
       onCreateOnramp={async payload => (await createOnrampMutation.mutateAsync(payload)).transaction}

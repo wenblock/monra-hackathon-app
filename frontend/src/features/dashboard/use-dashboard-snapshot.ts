@@ -12,6 +12,9 @@ function useDashboardSnapshot(userId: string, enabled = true) {
     queryKey: dashboardKeys.snapshot(userId),
     queryFn: ({ signal }) => fetchDashboardSnapshot(client, signal),
     enabled,
+    refetchInterval: 15000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
   });
 }
 

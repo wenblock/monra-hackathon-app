@@ -11,6 +11,7 @@ import {
   registerTransactionStream,
   sendTransactionSnapshot,
 } from "../lib/transactionStream.js";
+import { buildTreasuryValuation, getTreasuryPrices } from "../lib/alchemy.js";
 import { sendError } from "../lib/http.js";
 
 export const transactionsRouter = Router();
@@ -96,12 +97,17 @@ transactionsRouter.get("/stream", async (request, response) => {
     response.setHeader("X-Accel-Buffering", "no");
     response.flushHeaders?.();
 
-    const [balances, transactionPage] = await Promise.all([
+    const [balances, transactionPage, treasuryPrices] = await Promise.all([
       getUserBalancesByUserId(user.id),
       listTransactionsByUserIdPaginated(user.id, { limit: 5 }),
+      getTreasuryPrices(),
     ]);
 
-    sendTransactionSnapshot(response, { balances, transactions: transactionPage.transactions });
+    sendTransactionSnapshot(response, {
+      balances,
+      valuation: buildTreasuryValuation(balances, treasuryPrices),
+      transactions: transactionPage.transactions,
+    });
     const unregister = registerTransactionStream(user.id, response);
     const heartbeat = setInterval(() => {
       response.write(": ping\n\n");

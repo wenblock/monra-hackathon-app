@@ -4,7 +4,10 @@ import { z } from "zod";
 import { validateAccessToken } from "../auth/validateAccessToken.js";
 import { getUserBalancesByUserId, getUserByCdpUserId, updateUserSolanaAddress } from "../db.js";
 import {
+  buildTreasuryValuation,
+  createUnavailableTreasuryValuation,
   fetchSolanaTransactionContext,
+  getTreasuryPrices,
   isAlchemyApiError,
   updateAlchemyWebhookAddresses,
 } from "../lib/alchemy.js";
@@ -107,9 +110,17 @@ usersRouter.get("/balances", async (request, response) => {
     }
 
     const balances = await getUserBalancesByUserId(user.id);
+    const valuation = await getTreasuryPrices()
+      .then(treasuryPrices => buildTreasuryValuation(balances, treasuryPrices))
+      .catch(error => {
+        console.error("Unable to build treasury valuation.", error);
+        return createUnavailableTreasuryValuation();
+      });
+
     return response.json({
       balances,
       network: "solana-mainnet",
+      valuation,
     });
   } catch (error) {
     console.error(error);

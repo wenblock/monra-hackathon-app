@@ -12,7 +12,9 @@ import {
   type WebhookLedgerEntryInput,
 } from "../db.js";
 import {
+  buildTreasuryValuation,
   fetchSolanaParsedTransaction,
+  getTreasuryPrices,
   isAlchemyApiError,
   isSolanaTransactionSuccessful,
   validateAlchemyWebhookSignature,
@@ -289,10 +291,15 @@ alchemyWebhookRouter.post(
 );
 
 async function broadcastLatestTransactionSnapshot(userId: number) {
-  const [balances, transactionPage] = await Promise.all([
+  const [balances, transactionPage, treasuryPrices] = await Promise.all([
     getUserBalancesByUserId(userId),
     listTransactionsByUserIdPaginated(userId, { limit: 5 }),
+    getTreasuryPrices(),
   ]);
 
-  broadcastTransactionSnapshot(userId, { balances, transactions: transactionPage.transactions });
+  broadcastTransactionSnapshot(userId, {
+    balances,
+    valuation: buildTreasuryValuation(balances, treasuryPrices),
+    transactions: transactionPage.transactions,
+  });
 }

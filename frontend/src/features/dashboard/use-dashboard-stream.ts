@@ -89,10 +89,12 @@ function useDashboardStream(userId: string, enabled = true) {
                   ? {
                       ...current,
                       balances: payload.balances,
+                      valuation: payload.valuation,
                       transactions: payload.transactions,
                     }
                   : {
                       balances: payload.balances,
+                      valuation: payload.valuation,
                       transactions: payload.transactions,
                     },
             );

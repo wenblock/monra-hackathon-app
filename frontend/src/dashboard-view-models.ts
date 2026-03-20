@@ -1,11 +1,11 @@
 import type { LucideIcon } from "lucide-react";
 import {
-  CreditCard,
   Landmark,
   LayoutDashboard,
   ReceiptText,
   Send,
   Users,
+  Wallet,
 } from "lucide-react";
 
 export interface SidebarItem {
@@ -26,7 +26,7 @@ export interface BalanceMetric {
 }
 
 export interface QuickAction {
-  id: "onramp" | "send" | "offramp";
+  id: "deposit" | "onramp" | "send" | "offramp";
   label: string;
   description: string;
   icon: LucideIcon;
@@ -61,10 +61,16 @@ export const sidebarItems: SidebarItem[] = [
 
 export const quickActions: QuickAction[] = [
   {
+    id: "deposit",
+    label: "Deposit",
+    description: "Receive assets into the treasury wallet",
+    icon: Wallet,
+  },
+  {
     id: "onramp",
     label: "On-ramp",
     description: "Fund the wallet from fiat rails",
-    icon: CreditCard,
+    icon: Landmark,
   },
   {
     id: "send",

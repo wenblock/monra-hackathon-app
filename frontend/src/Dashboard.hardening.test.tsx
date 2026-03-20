@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import Dashboard, { TOS_IFRAME_SANDBOX } from "@/Dashboard";
 import type {
@@ -43,10 +43,15 @@ describe("Dashboard hardening", () => {
     qrCodeDataUrlMock.mockReset();
   });
 
+  afterEach(() => {
+    cleanup();
+  });
+
   it("renders a hardened Bridge terms iframe with an external fallback", () => {
     render(
       <Dashboard
         balances={buildBalances()}
+        valuation={buildValuation()}
         bridge={buildBridgeState({ showTosAlert: true })}
         onCreateOfframp={vi.fn()}
         onCreateOnramp={vi.fn()}
@@ -79,6 +84,7 @@ describe("Dashboard hardening", () => {
     render(
       <Dashboard
         balances={buildBalances()}
+        valuation={buildValuation()}
         bridge={buildBridgeState({ showKycAlert: true, showTosAlert: false })}
         onCreateOfframp={vi.fn()}
         onCreateOnramp={vi.fn()}
@@ -102,6 +108,125 @@ describe("Dashboard hardening", () => {
       ).toBeInTheDocument();
     });
   });
+
+  it("renders the deposit action before on-ramp and removes the welcome wallet block", () => {
+    render(
+      <Dashboard
+        balances={buildBalances()}
+        valuation={buildValuation()}
+        bridge={buildBridgeState()}
+        onCreateOfframp={vi.fn()}
+        onCreateOnramp={vi.fn()}
+        onCreateRecipient={vi.fn()}
+        onFetchSolanaTransactionContext={vi.fn()}
+        onPersistSolanaAddress={vi.fn()}
+        onRefreshBridgeStatus={vi.fn()}
+        recipients={[]}
+        transactions={[]}
+        transactionsError={null}
+        transactionsLoading={false}
+        user={buildUser()}
+      />,
+    );
+
+    const actionButtons = screen.getAllByRole("button");
+    const depositIndex = actionButtons.findIndex(button => button.textContent?.includes("Deposit"));
+    const onrampIndex = actionButtons.findIndex(button => button.textContent?.includes("On-ramp"));
+
+    expect(depositIndex).toBeGreaterThan(-1);
+    expect(onrampIndex).toBeGreaterThan(-1);
+    expect(depositIndex).toBeLessThan(onrampIndex);
+    expect(screen.queryByText("Wallet")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Treasury Value")[0]).toBeInTheDocument();
+  });
+
+  it("opens the deposit drawer with QR, address, and supported assets", async () => {
+    qrCodeDataUrlMock.mockResolvedValueOnce("data:image/png;base64,deposit-qr");
+
+    render(
+      <Dashboard
+        balances={buildBalances()}
+        valuation={buildValuation()}
+        bridge={buildBridgeState()}
+        onCreateOfframp={vi.fn()}
+        onCreateOnramp={vi.fn()}
+        onCreateRecipient={vi.fn()}
+        onFetchSolanaTransactionContext={vi.fn()}
+        onPersistSolanaAddress={vi.fn()}
+        onRefreshBridgeStatus={vi.fn()}
+        recipients={[]}
+        transactions={[]}
+        transactionsError={null}
+        transactionsLoading={false}
+        user={buildUser()}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: /deposit/i })[0]);
+
+    expect(await screen.findByText("Supported network")).toBeInTheDocument();
+    expect(screen.getAllByText("Solana Mainnet")[0]).toBeInTheDocument();
+    expect(screen.getByText("Supported assets")).toBeInTheDocument();
+    expect(screen.getAllByText("USDC")[0]).toBeInTheDocument();
+    expect(screen.getAllByText("EURC")[0]).toBeInTheDocument();
+    expect(screen.getAllByText("SOL")[0]).toBeInTheDocument();
+    expect(screen.getByText("11111111111111111111111111111111")).toBeInTheDocument();
+    expect(await screen.findByAltText("Treasury deposit QR code")).toBeInTheDocument();
+  });
+
+  it("shows a notice when deposit QR generation fails", async () => {
+    qrCodeDataUrlMock.mockRejectedValueOnce(new Error("QR unavailable"));
+
+    render(
+      <Dashboard
+        balances={buildBalances()}
+        valuation={buildValuation()}
+        bridge={buildBridgeState()}
+        onCreateOfframp={vi.fn()}
+        onCreateOnramp={vi.fn()}
+        onCreateRecipient={vi.fn()}
+        onFetchSolanaTransactionContext={vi.fn()}
+        onPersistSolanaAddress={vi.fn()}
+        onRefreshBridgeStatus={vi.fn()}
+        recipients={[]}
+        transactions={[]}
+        transactionsError={null}
+        transactionsLoading={false}
+        user={buildUser()}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: /deposit/i })[0]);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("We could not generate the QR code. The wallet address is still available to copy."),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("shows delayed pricing when treasury valuation is stale", () => {
+    render(
+      <Dashboard
+        balances={buildBalances()}
+        valuation={buildValuation({ isStale: true })}
+        bridge={buildBridgeState()}
+        onCreateOfframp={vi.fn()}
+        onCreateOnramp={vi.fn()}
+        onCreateRecipient={vi.fn()}
+        onFetchSolanaTransactionContext={vi.fn()}
+        onPersistSolanaAddress={vi.fn()}
+        onRefreshBridgeStatus={vi.fn()}
+        recipients={[]}
+        transactions={[]}
+        transactionsError={null}
+        transactionsLoading={false}
+        user={buildUser()}
+      />,
+    );
+
+    expect(screen.getByText(/price delayed/i)).toBeInTheDocument();
+  });
 });
 
 function buildBalances(): SolanaBalancesResponse["balances"] {
@@ -109,6 +234,28 @@ function buildBalances(): SolanaBalancesResponse["balances"] {
     sol: { formatted: "1.00", raw: "1000000000" },
     usdc: { formatted: "25.00", raw: "25000000" },
     eurc: { formatted: "10.00", raw: "10000000" },
+  };
+}
+
+function buildValuation(
+  overrides: Partial<SolanaBalancesResponse["valuation"]> = {},
+): SolanaBalancesResponse["valuation"] {
+  return {
+    treasuryValueUsd: "186.80",
+    assetValuesUsd: {
+      sol: "150.00",
+      usdc: "25.00",
+      eurc: "10.80",
+    },
+    pricesUsd: {
+      sol: "150.00",
+      usdc: "1.00",
+      eurc: "1.08",
+    },
+    lastUpdatedAt: "2026-03-20T09:00:02.000Z",
+    isStale: false,
+    unavailableAssets: [],
+    ...overrides,
   };
 }
 
