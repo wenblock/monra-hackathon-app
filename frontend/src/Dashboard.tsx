@@ -111,7 +111,6 @@ function Dashboard({
   const treasuryValueDisplay = valuation?.treasuryValueUsd
     ? formatUsdCurrency(valuation.treasuryValueUsd)
     : null;
-  const treasuryFreshnessLabel = getTreasuryFreshnessLabel(valuation);
   const assetRows = TRANSFER_ASSETS.map(asset => {
     const tokenAmount = balances ? `${balances[asset].formatted} ${getTransferAssetLabel(asset)}` : null;
     const assetValueUsd = valuation?.assetValuesUsd[asset];
@@ -120,10 +119,8 @@ function Dashboard({
       asset,
       iconPath: getTransferAssetIconPath(asset),
       label: getTransferAssetLabel(asset),
-      primaryValue:
-        asset === "sol" ? tokenAmount : assetValueUsd ? formatUsdCurrency(assetValueUsd) : tokenAmount,
-      secondaryValue:
-        asset === "sol" ? (assetValueUsd ? formatUsdCurrency(assetValueUsd) : "Valuation unavailable") : tokenAmount,
+      primaryValue: assetValueUsd ? formatUsdCurrency(assetValueUsd) : null,
+      secondaryValue: tokenAmount,
     };
   });
 
@@ -296,7 +293,7 @@ function Dashboard({
               <CardTitle className="text-3xl">Treasury Value</CardTitle>
             </CardHeader>
             <CardContent className="space-y-8">
-              <div className="space-y-2">
+              <div>
                 {treasuryValueDisplay ? (
                   <p className="text-[clamp(3rem,9vw,5.75rem)] font-semibold tracking-tight text-foreground">
                     {treasuryValueDisplay}
@@ -306,18 +303,6 @@ function Dashboard({
                 ) : (
                   <Skeleton className="h-16 w-72 rounded-full sm:h-20 sm:w-96" />
                 )}
-                {balances ? (
-                  <p
-                    className={cn(
-                      "text-sm",
-                      valuation?.isStale || !treasuryValueDisplay
-                        ? "text-muted-foreground"
-                        : "text-foreground/70",
-                    )}
-                  >
-                    {treasuryFreshnessLabel}
-                  </p>
-                ) : null}
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -749,7 +734,7 @@ function formatUsdCurrency(value: string) {
   }).format(parsedValue);
 }
 
-function getTreasuryFreshnessLabel(valuation: SolanaBalancesResponse["valuation"] | undefined) {
+export function getTreasuryFreshnessLabel(valuation: SolanaBalancesResponse["valuation"] | undefined) {
   if (!valuation || !valuation.lastUpdatedAt) {
     return "Price unavailable";
   }
@@ -763,7 +748,7 @@ function getTreasuryFreshnessLabel(valuation: SolanaBalancesResponse["valuation"
   return timestampLabel ? `Live pricing · Updated ${timestampLabel}` : "Live pricing";
 }
 
-function formatTreasuryTimestamp(value: string) {
+export function formatTreasuryTimestamp(value: string) {
   const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) {

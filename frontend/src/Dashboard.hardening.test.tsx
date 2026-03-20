@@ -138,6 +138,8 @@ describe("Dashboard hardening", () => {
     expect(depositIndex).toBeLessThan(onrampIndex);
     expect(screen.queryByText("Wallet")).not.toBeInTheDocument();
     expect(screen.getAllByText("Treasury Value")[0]).toBeInTheDocument();
+    expect(screen.queryByText(/live pricing/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/price delayed/i)).not.toBeInTheDocument();
   });
 
   it("opens the deposit drawer with QR, address, and supported assets", async () => {
@@ -205,11 +207,11 @@ describe("Dashboard hardening", () => {
     });
   });
 
-  it("shows delayed pricing when treasury valuation is stale", () => {
+  it("renders SOL like the other assets with token amount under the label and USD value on the right", () => {
     render(
       <Dashboard
         balances={buildBalances()}
-        valuation={buildValuation({ isStale: true })}
+        valuation={buildValuation()}
         bridge={buildBridgeState()}
         onCreateOfframp={vi.fn()}
         onCreateOnramp={vi.fn()}
@@ -225,7 +227,9 @@ describe("Dashboard hardening", () => {
       />,
     );
 
-    expect(screen.getByText(/price delayed/i)).toBeInTheDocument();
+    expect(screen.getAllByText("SOL")[0]).toBeInTheDocument();
+    expect(screen.getByText("1.00 SOL")).toBeInTheDocument();
+    expect(screen.getByText("$150.00")).toBeInTheDocument();
   });
 });
 
