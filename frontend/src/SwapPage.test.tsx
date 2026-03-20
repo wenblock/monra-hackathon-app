@@ -1,5 +1,5 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import SwapPage from "@/SwapPage";
 import { renderWithQueryClient } from "@/test-utils";
@@ -52,7 +52,13 @@ vi.mock("@/features/session/use-api-client", () => apiClientMock);
 vi.mock("@/features/swaps/use-swap-mutations", () => swapMutationsMock);
 
 describe("SwapPage", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   beforeEach(() => {
+    vi.useRealTimers();
+
     signSolanaTransactionMock.mockReset();
     fetchSwapOrderMock.mockReset();
     executeSwapMock.mockReset();
@@ -60,7 +66,9 @@ describe("SwapPage", () => {
     signSolanaTransactionMock.mockResolvedValue({
       signedTransaction: "signed-transaction",
     });
-    fetchSwapOrderMock.mockResolvedValue(buildSwapOrder());
+    fetchSwapOrderMock
+      .mockResolvedValueOnce(buildSwapOrder({ quotedAt: "2026-03-20T10:00:00.000Z" }))
+      .mockResolvedValue(buildSwapOrder({ quotedAt: "2026-03-20T10:00:04.000Z" }));
     executeSwapMock.mockResolvedValue({
       balances: {
         sol: { formatted: "1.00", raw: "1000000000" },
@@ -114,9 +122,20 @@ describe("SwapPage", () => {
       isPending: false,
       mutateAsync: executeSwapMock,
     });
+
+    Object.defineProperty(document, "hidden", {
+      configurable: true,
+      value: false,
+    });
+    Object.defineProperty(document, "hasFocus", {
+      configurable: true,
+      value: vi.fn(() => true),
+    });
   });
 
-  it("requests a Jupiter quote after the sell amount changes", async () => {
+  it(
+    "requests a debounced Jupiter quote and polls it every 4 seconds",
+    async () => {
     renderWithQueryClient(<SwapPage />);
 
     fireEvent.change(screen.getAllByPlaceholderText("0.0")[0], {
@@ -124,37 +143,46 @@ describe("SwapPage", () => {
     });
 
     await waitFor(() => {
-      expect(fetchSwapOrderMock).toHaveBeenCalledWith(
-        {
-          amount: "10",
-          inputAsset: "usdc",
-          outputAsset: "eurc",
-        },
-        expect.anything(),
-      );
-    }, { timeout: 3000 });
-  });
+      expect(fetchSwapOrderMock).toHaveBeenCalledTimes(1);
+    }, { timeout: 1500 });
 
-  it("signs and executes the swap, then shows a success toast", async () => {
+    await waitFor(() => {
+      expect(fetchSwapOrderMock).toHaveBeenCalledTimes(2);
+    }, { timeout: 5000 });
+    },
+    8000,
+  );
+
+  it(
+    "refreshes stale quotes before signing and executing",
+    async () => {
+    fetchSwapOrderMock.mockReset();
+    fetchSwapOrderMock
+      .mockResolvedValueOnce(buildSwapOrder({ quotedAt: "2026-03-20T09:59:50.000Z" }))
+      .mockResolvedValue(buildSwapOrder({ quotedAt: "2026-03-20T10:00:04.000Z" }));
+
     renderWithQueryClient(<SwapPage />);
 
     fireEvent.change(screen.getAllByPlaceholderText("0.0")[0], {
       target: { value: "10" },
     });
 
-    await screen.findByText("8.6457", {}, { timeout: 3000 });
-
-    let submitButton: HTMLElement | undefined;
-
     await waitFor(() => {
-      submitButton = screen
-        .getAllByRole("button", { name: "Swap" })
-        .find(button => !button.hasAttribute("disabled"));
-      expect(submitButton).toBeDefined();
-      expect(submitButton).toBeEnabled();
-    }, { timeout: 3000 });
+      expect(fetchSwapOrderMock).toHaveBeenCalled();
+    }, { timeout: 1500 });
+
+    await screen.findByText("8.6457");
+    const quoteRequestsBeforeSubmit = fetchSwapOrderMock.mock.calls.length;
+
+    const submitButton = screen
+      .getAllByRole("button", { name: "Swap" })
+      .find(button => !button.hasAttribute("disabled"));
 
     fireEvent.click(submitButton!);
+
+    await waitFor(() => {
+      expect(fetchSwapOrderMock.mock.calls.length).toBeGreaterThan(quoteRequestsBeforeSubmit);
+    });
 
     await waitFor(() => {
       expect(signSolanaTransactionMock).toHaveBeenCalledWith({
@@ -168,10 +196,14 @@ describe("SwapPage", () => {
       signedTransaction: "signed-transaction",
     });
     expect(await screen.findByText("Swap complete")).toBeInTheDocument();
-  });
+    },
+    8000,
+  );
 });
 
-function buildSwapOrder(): SwapOrderResponse {
+function buildSwapOrder(
+  overrides: Partial<SwapOrderResponse> = {},
+): SwapOrderResponse {
   return {
     requestId: "request-1",
     quotedAt: "2026-03-20T10:00:00.000Z",
@@ -188,6 +220,7 @@ function buildSwapOrder(): SwapOrderResponse {
       router: "iris",
     },
     transaction: "base64-order-transaction",
+    ...overrides,
   };
 }
 

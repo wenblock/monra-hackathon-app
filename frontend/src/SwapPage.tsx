@@ -1,12 +1,8 @@
 import { useSignSolanaTransaction } from "@coinbase/cdp-hooks";
 import { ArrowDown, ArrowLeftRight } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import AppShell from "@/AppShell";
-import { useDashboardSnapshot } from "@/features/dashboard/use-dashboard-snapshot";
-import { usePersistedSolanaAddress } from "@/features/session/use-persisted-solana-address";
-import { useSession } from "@/features/session/use-session";
-import { useExecuteSwapMutation } from "@/features/swaps/use-swap-mutations";
 import { Button } from "@/components/ui/button";
 import InlineNotice from "@/components/ui/inline-notice";
 import {
@@ -22,7 +18,11 @@ import {
   getTransferAssetIconPath,
   getTransferAssetLabel,
 } from "@/assets";
+import { useDashboardSnapshot } from "@/features/dashboard/use-dashboard-snapshot";
 import { useApiClient } from "@/features/session/use-api-client";
+import { usePersistedSolanaAddress } from "@/features/session/use-persisted-solana-address";
+import { useSession } from "@/features/session/use-session";
+import { useExecuteSwapMutation } from "@/features/swaps/use-swap-mutations";
 import { logRuntimeError } from "@/lib/log-runtime-error";
 import { cn } from "@/lib/utils";
 import type { SwapOrderResponse, TransferAsset } from "@/types";
@@ -32,6 +32,10 @@ interface LocalSwapOrder extends SwapOrderResponse {
   requestedInputAsset: TransferAsset;
   requestedOutputAsset: TransferAsset;
 }
+
+const QUOTE_DEBOUNCE_MS = 350;
+const QUOTE_POLL_INTERVAL_MS = 4_000;
+const QUOTE_STALE_MS = 8_000;
 
 function SwapPage() {
   const client = useApiClient();
@@ -46,10 +50,8 @@ function SwapPage() {
   const [inputAsset, setInputAsset] = useState<TransferAsset>("usdc");
   const [outputAsset, setOutputAsset] = useState<TransferAsset>("eurc");
   const [inputAmount, setInputAmount] = useState("");
-  const [quoteError, setQuoteError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [swapOrder, setSwapOrder] = useState<LocalSwapOrder | null>(null);
-  const [isQuotePending, setIsQuotePending] = useState(false);
+  const [isSubmittingSwap, setIsSubmittingSwap] = useState(false);
 
   const balances = snapshotQuery.data?.balances;
   const valuation = snapshotQuery.data?.valuation;
@@ -58,9 +60,33 @@ function SwapPage() {
     inputAsset,
     balances?.[inputAsset].raw ?? null,
   );
-  const outputAmountDisplay = isQuotePending
-    ? "Calculating..."
-    : swapOrder?.quote.outputAmountDecimal ?? (inputAmount ? "0" : "0.0");
+  const canRequestQuote = useMemo(
+    () =>
+      Boolean(storedSolanaAddress) &&
+      inputAsset !== outputAsset &&
+      amountValidation.rawAmount !== null &&
+      amountValidation.error === null,
+    [
+      amountValidation.error,
+      amountValidation.rawAmount,
+      inputAsset,
+      outputAsset,
+      storedSolanaAddress,
+    ],
+  );
+  const quoteState = useSwapQuoteController({
+    client,
+    enabled: canRequestQuote,
+    inputAsset,
+    normalizedAmount: amountValidation.normalizedDecimal,
+    outputAsset,
+    paused: executeSwapMutation.isPending || isSubmittingSwap,
+  });
+  const swapOrder = quoteState.latestQuote;
+  const outputAmountDisplay =
+    quoteState.isBlockingPending && !swapOrder
+      ? "Calculating..."
+      : swapOrder?.quote.outputAmountDecimal ?? (inputAmount ? "0" : "0.0");
   const outputAmountUsd = swapOrder
     ? formatUsdAmount(
         swapOrder.quote.outputAmountDecimal,
@@ -73,71 +99,16 @@ function SwapPage() {
       ? formatUsdAmount(amountValidation.normalizedDecimal, inputAsset, valuation.pricesUsd)
       : null;
   const isFormDisabled =
-    executeSwapMutation.isPending || inputAsset === outputAsset || !effectiveSolanaAddress;
-  const canRequestQuote =
-    Boolean(storedSolanaAddress) &&
-    inputAsset !== outputAsset &&
-    amountValidation.rawAmount !== null &&
-    amountValidation.error === null;
+    executeSwapMutation.isPending ||
+    isSubmittingSwap ||
+    inputAsset === outputAsset ||
+    !effectiveSolanaAddress;
+  const quoteNotice = quoteState.blockingError ?? quoteState.refreshWarning;
+  const quoteNoticeTitle = quoteState.blockingError ? "Quote unavailable" : "Refreshing quote";
 
   useEffect(() => {
-    if (!canRequestQuote) {
-      setIsQuotePending(false);
-      setQuoteError(null);
-      setSwapOrder(null);
-      return;
-    }
-
-    const abortController = new AbortController();
-    const timeoutId = window.setTimeout(() => {
-      setIsQuotePending(true);
-      setQuoteError(null);
-
-      void client
-        .fetchSwapOrder(
-          {
-            amount: amountValidation.normalizedDecimal!,
-            inputAsset,
-            outputAsset,
-          },
-          abortController.signal,
-        )
-        .then(order => {
-          setSwapOrder({
-            ...order,
-            requestedAmount: amountValidation.normalizedDecimal!,
-            requestedInputAsset: inputAsset,
-            requestedOutputAsset: outputAsset,
-          });
-        })
-        .catch(error => {
-          if (isAbortError(error)) {
-            return;
-          }
-
-          logRuntimeError("Unable to preview swap order.", error);
-          setSwapOrder(null);
-          setQuoteError(extractErrorMessage(error, "Unable to preview this swap."));
-        })
-        .finally(() => {
-          if (!abortController.signal.aborted) {
-            setIsQuotePending(false);
-          }
-        });
-    }, 350);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-      abortController.abort();
-    };
-  }, [
-    amountValidation.error,
-    amountValidation.normalizedDecimal,
-    canRequestQuote,
-    client,
-    inputAsset,
-    outputAsset,
-  ]);
+    setSubmitError(null);
+  }, [inputAmount, inputAsset, outputAsset]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -172,6 +143,7 @@ function SwapPage() {
     }
 
     setSubmitError(null);
+    setIsSubmittingSwap(true);
 
     try {
       const activeOrder = await getActiveSwapOrder({
@@ -182,11 +154,10 @@ function SwapPage() {
         swapOrder,
       });
 
-      setSwapOrder({
-        ...activeOrder,
-        requestedAmount: amountValidation.normalizedDecimal,
-        requestedInputAsset: inputAsset,
-        requestedOutputAsset: outputAsset,
+      quoteState.applyExternalQuote(activeOrder, {
+        inputAsset,
+        normalizedAmount: amountValidation.normalizedDecimal,
+        outputAsset,
       });
 
       const signedTransaction = await signSolanaTransaction({
@@ -200,8 +171,7 @@ function SwapPage() {
       });
 
       setInputAmount("");
-      setQuoteError(null);
-      setSwapOrder(null);
+      quoteState.reset();
       showToast({
         title: "Swap complete",
         description: `${formatSwapLeg(response.transaction.amountDisplay, response.transaction.asset)} swapped into ${formatSwapLeg(response.transaction.outputAmountDisplay, response.transaction.outputAsset)}.`,
@@ -210,15 +180,16 @@ function SwapPage() {
     } catch (error) {
       logRuntimeError("Unable to complete swap.", error);
       setSubmitError(extractErrorMessage(error, "Unable to complete swap."));
+    } finally {
+      setIsSubmittingSwap(false);
     }
   }
 
   function handleFlip() {
     setInputAsset(outputAsset);
     setOutputAsset(inputAsset);
-    setQuoteError(null);
     setSubmitError(null);
-    setSwapOrder(null);
+    quoteState.reset();
   }
 
   return (
@@ -291,9 +262,9 @@ function SwapPage() {
               </InlineNotice>
             ) : null}
 
-            {quoteError ? (
-              <InlineNotice title="Quote unavailable" variant="warning">
-                {quoteError}
+            {quoteNotice ? (
+              <InlineNotice title={quoteNoticeTitle} variant="warning">
+                {quoteNotice}
               </InlineNotice>
             ) : null}
 
@@ -312,9 +283,9 @@ function SwapPage() {
             <Button
               type="submit"
               className="h-14 w-full rounded-[1.75rem] text-lg"
-              disabled={isFormDisabled || !swapOrder || isQuotePending}
+              disabled={isFormDisabled || !swapOrder || quoteState.isBlockingPending}
             >
-              {executeSwapMutation.isPending ? "Swapping..." : "Swap"}
+              {executeSwapMutation.isPending || isSubmittingSwap ? "Swapping..." : "Swap"}
             </Button>
 
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-[1.6rem] border border-border/70 bg-card/60 px-4 py-3 text-sm">
@@ -323,7 +294,7 @@ function SwapPage() {
               </span>
               <span className="inline-flex items-center gap-2 font-medium text-foreground">
                 <ArrowLeftRight className="size-4 text-muted-foreground" />
-                {formatFeeLabel(swapOrder)}
+                {quoteState.isRefreshing && swapOrder ? "Refreshing quote..." : formatFeeLabel(swapOrder)}
               </span>
             </div>
           </form>
@@ -331,6 +302,263 @@ function SwapPage() {
       </div>
     </AppShell>
   );
+}
+
+function useSwapQuoteController(input: {
+  client: ReturnType<typeof useApiClient>;
+  enabled: boolean;
+  inputAsset: TransferAsset;
+  normalizedAmount: string | null;
+  outputAsset: TransferAsset;
+  paused: boolean;
+}) {
+  const [latestQuote, setLatestQuote] = useState<LocalSwapOrder | null>(null);
+  const [blockingError, setBlockingError] = useState<string | null>(null);
+  const [refreshWarning, setRefreshWarning] = useState<string | null>(null);
+  const [isBlockingPending, setIsBlockingPending] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isWindowActive, setIsWindowActive] = useState(() =>
+    typeof document === "undefined" ? true : !document.hidden,
+  );
+  const requestSequenceRef = useRef(0);
+  const activeAbortControllerRef = useRef<AbortController | null>(null);
+  const pollingIntervalRef = useRef<number | null>(null);
+  const lastRequestedKeyRef = useRef<string | null>(null);
+  const consecutivePollingFailuresRef = useRef(0);
+  const previousWindowActiveRef = useRef(isWindowActive);
+  const requestKey =
+    input.enabled && input.normalizedAmount
+      ? `${input.inputAsset}:${input.outputAsset}:${input.normalizedAmount}`
+      : null;
+
+  useEffect(() => {
+    const handleWindowFocus = () => setIsWindowActive(!document.hidden);
+    const handleWindowBlur = () => setIsWindowActive(false);
+    const handleVisibilityChange = () => setIsWindowActive(!document.hidden && document.hasFocus());
+
+    window.addEventListener("focus", handleWindowFocus);
+    window.addEventListener("blur", handleWindowBlur);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("focus", handleWindowFocus);
+      window.removeEventListener("blur", handleWindowBlur);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (pollingIntervalRef.current !== null) {
+        window.clearInterval(pollingIntervalRef.current);
+      }
+      activeAbortControllerRef.current?.abort();
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!requestKey) {
+      activeAbortControllerRef.current?.abort();
+      setLatestQuote(null);
+      setBlockingError(null);
+      setRefreshWarning(null);
+      setIsBlockingPending(false);
+      setIsRefreshing(false);
+      lastRequestedKeyRef.current = null;
+      consecutivePollingFailuresRef.current = 0;
+      return;
+    }
+
+    if (pollingIntervalRef.current !== null) {
+      window.clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
+
+    if (lastRequestedKeyRef.current !== requestKey) {
+      activeAbortControllerRef.current?.abort();
+      setLatestQuote(null);
+      setBlockingError(null);
+      setRefreshWarning(null);
+      setIsBlockingPending(false);
+      setIsRefreshing(false);
+      consecutivePollingFailuresRef.current = 0;
+      lastRequestedKeyRef.current = requestKey;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      void requestQuote("initial");
+    }, QUOTE_DEBOUNCE_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [requestKey]);
+
+  useEffect(() => {
+    if (!requestKey || !latestQuote || input.paused || !isWindowActive) {
+      if (pollingIntervalRef.current !== null) {
+        window.clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+      return;
+    }
+
+    if (pollingIntervalRef.current !== null) {
+      window.clearInterval(pollingIntervalRef.current);
+    }
+
+    pollingIntervalRef.current = window.setInterval(() => {
+      void requestQuote("poll");
+    }, QUOTE_POLL_INTERVAL_MS);
+
+    return () => {
+      if (pollingIntervalRef.current !== null) {
+        window.clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    };
+  }, [input.paused, isWindowActive, latestQuote, requestKey]);
+
+  useEffect(() => {
+    const resumedWindow = isWindowActive && !previousWindowActiveRef.current;
+    previousWindowActiveRef.current = isWindowActive;
+
+    if (!requestKey || input.paused || !latestQuote || !resumedWindow) {
+      return;
+    }
+
+    void requestQuote("poll");
+  }, [input.paused, isWindowActive, latestQuote, requestKey]);
+
+  async function requestQuote(mode: "initial" | "poll") {
+    if (!requestKey || !input.normalizedAmount) {
+      return null;
+    }
+
+    const hasExistingQuote = latestQuote !== null;
+    const sequence = requestSequenceRef.current + 1;
+    requestSequenceRef.current = sequence;
+
+    activeAbortControllerRef.current?.abort();
+    const abortController = new AbortController();
+    activeAbortControllerRef.current = abortController;
+
+    if (mode === "initial" || !hasExistingQuote) {
+      setIsBlockingPending(true);
+      setBlockingError(null);
+      setRefreshWarning(null);
+    } else {
+      setIsRefreshing(true);
+    }
+
+    try {
+      const order = await input.client.fetchSwapOrder(
+        {
+          amount: input.normalizedAmount,
+          inputAsset: input.inputAsset,
+          outputAsset: input.outputAsset,
+        },
+        abortController.signal,
+      );
+
+      if (sequence !== requestSequenceRef.current) {
+        return null;
+      }
+
+      const nextQuote = decorateSwapOrder(order, {
+        inputAsset: input.inputAsset,
+        normalizedAmount: input.normalizedAmount,
+        outputAsset: input.outputAsset,
+      });
+
+      consecutivePollingFailuresRef.current = 0;
+      setLatestQuote(nextQuote);
+      setBlockingError(null);
+      setRefreshWarning(null);
+      return nextQuote;
+    } catch (error) {
+      if (isAbortError(error) || sequence !== requestSequenceRef.current) {
+        return null;
+      }
+
+      logRuntimeError("Unable to preview swap order.", error);
+      const message = extractErrorMessage(error, "Unable to preview this swap.");
+
+      if (mode === "poll" && hasExistingQuote) {
+        consecutivePollingFailuresRef.current += 1;
+        if (consecutivePollingFailuresRef.current >= 2) {
+          setRefreshWarning(
+            "Refreshing the quote in the background. The last good quote is still shown.",
+          );
+        }
+      } else {
+        setLatestQuote(null);
+        setBlockingError(message);
+      }
+
+      return null;
+    } finally {
+      if (sequence === requestSequenceRef.current) {
+        setIsBlockingPending(false);
+        setIsRefreshing(false);
+      }
+    }
+  }
+
+  function reset() {
+    activeAbortControllerRef.current?.abort();
+    setLatestQuote(null);
+    setBlockingError(null);
+    setRefreshWarning(null);
+    setIsBlockingPending(false);
+    setIsRefreshing(false);
+    consecutivePollingFailuresRef.current = 0;
+    lastRequestedKeyRef.current = null;
+  }
+
+  function applyExternalQuote(
+    order: SwapOrderResponse | LocalSwapOrder,
+    params: {
+      inputAsset: TransferAsset;
+      normalizedAmount: string;
+      outputAsset: TransferAsset;
+    },
+  ) {
+    setLatestQuote(decorateSwapOrder(order, params));
+    setBlockingError(null);
+    setRefreshWarning(null);
+    setIsBlockingPending(false);
+    setIsRefreshing(false);
+    consecutivePollingFailuresRef.current = 0;
+    lastRequestedKeyRef.current = `${params.inputAsset}:${params.outputAsset}:${params.normalizedAmount}`;
+  }
+
+  return {
+    applyExternalQuote,
+    blockingError,
+    isBlockingPending,
+    isRefreshing,
+    latestQuote,
+    refreshWarning,
+    reset,
+  };
+}
+
+function decorateSwapOrder(
+  order: SwapOrderResponse | LocalSwapOrder,
+  params: {
+    inputAsset: TransferAsset;
+    normalizedAmount: string;
+    outputAsset: TransferAsset;
+  },
+) {
+  return {
+    ...order,
+    requestedAmount: params.normalizedAmount,
+    requestedInputAsset: params.inputAsset,
+    requestedOutputAsset: params.outputAsset,
+  } satisfies LocalSwapOrder;
 }
 
 function SwapPanel({
@@ -518,7 +746,7 @@ function isSwapOrderStale(order: LocalSwapOrder) {
     return true;
   }
 
-  return Date.now() - quotedAt > 15_000;
+  return Date.now() - quotedAt > QUOTE_STALE_MS;
 }
 
 function formatFeeLabel(order: LocalSwapOrder | null) {
@@ -539,7 +767,12 @@ function formatRateLabel(order: LocalSwapOrder | null) {
   const inputAmount = Number.parseFloat(order.quote.inputAmountDecimal);
   const outputAmount = Number.parseFloat(order.quote.outputAmountDecimal);
 
-  if (!Number.isFinite(inputAmount) || !Number.isFinite(outputAmount) || inputAmount <= 0 || outputAmount <= 0) {
+  if (
+    !Number.isFinite(inputAmount) ||
+    !Number.isFinite(outputAmount) ||
+    inputAmount <= 0 ||
+    outputAmount <= 0
+  ) {
     return null;
   }
 
