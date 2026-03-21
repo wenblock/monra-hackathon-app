@@ -2,6 +2,20 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ApiClientError, createApiClient } from "@/lib/api-client";
 
+function readFirstRequestOptions(fetchMock: ReturnType<typeof vi.fn>) {
+  const firstCall = fetchMock.mock.calls[0];
+  if (!firstCall) {
+    throw new Error("Expected fetch to be called at least once.");
+  }
+
+  const options = firstCall[1];
+  if (!options || typeof options !== "object") {
+    throw new Error("Expected fetch to be called with RequestInit options.");
+  }
+
+  return options as RequestInit;
+}
+
 describe("api-client", () => {
   it("normalizes API errors", async () => {
     const originalFetch = globalThis.fetch;
@@ -73,7 +87,7 @@ describe("api-client", () => {
         }),
       );
 
-      const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const options = readFirstRequestOptions(fetchMock);
       expect(new Headers(options.headers).get("Authorization")).toBe("Bearer token");
     } finally {
       globalThis.fetch = originalFetch;
@@ -108,7 +122,7 @@ describe("api-client", () => {
         }),
       );
 
-      const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const options = readFirstRequestOptions(fetchMock);
       expect(new Headers(options.headers).get("Authorization")).toBe("Bearer token");
     } finally {
       globalThis.fetch = originalFetch;

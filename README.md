@@ -58,3 +58,4 @@ These values are secrets or server-only settings and must stay out of the fronte
 - Keep the repository private.
 - Do not commit real `.env` files.
 - Rotate any secret that was previously stored in a tracked env file before going live.
+- For legacy Railway databases that predate `public_id`, use `backend/src/db/manual/check_public_id_recovery.sql` to verify whether `011_public_ids.sql` was recorded and whether the `public_id` columns and unique indexes actually exist before restarting a crash-looping backend.
