@@ -180,7 +180,7 @@ async function hasAppliedMigration(client: PoolClient, migrationFile: string) {
     [migrationFile],
   );
 
-  return result.rowCount > 0;
+  return result.rows.length > 0;
 }
 
 async function listTablesWithColumn(
@@ -235,7 +235,7 @@ async function applyPendingMigrations(
       [migrationFile],
     );
 
-    if (alreadyApplied.rowCount) {
+    if (alreadyApplied.rows.length > 0) {
       continue;
     }
 
