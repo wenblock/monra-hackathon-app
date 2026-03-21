@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 
 import { readAppUser, requireAppUser } from "../auth/requestAuth.js";
+import { isUniqueViolation } from "../db/errors.js";
 import {
   createRecipient,
   deleteRecipientByIdForUser,
@@ -16,8 +17,10 @@ import {
   isBridgeApiError,
 } from "../lib/bridge.js";
 import { sendError } from "../lib/http.js";
+import { logError } from "../lib/logger.js";
 import { getSepaCountryName } from "../lib/sepaCountries.js";
 import { isValidSolanaAddress } from "../lib/solana.js";
+import { userMutationRateLimit } from "../middleware/rateLimits.js";
 
 const createRecipientSchema = z
   .discriminatedUnion("kind", [
@@ -92,12 +95,14 @@ recipientsRouter.get("/", async (request, response) => {
     const recipients = await listRecipientsByUserId(user.id);
     return response.json({ recipients });
   } catch (error) {
-    console.error(error);
+    logError("recipients.list_failed", error, {
+      requestId: request.requestId,
+    });
     return sendError(response, 500, "Unable to load recipients.");
   }
 });
 
-recipientsRouter.post("/", async (request, response) => {
+recipientsRouter.post("/", userMutationRateLimit, async (request, response) => {
   try {
     const parsedBody = createRecipientSchema.safeParse(request.body);
     if (!parsedBody.success) {
@@ -181,7 +186,11 @@ recipientsRouter.post("/", async (request, response) => {
         bridgeCustomerId: user.bridgeCustomerId,
         externalAccountId: bridgeExternalAccount.id,
       }).catch(cleanupError => {
-        console.error("Unable to roll back Bridge external account creation.", cleanupError);
+        logError("recipients.bridge_external_account_rollback_failed", cleanupError, {
+          externalAccountId: bridgeExternalAccount.id,
+          requestId: request.requestId,
+          userId: user.id,
+        });
       });
 
       throw error;
@@ -189,7 +198,9 @@ recipientsRouter.post("/", async (request, response) => {
 
     return response.status(201).json({ recipient });
   } catch (error) {
-    console.error(error);
+    logError("recipients.create_failed", error, {
+      requestId: request.requestId,
+    });
 
     if (isBridgeApiError(error)) {
       return sendError(response, 502, error.message);
@@ -203,7 +214,7 @@ recipientsRouter.post("/", async (request, response) => {
   }
 });
 
-recipientsRouter.delete("/:recipientReference", async (request, response) => {
+recipientsRouter.delete("/:recipientReference", userMutationRateLimit, async (request, response) => {
   try {
     const parsedParams = recipientReferenceSchema.safeParse(request.params);
     if (!parsedParams.success) {
@@ -247,7 +258,9 @@ recipientsRouter.delete("/:recipientReference", async (request, response) => {
 
     return response.status(204).send();
   } catch (error) {
-    console.error(error);
+    logError("recipients.delete_failed", error, {
+      requestId: request.requestId,
+    });
 
     if (isBridgeApiError(error)) {
       return sendError(response, 502, error.message);
@@ -274,8 +287,4 @@ function parseRecipientReference(value: string) {
   return z.string().uuid().safeParse(normalized).success
     ? { kind: "publicId" as const, value: normalized }
     : null;
-}
-
-function isUniqueViolation(error: unknown) {
-  return !!error && typeof error === "object" && "code" in error && error.code === "23505";
 }

@@ -3,9 +3,11 @@ import { z } from "zod";
 
 import { readAuthIdentity, requireAuthIdentity } from "../auth/requestAuth.js";
 import { getUserByCdpUserId } from "../db.js";
+import { isConstraintViolation } from "../db/errors.js";
 import { isBridgeApiError } from "../lib/bridge.js";
 import { sendError } from "../lib/http.js";
 import { getCountryName } from "../lib/countries.js";
+import { logError } from "../lib/logger.js";
 import {
   OnboardingFlowError,
   executeOnboardingFlow,
@@ -78,10 +80,10 @@ onboardingRouter.post("/", requireAuthIdentity, async (request, response) => {
     const originalError = getOnboardingErrorCause(error);
     const context = getOnboardingErrorContext(error);
 
-    console.error("Unable to complete onboarding.", {
+    logError("onboarding.failed", originalError, {
       bridgeRequestAttempted: context?.bridgeRequestAttempted ?? false,
       cdpUserId: context?.cdpUserId ?? null,
-      error: originalError,
+      requestId: request.requestId,
       stage: context?.stage ?? "unknown",
     });
 
@@ -130,12 +132,5 @@ function getOnboardingErrorContext(error: unknown) {
 }
 
 function isUsersPrimaryKeyViolation(error: unknown) {
-  return (
-    !!error &&
-    typeof error === "object" &&
-    "code" in error &&
-    error.code === "23505" &&
-    "constraint" in error &&
-    error.constraint === "users_pkey"
-  );
+  return isConstraintViolation(error, "users_pkey");
 }

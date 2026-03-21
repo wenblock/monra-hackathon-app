@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 
 import { readAppUser, requireAppUser } from "../auth/requestAuth.js";
+import { isUniqueViolation } from "../db/errors.js";
 import { getUserBalancesByUserId, updateUserSolanaAddress } from "../db.js";
 import {
   buildTreasuryValuation,
@@ -12,7 +13,9 @@ import {
   updateAlchemyWebhookAddresses,
 } from "../lib/alchemy.js";
 import { sendError } from "../lib/http.js";
+import { logError } from "../lib/logger.js";
 import { isValidSolanaAddress } from "../lib/solana.js";
+import { userMutationRateLimit } from "../middleware/rateLimits.js";
 
 const solanaAddressSchema = z.object({
   solanaAddress: z.string().trim().min(1, "Solana address is required."),
@@ -38,7 +41,7 @@ const solanaTransactionContextSchema = z
 export const usersRouter = Router();
 usersRouter.use(requireAppUser);
 
-usersRouter.post("/solana-address", async (request, response) => {
+usersRouter.post("/solana-address", userMutationRateLimit, async (request, response) => {
   try {
     const parsedBody = solanaAddressSchema.safeParse(request.body);
 
@@ -78,7 +81,9 @@ usersRouter.post("/solana-address", async (request, response) => {
 
     return response.json({ user });
   } catch (error) {
-    console.error(error);
+    logError("users.solana_address_save_failed", error, {
+      requestId: request.requestId,
+    });
 
     if (isUniqueViolation(error)) {
       return sendError(response, 409, "This Solana wallet is already linked to another user.");
@@ -100,7 +105,10 @@ usersRouter.get("/balances", async (request, response) => {
     const valuation = await getTreasuryPrices()
       .then(treasuryPrices => buildTreasuryValuation(balances, treasuryPrices))
       .catch(error => {
-        console.error("Unable to build treasury valuation.", error);
+        logError("users.treasury_valuation_failed", error, {
+          requestId: request.requestId,
+          userId: user.id,
+        });
         return createUnavailableTreasuryValuation();
       });
 
@@ -110,13 +118,15 @@ usersRouter.get("/balances", async (request, response) => {
       valuation,
     });
   } catch (error) {
-    console.error(error);
+    logError("users.balances_fetch_failed", error, {
+      requestId: request.requestId,
+    });
 
     return sendError(response, 500, "Unable to fetch Solana balances.");
   }
 });
 
-usersRouter.post("/solana-transaction-context", async (request, response) => {
+usersRouter.post("/solana-transaction-context", userMutationRateLimit, async (request, response) => {
   try {
     const parsedBody = solanaTransactionContextSchema.safeParse(request.body);
 
@@ -148,7 +158,9 @@ usersRouter.post("/solana-transaction-context", async (request, response) => {
 
     return response.json(transactionContext);
   } catch (error) {
-    console.error(error);
+    logError("users.solana_transaction_context_failed", error, {
+      requestId: request.requestId,
+    });
 
     if (isAlchemyApiError(error)) {
       return sendError(response, 502, "Unable to prepare Solana transaction context.");
@@ -157,7 +169,3 @@ usersRouter.post("/solana-transaction-context", async (request, response) => {
     return sendError(response, 500, "Unable to prepare Solana transaction context.");
   }
 });
-
-function isUniqueViolation(error: unknown) {
-  return !!error && typeof error === "object" && "code" in error && error.code === "23505";
-}

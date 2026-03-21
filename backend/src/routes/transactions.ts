@@ -1,17 +1,23 @@
 import { Router } from "express";
 
 import {
-  getUserBalancesByUserId,
+  getUserByCdpUserId,
   listTransactionsByUserIdPaginated,
 } from "../db.js";
 import { readAppUser, requireAppUser } from "../auth/requestAuth.js";
-import { createStreamToken, verifyStreamToken } from "../lib/streamToken.js";
 import {
+  createStreamToken,
+  isInvalidStreamTokenError,
+  verifyStreamToken,
+} from "../lib/streamToken.js";
+import {
+  buildLatestTransactionSnapshot,
   registerTransactionStream,
   sendTransactionSnapshot,
 } from "../lib/transactionStream.js";
-import { buildTreasuryValuation, getTreasuryPrices } from "../lib/alchemy.js";
 import { sendError } from "../lib/http.js";
+import { logError } from "../lib/logger.js";
+import { highCostUserActionRateLimit } from "../middleware/rateLimits.js";
 
 export const transactionsRouter = Router();
 
@@ -24,28 +30,37 @@ transactionsRouter.get("/", requireAppUser, async (request, response) => {
     const result = await listTransactionsByUserIdPaginated(user.id, { cursor, limit });
     return response.json(result);
   } catch (error) {
-    console.error(error);
+    logError("transactions.list_failed", error, {
+      requestId: request.requestId,
+    });
 
     return sendError(response, 500, "Unable to load transactions.");
   }
 });
 
-transactionsRouter.post("/stream-token", requireAppUser, async (request, response) => {
-  try {
-    const user = readAppUser(request);
+transactionsRouter.post(
+  "/stream-token",
+  requireAppUser,
+  highCostUserActionRateLimit,
+  async (request, response) => {
+    try {
+      const user = readAppUser(request);
 
-    const streamToken = createStreamToken(user.cdpUserId);
+      const streamToken = createStreamToken(user.cdpUserId);
 
-    return response.json({
-      token: streamToken.token,
-      expiresAt: streamToken.expiresAt.toISOString(),
-    });
-  } catch (error) {
-    console.error(error);
+      return response.json({
+        token: streamToken.token,
+        expiresAt: streamToken.expiresAt.toISOString(),
+      });
+    } catch (error) {
+      logError("transactions.stream_token_failed", error, {
+        requestId: request.requestId,
+      });
 
-    return sendError(response, 500, "Unable to create transaction stream token.");
-  }
-});
+      return sendError(response, 500, "Unable to create transaction stream token.");
+    }
+  },
+);
 
 transactionsRouter.get("/stream", async (request, response) => {
   try {
@@ -61,6 +76,8 @@ transactionsRouter.get("/stream", async (request, response) => {
       return sendError(response, 404, "Monra user not found.");
     }
 
+    const initialSnapshot = await buildLatestTransactionSnapshot(user.id);
+
     response.status(200);
     response.setHeader("Content-Type", "text/event-stream");
     response.setHeader("Cache-Control", "no-cache, no-transform");
@@ -68,17 +85,7 @@ transactionsRouter.get("/stream", async (request, response) => {
     response.setHeader("X-Accel-Buffering", "no");
     response.flushHeaders?.();
 
-    const [balances, transactionPage, treasuryPrices] = await Promise.all([
-      getUserBalancesByUserId(user.id),
-      listTransactionsByUserIdPaginated(user.id, { limit: 5 }),
-      getTreasuryPrices(),
-    ]);
-
-    sendTransactionSnapshot(response, {
-      balances,
-      valuation: buildTreasuryValuation(balances, treasuryPrices),
-      transactions: transactionPage.transactions,
-    });
+    sendTransactionSnapshot(response, initialSnapshot);
     const unregister = registerTransactionStream(user.id, response);
     const heartbeat = setInterval(() => {
       response.write(": ping\n\n");
@@ -90,9 +97,11 @@ transactionsRouter.get("/stream", async (request, response) => {
       response.end();
     });
   } catch (error) {
-    console.error(error);
+    logError("transactions.stream_open_failed", error, {
+      requestId: request.requestId,
+    });
 
-    if (isUnauthorizedTokenError(error) || isInvalidStreamTokenError(error)) {
+    if (isInvalidStreamTokenError(error)) {
       return sendError(response, 401, "Invalid or expired transaction stream token.");
     }
 
@@ -115,8 +124,4 @@ function readLimitFromQuery(value: unknown) {
 
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : undefined;
-}
-
-function isInvalidStreamTokenError(error: unknown) {
-  return error instanceof Error && /stream token/i.test(error.message);
 }

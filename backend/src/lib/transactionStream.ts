@@ -5,11 +5,16 @@ import { Client } from "pg";
 
 import { config } from "../config.js";
 import {
+  getUserBalancesByUserId,
+  listTransactionsByUserIdPaginated,
+} from "../db.js";
+import {
   getTransactionStreamChannelName,
   getTransactionStreamEventById,
   publishTransactionStreamEvent,
 } from "../db/runtime.js";
-import type { TransactionStreamResponse } from "../types.js";
+import { buildTreasuryValuation, getTreasuryPrices } from "./alchemy.js";
+import type { SolanaBalancesResponse, TransactionStreamResponse } from "../types.js";
 
 const userStreams = new Map<number, Set<Response>>();
 let listenerClient: Client | null = null;
@@ -37,6 +42,23 @@ export function registerTransactionStream(userId: number, response: Response) {
 
 export function sendTransactionSnapshot(response: Response, payload: TransactionStreamResponse) {
   response.write(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+export async function buildLatestTransactionSnapshot(
+  userId: number,
+  balancesOverride?: SolanaBalancesResponse["balances"],
+): Promise<TransactionStreamResponse> {
+  const [balances, transactionPage, treasuryPrices] = await Promise.all([
+    balancesOverride ? Promise.resolve(balancesOverride) : getUserBalancesByUserId(userId),
+    listTransactionsByUserIdPaginated(userId, { limit: 5 }),
+    getTreasuryPrices(),
+  ]);
+
+  return {
+    balances,
+    valuation: buildTreasuryValuation(balances, treasuryPrices),
+    transactions: transactionPage.transactions,
+  };
 }
 
 function broadcastTransactionSnapshotLocal(userId: number, payload: TransactionStreamResponse) {
@@ -93,6 +115,15 @@ export async function broadcastTransactionSnapshot(userId: number, payload: Tran
   if (!isTransactionStreamReady()) {
     broadcastTransactionSnapshotLocal(userId, payload);
   }
+}
+
+export async function broadcastLatestTransactionSnapshot(
+  userId: number,
+  balancesOverride?: SolanaBalancesResponse["balances"],
+) {
+  const payload = await buildLatestTransactionSnapshot(userId, balancesOverride);
+  await broadcastTransactionSnapshot(userId, payload);
+  return payload;
 }
 
 async function connectTransactionStreamListener() {

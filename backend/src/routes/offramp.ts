@@ -7,6 +7,7 @@ import {
   getRecipientByIdForUser,
   getRecipientByPublicIdForUser,
 } from "../db.js";
+import { normalizeMinimumCurrencyAmount } from "../lib/amounts.js";
 import {
   createBridgeOfframpTransfer,
   isBridgeApiError,
@@ -14,6 +15,8 @@ import {
 } from "../lib/bridge.js";
 import type { OfframpSourceAsset } from "../types.js";
 import { sendError } from "../lib/http.js";
+import { logError } from "../lib/logger.js";
+import { userMutationRateLimit } from "../middleware/rateLimits.js";
 
 const createOfframpSchema = z.object({
   amount: z.string().trim().min(1, "Amount is required."),
@@ -38,7 +41,7 @@ const displayCurrencyByAsset: Record<OfframpSourceAsset, string> = {
 export const offrampRouter = Router();
 offrampRouter.use(requireAppUser);
 
-offrampRouter.post("/", async (request, response) => {
+offrampRouter.post("/", userMutationRateLimit, async (request, response) => {
   try {
     const parsedBody = createOfframpSchema.safeParse(request.body);
     if (!parsedBody.success) {
@@ -98,7 +101,9 @@ offrampRouter.post("/", async (request, response) => {
 
     return response.status(201).json({ transaction });
   } catch (error) {
-    console.error(error);
+    logError("offramp.create_failed", error, {
+      requestId: request.requestId,
+    });
 
     if (isBridgeApiError(error)) {
       return sendError(response, 502, error.message);
@@ -113,22 +118,11 @@ offrampRouter.post("/", async (request, response) => {
 });
 
 function normalizeOfframpAmount(value: string, sourceAsset: OfframpSourceAsset) {
-  const trimmed = value.trim();
-  if (!/^\d+(\.\d{1,6})?$/.test(trimmed)) {
-    throw new Error(`Enter a valid ${sourceAsset.toUpperCase()} amount with up to 6 decimal places.`);
-  }
-
-  const [wholePart, fractionPart = ""] = trimmed.split(".");
-  const normalizedWhole = wholePart.replace(/^0+/, "") || "0";
-  const normalizedFraction = fractionPart.replace(/0+$/, "");
-  const normalizedAmount = normalizedFraction
-    ? `${normalizedWhole}.${normalizedFraction}`
-    : normalizedWhole;
-  const parsedAmount = Number.parseFloat(normalizedAmount);
-
-  if (!Number.isFinite(parsedAmount) || parsedAmount < 3) {
-    throw new Error(`Minimum off-ramp amount is 3 ${displayCurrencyByAsset[sourceAsset]}.`);
-  }
-
-  return normalizedAmount;
+  return normalizeMinimumCurrencyAmount({
+    currencyCode: sourceAsset.toUpperCase(),
+    decimals: 6,
+    minimum: 3,
+    minimumMessage: `Minimum off-ramp amount is 3 ${displayCurrencyByAsset[sourceAsset]}.`,
+    value,
+  });
 }

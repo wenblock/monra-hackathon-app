@@ -2,15 +2,11 @@ import { Router } from "express";
 import { z } from "zod";
 
 import { readAppUser, requireAppUser } from "../auth/requestAuth.js";
-import {
-  createConfirmedSwapTransaction,
-  listTransactionsByUserIdPaginated,
-} from "../db.js";
-import { buildTreasuryValuation, getTreasuryPrices } from "../lib/alchemy.js";
+import { createConfirmedSwapTransaction } from "../db.js";
+import { normalizeSwapAmount as normalizeSwapInputAmount } from "../lib/amounts.js";
 import {
   getTransferAssetDecimals,
   getTransferAssetMintAddress,
-  getTransferAssetLabel,
 } from "../lib/assets.js";
 import {
   executeJupiterSwap,
@@ -19,7 +15,9 @@ import {
 } from "../lib/jupiter.js";
 import { getSharedSwapQuote, storeSharedSwapQuote } from "../db/runtime.js";
 import { sendError } from "../lib/http.js";
-import { broadcastTransactionSnapshot } from "../lib/transactionStream.js";
+import { logError } from "../lib/logger.js";
+import { broadcastLatestTransactionSnapshot } from "../lib/transactionStream.js";
+import { highCostUserActionRateLimit } from "../middleware/rateLimits.js";
 import type { TransferAsset } from "../types.js";
 
 const createSwapOrderSchema = z.object({
@@ -36,7 +34,7 @@ const executeSwapSchema = z.object({
 export const swapsRouter = Router();
 swapsRouter.use(requireAppUser);
 
-swapsRouter.post("/order", async (request, response) => {
+swapsRouter.post("/order", highCostUserActionRateLimit, async (request, response) => {
   try {
     const parsedBody = createSwapOrderSchema.safeParse(request.body);
     if (!parsedBody.success) {
@@ -89,7 +87,9 @@ swapsRouter.post("/order", async (request, response) => {
       transaction: order.transaction,
     });
   } catch (error) {
-    console.error(error);
+    logError("swaps.order_failed", error, {
+      requestId: request.requestId,
+    });
 
     if (error instanceof JupiterApiError) {
       return sendError(response, mapJupiterOrderStatus(error.status), error.message);
@@ -103,7 +103,7 @@ swapsRouter.post("/order", async (request, response) => {
   }
 });
 
-swapsRouter.post("/execute", async (request, response) => {
+swapsRouter.post("/execute", highCostUserActionRateLimit, async (request, response) => {
   try {
     const parsedBody = executeSwapSchema.safeParse(request.body);
     if (!parsedBody.success) {
@@ -152,7 +152,9 @@ swapsRouter.post("/execute", async (request, response) => {
 
     return response.json(createdSwap);
   } catch (error) {
-    console.error(error);
+    logError("swaps.execute_failed", error, {
+      requestId: request.requestId,
+    });
 
     if (error instanceof JupiterApiError) {
       return sendError(response, mapJupiterExecuteStatus(error.status), error.message);
@@ -163,27 +165,7 @@ swapsRouter.post("/execute", async (request, response) => {
 });
 
 export function normalizeSwapAmount(value: string, asset: TransferAsset) {
-  const trimmed = value.trim();
-  const decimals = getTransferAssetDecimals(asset);
-  const pattern = new RegExp(`^\\d+(\\.\\d{1,${decimals}})?$`);
-
-  if (!pattern.test(trimmed)) {
-    throw new Error(
-      `Enter a valid ${getTransferAssetLabel(asset)} amount with up to ${decimals} decimal places.`,
-    );
-  }
-
-  const [wholePart, fractionPart = ""] = trimmed.split(".");
-  const normalizedWhole = wholePart.replace(/^0+/, "") || "0";
-  const normalizedFraction = fractionPart.replace(/0+$/, "");
-  const decimal = normalizedFraction ? `${normalizedWhole}.${normalizedFraction}` : normalizedWhole;
-  const raw = BigInt(`${normalizedWhole}${fractionPart.padEnd(decimals, "0")}` || "0").toString();
-
-  if (BigInt(raw) <= 0n) {
-    throw new Error("Amount must be greater than zero.");
-  }
-
-  return { decimal, raw };
+  return normalizeSwapInputAmount(value, asset);
 }
 
 function formatAssetAmount(rawAmount: string, asset: TransferAsset) {
@@ -213,25 +195,4 @@ function mapJupiterExecuteError(code: number, error: string | null) {
   }
 
   return error ?? "Swap execution failed.";
-}
-
-async function broadcastLatestTransactionSnapshot(
-  userId: number,
-  balancesOverride?: Awaited<ReturnType<typeof createConfirmedSwapTransaction>>["balances"],
-) {
-  const [balances, transactionPage, treasuryPrices] = await Promise.all([
-    Promise.resolve(balancesOverride),
-    listTransactionsByUserIdPaginated(userId, { limit: 5 }),
-    getTreasuryPrices(),
-  ]);
-
-  if (!balances) {
-    return;
-  }
-
-  await broadcastTransactionSnapshot(userId, {
-    balances,
-    valuation: buildTreasuryValuation(balances, treasuryPrices),
-    transactions: transactionPage.transactions,
-  });
 }

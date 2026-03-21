@@ -18,6 +18,20 @@ function readOptionalEnv(name: string) {
   return value ? value : null;
 }
 
+function readNumberEnv(name: string, defaultValue: number, minimum = 0) {
+  const rawValue = process.env[name];
+  if (rawValue == null || rawValue.trim().length === 0) {
+    return defaultValue;
+  }
+
+  const parsedValue = Number(rawValue);
+  if (!Number.isInteger(parsedValue) || parsedValue < minimum) {
+    throw new Error(`Environment variable ${name} must be a number greater than or equal to ${minimum}.`);
+  }
+
+  return parsedValue;
+}
+
 function parseAllowedOrigins() {
   const configuredOrigins = (process.env.ALLOWED_ORIGINS ?? "")
     .split(",")
@@ -37,7 +51,7 @@ function parseAllowedOrigins() {
 }
 
 export const config = {
-  port: Number(process.env.PORT ?? 4000),
+  port: readNumberEnv("PORT", 4000, 1),
   allowedOrigins: parseAllowedOrigins(),
   databaseUrl: readEnv("DATABASE_URL"),
   alchemyApiKey: readEnv("ALCHEMY_API_KEY"),
@@ -57,10 +71,15 @@ export const config = {
   ),
   jupiterApiKey: readOptionalEnv("JUPITER_API_KEY"),
   bridgeWebhookPublicKey: readEnv("BRIDGE_WEBHOOK_PUBLIC_KEY").replace(/\\n/g, "\n"),
-  bridgeWebhookMaxAgeMs: Number(process.env.BRIDGE_WEBHOOK_MAX_AGE_MS ?? 600000),
-  outboundRequestRetries: Number(process.env.OUTBOUND_REQUEST_RETRIES ?? 1),
-  outboundRequestTimeoutMs: Number(process.env.OUTBOUND_REQUEST_TIMEOUT_MS ?? 8000),
-  reconciliationIntervalMs: Number(process.env.RECONCILIATION_INTERVAL_MS ?? 0),
+  bridgeWebhookMaxAgeMs: readNumberEnv("BRIDGE_WEBHOOK_MAX_AGE_MS", 600000, 0),
+  outboundRequestRetries: readNumberEnv("OUTBOUND_REQUEST_RETRIES", 1, 0),
+  outboundRequestTimeoutMs: readNumberEnv("OUTBOUND_REQUEST_TIMEOUT_MS", 8000, 1),
+  reconciliationIntervalMs: readNumberEnv("RECONCILIATION_INTERVAL_MS", 0, 0),
+  pgPoolMax: readNumberEnv("PG_POOL_MAX", 10, 1),
+  pgPoolIdleTimeoutMs: readNumberEnv("PG_POOL_IDLE_TIMEOUT_MS", 10000, 0),
+  pgPoolConnectionTimeoutMs: readNumberEnv("PG_POOL_CONNECTION_TIMEOUT_MS", 3000, 1),
+  pgPoolMaxLifetimeSeconds: readNumberEnv("PG_POOL_MAX_LIFETIME_SECONDS", 300, 1),
+  alchemyWebhookConcurrency: readNumberEnv("ALCHEMY_WEBHOOK_CONCURRENCY", 4, 1),
   streamTokenSecret:
     readOptionalEnv("STREAM_TOKEN_SECRET") ??
     (process.env.NODE_ENV === "production"

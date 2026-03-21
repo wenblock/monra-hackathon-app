@@ -3,12 +3,15 @@ import { z } from "zod";
 
 import { readAppUser, requireAppUser } from "../auth/requestAuth.js";
 import { createPendingOnrampTransaction } from "../db.js";
+import { normalizeMinimumCurrencyAmount } from "../lib/amounts.js";
 import {
   createBridgeOnrampTransfer,
   isBridgeApiError,
   syncBridgeStatus,
 } from "../lib/bridge.js";
 import { sendError } from "../lib/http.js";
+import { logError } from "../lib/logger.js";
+import { userMutationRateLimit } from "../middleware/rateLimits.js";
 
 const createOnrampSchema = z.object({
   amount: z.string().trim().min(1, "EUR amount is required."),
@@ -18,7 +21,7 @@ const createOnrampSchema = z.object({
 export const onrampRouter = Router();
 onrampRouter.use(requireAppUser);
 
-onrampRouter.post("/", async (request, response) => {
+onrampRouter.post("/", userMutationRateLimit, async (request, response) => {
   try {
     const parsedBody = createOnrampSchema.safeParse(request.body);
     if (!parsedBody.success) {
@@ -63,7 +66,9 @@ onrampRouter.post("/", async (request, response) => {
 
     return response.status(201).json({ transaction });
   } catch (error) {
-    console.error(error);
+    logError("onramp.create_failed", error, {
+      requestId: request.requestId,
+    });
 
     if (isBridgeApiError(error)) {
       return sendError(response, 502, error.message);
@@ -78,22 +83,11 @@ onrampRouter.post("/", async (request, response) => {
 });
 
 function normalizeEurAmount(value: string) {
-  const trimmed = value.trim();
-  if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) {
-    throw new Error("Enter a valid EUR amount with up to 2 decimal places.");
-  }
-
-  const [wholePart, fractionPart = ""] = trimmed.split(".");
-  const normalizedWhole = wholePart.replace(/^0+/, "") || "0";
-  const normalizedFraction = fractionPart.replace(/0+$/, "");
-  const normalizedAmount = normalizedFraction
-    ? `${normalizedWhole}.${normalizedFraction}`
-    : normalizedWhole;
-  const parsedAmount = Number.parseFloat(normalizedAmount);
-
-  if (!Number.isFinite(parsedAmount) || parsedAmount < 3) {
-    throw new Error("Minimum on-ramp amount is 3 EUR.");
-  }
-
-  return normalizedAmount;
+  return normalizeMinimumCurrencyAmount({
+    currencyCode: "EUR",
+    decimals: 2,
+    minimum: 3,
+    minimumMessage: "Minimum on-ramp amount is 3 EUR.",
+    value,
+  });
 }

@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from "express";
 
 import { getUserByCdpUserId } from "../db.js";
 import { sendError } from "../lib/http.js";
+import { InvalidAccessTokenError, isInvalidAccessTokenError } from "./errors.js";
 import { validateAccessToken } from "./validateAccessToken.js";
 
 export function extractAccessToken(authorizationHeader: string | undefined) {
@@ -32,8 +33,8 @@ export async function requireAuthIdentity(request: Request, response: Response, 
   } catch (error) {
     return sendError(
       response,
-      isUnauthorizedTokenError(error) ? 401 : 500,
-      isUnauthorizedTokenError(error)
+      isInvalidAccessTokenError(error) ? 401 : 500,
+      isInvalidAccessTokenError(error)
         ? "Invalid or expired CDP access token."
         : "Unable to authenticate request.",
     );
@@ -63,8 +64,8 @@ export async function requireAppUser(request: Request, response: Response, next:
   } catch (error) {
     return sendError(
       response,
-      isUnauthorizedTokenError(error) ? 401 : 500,
-      isUnauthorizedTokenError(error)
+      isInvalidAccessTokenError(error) ? 401 : 500,
+      isInvalidAccessTokenError(error)
         ? "Invalid or expired CDP access token."
         : "Unable to authenticate request.",
     );
@@ -87,6 +88,6 @@ export function readAppUser(request: Request) {
   return request.appUser;
 }
 
-export function isUnauthorizedTokenError(error: unknown) {
-  return error instanceof Error && /access token/i.test(error.message);
+export function isUnauthorizedTokenError(error: unknown): error is InvalidAccessTokenError {
+  return isInvalidAccessTokenError(error);
 }

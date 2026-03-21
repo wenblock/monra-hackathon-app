@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 import { config } from "../config.js";
 import { fetchWithRetry } from "./outboundHttp.js";
+import { logError, logWarn } from "./logger.js";
 import {
   TRANSFER_ASSETS,
   SPL_TRANSFER_ASSETS,
@@ -221,7 +222,10 @@ async function readAlchemyJson<T>(response: Response): Promise<T> {
     const message = extractAlchemyErrorMessage(data, text, response.status);
 
     if (response.status >= 400 && response.status < 500) {
-      console.error(`[Alchemy] ${response.status}: ${message}`);
+      logWarn("alchemy.request_failed", {
+        responseMessage: message,
+        status: response.status,
+      });
     }
 
     throw new AlchemyApiError(message, response.status);
@@ -440,7 +444,7 @@ async function refreshTreasuryPrices(now: number) {
       treasuryPriceCache = snapshot;
       return snapshot;
     } catch (error) {
-      console.error("Unable to refresh treasury prices.", error);
+      logError("alchemy.treasury_price_refresh_failed", error);
       return null;
     } finally {
       treasuryPriceRefreshInFlight = null;

@@ -45,6 +45,11 @@ These values are secrets or server-only settings and must stay out of the fronte
 - `BRIDGE_API_BASE_URL`
 - `OUTBOUND_REQUEST_RETRIES` (optional)
 - `OUTBOUND_REQUEST_TIMEOUT_MS` (optional)
+- `PG_POOL_MAX` (optional)
+- `PG_POOL_IDLE_TIMEOUT_MS` (optional)
+- `PG_POOL_CONNECTION_TIMEOUT_MS` (optional)
+- `PG_POOL_MAX_LIFETIME_SECONDS` (optional)
+- `ALCHEMY_WEBHOOK_CONCURRENCY` (optional)
 - `RECONCILIATION_INTERVAL_MS` (optional)
 - `STREAM_TOKEN_SECRET`
 

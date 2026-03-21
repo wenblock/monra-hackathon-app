@@ -2,6 +2,7 @@ import { CdpClient } from "@coinbase/cdp-sdk";
 
 import { config } from "../config.js";
 import type { AuthIdentity } from "../types.js";
+import { InvalidAccessTokenError } from "./errors.js";
 
 const cdpClient = new CdpClient({
   apiKeyId: config.cdpApiKeyId,
@@ -44,9 +45,17 @@ function readEmailFromAuthenticationMethods(value: unknown) {
 }
 
 export async function validateAccessToken(accessToken: string): Promise<AuthIdentity> {
-  const endUser = await cdpClient.endUser.validateAccessToken({
-    accessToken,
-  });
+  let endUser: unknown;
+
+  try {
+    endUser = await cdpClient.endUser.validateAccessToken({
+      accessToken,
+    });
+  } catch (error) {
+    throw new InvalidAccessTokenError(undefined, {
+      cause: error instanceof Error ? error : undefined,
+    });
+  }
 
   const cdpUserId = readPath(endUser, ["userId"]);
   const email =

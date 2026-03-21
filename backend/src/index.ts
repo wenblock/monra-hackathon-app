@@ -10,6 +10,7 @@ import { logError, logInfo } from "./lib/logger.js";
 import { getReadinessStatus } from "./lib/readiness.js";
 import { startReconciliationJob, stopReconciliationJob } from "./lib/reconciliation.js";
 import { closeTransactionStream, initializeTransactionStream } from "./lib/transactionStream.js";
+import { errorHandler, createCorsOriginError } from "./middleware/errorHandler.js";
 import { requestContextMiddleware } from "./middleware/requestContext.js";
 import { authRouter } from "./routes/auth.js";
 import { bridgeRouter } from "./routes/bridge.js";
@@ -39,7 +40,7 @@ app.use(
         return;
       }
 
-      callback(new Error("Origin is not allowed by CORS."));
+      callback(createCorsOriginError());
     },
     optionsSuccessStatus: 204,
   }),
@@ -78,6 +79,7 @@ app.use("/api/users", usersRouter);
 app.use((_request, response) => {
   sendError(response, 404, "Route not found.");
 });
+app.use(errorHandler);
 
 await initializeDatabase();
 await initializeTransactionStream();

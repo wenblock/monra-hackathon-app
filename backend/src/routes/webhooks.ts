@@ -1,4 +1,4 @@
-import express, { Router } from "express";
+import express, { Router, type Request } from "express";
 
 import {
   applyAlchemyWebhookEffects,
@@ -7,19 +7,16 @@ import {
   getRecipientByWalletAddressForUser,
   getSwapTransactionUserIdsBySignature,
   getPendingOnrampByDestinationTxHash,
-  getUserBalancesByUserId,
   getUsersBySolanaAddresses,
-  listTransactionsByUserIdPaginated,
   type WebhookLedgerEntryInput,
 } from "../db.js";
 import {
-  buildTreasuryValuation,
   fetchSolanaParsedTransaction,
-  getTreasuryPrices,
   isAlchemyApiError,
   isSolanaTransactionSuccessful,
   validateAlchemyWebhookSignature,
 } from "../lib/alchemy.js";
+import { mapWithConcurrency } from "../lib/async.js";
 import { isOfframpSourceAsset } from "../lib/assets.js";
 import {
   describeBridgeWebhookSignatureHeader,
@@ -31,8 +28,10 @@ import {
   normalizeAlchemyTransaction,
 } from "../lib/alchemyWebhook.js";
 import { extractBridgeTransferWebhookEvent } from "../lib/bridgeWebhook.js";
-import { broadcastTransactionSnapshot } from "../lib/transactionStream.js";
+import { config } from "../config.js";
 import { sendError } from "../lib/http.js";
+import { logError, logWarn } from "../lib/logger.js";
+import { broadcastLatestTransactionSnapshot } from "../lib/transactionStream.js";
 
 type AlchemyWebhookEffect =
   | {
@@ -63,11 +62,19 @@ type AlchemyWebhookEffect =
 export const bridgeWebhookRouter = Router();
 export const alchemyWebhookRouter = Router();
 
+function isJsonWebhookRequest(request: Request) {
+  return Boolean(request.is("application/json"));
+}
+
 bridgeWebhookRouter.post(
   "/",
   express.raw({ type: "application/json" }),
   async (request, response) => {
     try {
+      if (!isJsonWebhookRequest(request)) {
+        return sendError(response, 415, "Webhook requests must use Content-Type: application/json.");
+      }
+
       const rawBody = request.body;
       if (!Buffer.isBuffer(rawBody)) {
         return sendError(response, 400, "Webhook body must be raw JSON.");
@@ -80,15 +87,18 @@ bridgeWebhookRouter.post(
           : { error: "Missing Bridge webhook signature.", isValid: false };
 
       if (!verification.isValid) {
-        if (process.env.NODE_ENV !== "production") {
-          console.warn("Bridge webhook signature verification failed.", {
-            error: verification.error ?? "Invalid Bridge webhook signature.",
-            signatureHeader:
-              typeof signatureHeader === "string"
-                ? describeBridgeWebhookSignatureHeader(signatureHeader)
-                : { missing: true },
-          });
-        }
+        logWarn("webhooks.bridge_signature_invalid", {
+          error: verification.error ?? "Invalid Bridge webhook signature.",
+          requestId: request.requestId,
+          ...(process.env.NODE_ENV !== "production"
+            ? {
+                signatureHeader:
+                  typeof signatureHeader === "string"
+                    ? describeBridgeWebhookSignatureHeader(signatureHeader)
+                    : { missing: true },
+              }
+            : {}),
+        });
 
         return sendError(response, 401, verification.error ?? "Invalid Bridge webhook signature.");
       }
@@ -121,7 +131,9 @@ bridgeWebhookRouter.post(
         affectedUsers: result.affectedUserIds.length,
       });
     } catch (error) {
-      console.error(error);
+      logError("webhooks.bridge_processing_failed", error, {
+        requestId: request.requestId,
+      });
 
       if (error instanceof SyntaxError) {
         return sendError(response, 400, "Webhook payload must be valid JSON.");
@@ -137,6 +149,10 @@ alchemyWebhookRouter.post(
   express.raw({ type: "application/json" }),
   async (request, response) => {
     try {
+      if (!isJsonWebhookRequest(request)) {
+        return sendError(response, 415, "Webhook requests must use Content-Type: application/json.");
+      }
+
       const rawBody = request.body;
       if (!Buffer.isBuffer(rawBody)) {
         return sendError(response, 400, "Webhook body must be raw JSON.");
@@ -144,6 +160,9 @@ alchemyWebhookRouter.post(
 
       const signatureHeader = request.header("X-Alchemy-Signature");
       if (!signatureHeader || !validateAlchemyWebhookSignature(rawBody, signatureHeader)) {
+        logWarn("webhooks.alchemy_signature_invalid", {
+          requestId: request.requestId,
+        });
         return sendError(response, 401, "Invalid webhook signature.");
       }
 
@@ -154,116 +173,17 @@ alchemyWebhookRouter.post(
         return response.status(200).json({ ignored: true });
       }
 
-      const effects: AlchemyWebhookEffect[] = [];
-
-      for (const signature of event.signatures) {
-        const parsedTransaction = await fetchSolanaParsedTransaction(signature);
-        if (!isSolanaTransactionSuccessful(parsedTransaction)) {
-          console.warn("Skipping failed Solana transaction from Alchemy webhook.", {
-            error: parsedTransaction.meta?.err ?? "missing transaction metadata",
+      const effectGroups = await mapWithConcurrency(
+        event.signatures,
+        config.alchemyWebhookConcurrency,
+        signature =>
+          buildAlchemyEffectsForSignature({
+            requestId: request.requestId,
             signature,
-          });
-          continue;
-        }
-
-        const candidateAddresses = extractCandidateWalletAddresses(parsedTransaction);
-        const users = await getUsersBySolanaAddresses(candidateAddresses);
-
-        if (users.length === 0) {
-          continue;
-        }
-
-        const usersByAddress = new Map(
-          users
-            .filter(user => typeof user.solanaAddress === "string" && user.solanaAddress.length > 0)
-            .map(user => [user.solanaAddress!, user]),
-        );
-
-        const normalizedEntries = normalizeAlchemyTransaction({
-          parsedTransaction,
-          signature,
-          usersByAddress,
-        });
-        const swapUserIds = new Set(await getSwapTransactionUserIdsBySignature(signature));
-        const pendingOnramp = await getPendingOnrampByDestinationTxHash(signature);
-
-        for (const entry of normalizedEntries) {
-          if (entry.entryType === "transfer" && swapUserIds.has(entry.userId)) {
-            continue;
-          }
-
-          const matchesPendingOnramp =
-            pendingOnramp &&
-            entry.asset === pendingOnramp.asset &&
-            entry.direction === "inbound" &&
-            entry.entryType === "transfer" &&
-            entry.userId === pendingOnramp.userId &&
-            entry.trackedWalletAddress === pendingOnramp.trackedWalletAddress;
-
-          if (matchesPendingOnramp) {
-            effects.push({
-              amountDecimal: entry.amountDecimal,
-              amountRaw: entry.amountRaw,
-              confirmedAt: entry.confirmedAt,
-              counterpartyName: entry.counterpartyName ?? null,
-              counterpartyWalletAddress: entry.counterpartyWalletAddress ?? null,
-              fromWalletAddress: entry.fromWalletAddress,
-              txHash: signature,
-              type: "onramp_completion",
-            });
-            continue;
-          }
-
-          if (
-            entry.entryType === "transfer" &&
-            entry.direction === "outbound" &&
-            isOfframpSourceAsset(entry.asset)
-          ) {
-            const pendingOfframp = await getOfframpByBroadcastDetails({
-              amountRaw: entry.amountRaw,
-              asset: entry.asset,
-              trackedWalletAddress: entry.trackedWalletAddress,
-              userId: entry.userId,
-              walletAddress: entry.counterpartyWalletAddress ?? null,
-            });
-
-            if (pendingOfframp) {
-              effects.push({
-                amountDecimal: entry.amountDecimal,
-                amountRaw: entry.amountRaw,
-                confirmedAt: entry.confirmedAt,
-                fromWalletAddress: entry.fromWalletAddress,
-                toWalletAddress: entry.counterpartyWalletAddress ?? null,
-                transactionId: pendingOfframp.id,
-                txHash: signature,
-                type: "offramp_broadcast",
-              });
-              continue;
-            }
-          }
-
-          const recipient =
-            entry.direction === "outbound" && entry.entryType === "transfer"
-              ? await getRecipientByWalletAddressForUser(
-                  entry.userId,
-                  entry.counterpartyWalletAddress ?? null,
-                )
-              : null;
-
-          effects.push({
-            entry: {
-              ...entry,
-              counterpartyName:
-                recipient?.displayName ??
-                entry.counterpartyName ??
-                null,
-              recipientId: recipient?.id ?? null,
-              webhookEventId: event.eventId,
-            },
-            type: "ledger",
-          });
-        }
-      }
+            webhookEventId: event.eventId,
+          }),
+      );
+      const effects = effectGroups.flat();
 
       const result = await applyAlchemyWebhookEffects({
         effects,
@@ -281,7 +201,9 @@ alchemyWebhookRouter.post(
         affectedUsers: result.affectedUserIds.length,
       });
     } catch (error) {
-      console.error(error);
+      logError("webhooks.alchemy_processing_failed", error, {
+        requestId: request.requestId,
+      });
 
       if (error instanceof SyntaxError) {
         return sendError(response, 400, "Webhook payload must be valid JSON.");
@@ -296,16 +218,123 @@ alchemyWebhookRouter.post(
   },
 );
 
-async function broadcastLatestTransactionSnapshot(userId: number) {
-  const [balances, transactionPage, treasuryPrices] = await Promise.all([
-    getUserBalancesByUserId(userId),
-    listTransactionsByUserIdPaginated(userId, { limit: 5 }),
-    getTreasuryPrices(),
+async function buildAlchemyEffectsForSignature(input: {
+  requestId?: string;
+  signature: string;
+  webhookEventId: string;
+}) {
+  const parsedTransaction = await fetchSolanaParsedTransaction(input.signature);
+  if (!isSolanaTransactionSuccessful(parsedTransaction)) {
+    logWarn("webhooks.alchemy_skipped_failed_transaction", {
+      error: parsedTransaction.meta?.err ?? "missing transaction metadata",
+      requestId: input.requestId,
+      signature: input.signature,
+      webhookEventId: input.webhookEventId,
+    });
+    return [] as AlchemyWebhookEffect[];
+  }
+
+  const candidateAddresses = extractCandidateWalletAddresses(parsedTransaction);
+  const [users, swapUserIds, pendingOnramp] = await Promise.all([
+    getUsersBySolanaAddresses(candidateAddresses),
+    getSwapTransactionUserIdsBySignature(input.signature),
+    getPendingOnrampByDestinationTxHash(input.signature),
   ]);
 
-  await broadcastTransactionSnapshot(userId, {
-    balances,
-    valuation: buildTreasuryValuation(balances, treasuryPrices),
-    transactions: transactionPage.transactions,
+  if (users.length === 0) {
+    return [] as AlchemyWebhookEffect[];
+  }
+
+  const usersByAddress = new Map(
+    users
+      .filter(user => typeof user.solanaAddress === "string" && user.solanaAddress.length > 0)
+      .map(user => [user.solanaAddress!, user]),
+  );
+
+  const normalizedEntries = normalizeAlchemyTransaction({
+    parsedTransaction,
+    signature: input.signature,
+    usersByAddress,
   });
+  const swapUserIdSet = new Set(swapUserIds);
+  const effects: AlchemyWebhookEffect[] = [];
+
+  for (const entry of normalizedEntries) {
+    if (entry.entryType === "transfer" && swapUserIdSet.has(entry.userId)) {
+      continue;
+    }
+
+    const matchesPendingOnramp =
+      pendingOnramp &&
+      entry.asset === pendingOnramp.asset &&
+      entry.direction === "inbound" &&
+      entry.entryType === "transfer" &&
+      entry.userId === pendingOnramp.userId &&
+      entry.trackedWalletAddress === pendingOnramp.trackedWalletAddress;
+
+    if (matchesPendingOnramp) {
+      effects.push({
+        amountDecimal: entry.amountDecimal,
+        amountRaw: entry.amountRaw,
+        confirmedAt: entry.confirmedAt,
+        counterpartyName: entry.counterpartyName ?? null,
+        counterpartyWalletAddress: entry.counterpartyWalletAddress ?? null,
+        fromWalletAddress: entry.fromWalletAddress,
+        txHash: input.signature,
+        type: "onramp_completion",
+      });
+      continue;
+    }
+
+    if (
+      entry.entryType === "transfer" &&
+      entry.direction === "outbound" &&
+      isOfframpSourceAsset(entry.asset)
+    ) {
+      const pendingOfframp = await getOfframpByBroadcastDetails({
+        amountRaw: entry.amountRaw,
+        asset: entry.asset,
+        trackedWalletAddress: entry.trackedWalletAddress,
+        userId: entry.userId,
+        walletAddress: entry.counterpartyWalletAddress ?? null,
+      });
+
+      if (pendingOfframp) {
+        effects.push({
+          amountDecimal: entry.amountDecimal,
+          amountRaw: entry.amountRaw,
+          confirmedAt: entry.confirmedAt,
+          fromWalletAddress: entry.fromWalletAddress,
+          toWalletAddress: entry.counterpartyWalletAddress ?? null,
+          transactionId: pendingOfframp.id,
+          txHash: input.signature,
+          type: "offramp_broadcast",
+        });
+        continue;
+      }
+    }
+
+    const recipient =
+      entry.direction === "outbound" && entry.entryType === "transfer"
+        ? await getRecipientByWalletAddressForUser(
+            entry.userId,
+            entry.counterpartyWalletAddress ?? null,
+          )
+        : null;
+
+    effects.push({
+      entry: {
+        ...entry,
+        counterpartyName:
+          recipient?.displayName ??
+          entry.counterpartyName ??
+          null,
+        recipientId: recipient?.id ?? null,
+        webhookEventId: input.webhookEventId,
+      },
+      type: "ledger",
+    });
+  }
+
+  return effects;
 }
