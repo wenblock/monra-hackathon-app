@@ -38,7 +38,7 @@ function TransactionActivityList({ transactions }: TransactionActivityListProps)
       <div className="space-y-3">
         {transactions.map(transaction => (
           <button
-            key={transaction.id}
+            key={transaction.publicId}
             type="button"
             onClick={() => setSelectedTransaction(transaction)}
             className={cn(

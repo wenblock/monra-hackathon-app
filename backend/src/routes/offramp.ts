@@ -1,11 +1,11 @@
 import { Router } from "express";
 import { z } from "zod";
 
-import { validateAccessToken } from "../auth/validateAccessToken.js";
+import { readAppUser, requireAppUser } from "../auth/requestAuth.js";
 import {
   createPendingOfframpTransaction,
   getRecipientByIdForUser,
-  getUserByCdpUserId,
+  getRecipientByPublicIdForUser,
 } from "../db.js";
 import {
   createBridgeOfframpTransfer,
@@ -16,10 +16,18 @@ import type { OfframpSourceAsset } from "../types.js";
 import { sendError } from "../lib/http.js";
 
 const createOfframpSchema = z.object({
-  accessToken: z.string().trim().min(1, "Missing accessToken parameter."),
   amount: z.string().trim().min(1, "Amount is required."),
   sourceAsset: z.enum(["eurc", "usdc"]).default("eurc"),
-  recipientId: z.coerce.number().int().positive("Recipient id must be a positive integer."),
+  recipientId: z.coerce.number().int().positive("Recipient id must be a positive integer.").optional(),
+  recipientPublicId: z.string().trim().uuid("Recipient public id must be a valid UUID.").optional(),
+}).superRefine((data, ctx) => {
+  if (data.recipientId === undefined && !data.recipientPublicId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["recipientPublicId"],
+      message: "Recipient public id is required.",
+    });
+  }
 });
 
 const displayCurrencyByAsset: Record<OfframpSourceAsset, string> = {
@@ -28,6 +36,7 @@ const displayCurrencyByAsset: Record<OfframpSourceAsset, string> = {
 };
 
 export const offrampRouter = Router();
+offrampRouter.use(requireAppUser);
 
 offrampRouter.post("/", async (request, response) => {
   try {
@@ -37,12 +46,7 @@ offrampRouter.post("/", async (request, response) => {
     }
 
     const amount = normalizeOfframpAmount(parsedBody.data.amount, parsedBody.data.sourceAsset);
-    const identity = await validateAccessToken(parsedBody.data.accessToken);
-    const existingUser = await getUserByCdpUserId(identity.cdpUserId);
-
-    if (!existingUser) {
-      return sendError(response, 404, "Monra user not found.");
-    }
+    const existingUser = readAppUser(request);
 
     if (!existingUser.bridgeCustomerId) {
       return sendError(response, 409, "Bridge onboarding must be completed before using off-ramp.");
@@ -52,7 +56,9 @@ offrampRouter.post("/", async (request, response) => {
       return sendError(response, 409, "Your Solana wallet is still syncing. Try again in a moment.");
     }
 
-    const recipient = await getRecipientByIdForUser(existingUser.id, parsedBody.data.recipientId);
+    const recipient = parsedBody.data.recipientPublicId
+      ? await getRecipientByPublicIdForUser(existingUser.id, parsedBody.data.recipientPublicId)
+      : await getRecipientByIdForUser(existingUser.id, parsedBody.data.recipientId!);
     if (!recipient) {
       return sendError(response, 404, "Recipient not found.");
     }

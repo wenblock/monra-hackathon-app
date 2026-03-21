@@ -92,7 +92,7 @@ function OfframpDrawer({
   );
   const [amount, setAmount] = useState("");
   const [sourceAsset, setSourceAsset] = useState<OfframpSourceAsset>("eurc");
-  const [selectedRecipientId, setSelectedRecipientId] = useState("");
+  const [selectedRecipientPublicId, setSelectedRecipientPublicId] = useState("");
   const [isRecipientFormOpen, setIsRecipientFormOpen] = useState(false);
   const [bankForm, setBankForm] = useState(emptyBankForm);
   const [createdTransaction, setCreatedTransaction] = useState<AppTransaction | null>(null);
@@ -103,7 +103,7 @@ function OfframpDrawer({
   const [error, setError] = useState<string | null>(null);
 
   const selectedRecipient =
-    bankRecipients.find(recipient => String(recipient.id) === selectedRecipientId) ?? null;
+    bankRecipients.find(recipient => recipient.publicId === selectedRecipientPublicId) ?? null;
   const availableRawBalance = balances?.[sourceAsset].raw ?? "0";
   const splTransferFeeHint = getWalletTransferFeeHint({
     asset: sourceAsset,
@@ -125,7 +125,7 @@ function OfframpDrawer({
 
       setIsSavingRecipient(true);
       const recipient = await onCreateBankRecipient(payload);
-      setSelectedRecipientId(String(recipient.id));
+      setSelectedRecipientPublicId(recipient.publicId);
       setIsRecipientFormOpen(false);
       setBankForm(emptyBankForm);
     } catch (recipientError) {
@@ -166,7 +166,7 @@ function OfframpDrawer({
       setIsSubmitting(true);
       const transaction = await onCreateOfframp({
         amount: parsedAmount.decimal,
-        recipientId: selectedRecipient.id,
+        recipientPublicId: selectedRecipient.publicId,
         sourceAsset,
       });
 
@@ -431,13 +431,13 @@ function OfframpDrawer({
                   </Button>
                 </div>
 
-                <Select value={selectedRecipientId} onValueChange={setSelectedRecipientId}>
+                <Select value={selectedRecipientPublicId} onValueChange={setSelectedRecipientPublicId}>
                   <SelectTrigger>
                     <SelectValue placeholder="Choose a bank recipient" />
                   </SelectTrigger>
                   <SelectContent>
                     {bankRecipients.map(recipient => (
-                      <SelectItem key={recipient.id} value={String(recipient.id)}>
+                      <SelectItem key={recipient.publicId} value={recipient.publicId}>
                         {recipient.displayName}
                       </SelectItem>
                     ))}
@@ -642,7 +642,7 @@ function OfframpDrawer({
   function resetState() {
     setAmount("");
     setSourceAsset("eurc");
-    setSelectedRecipientId("");
+    setSelectedRecipientPublicId("");
     setIsRecipientFormOpen(false);
     setBankForm(emptyBankForm);
     setCreatedTransaction(null);

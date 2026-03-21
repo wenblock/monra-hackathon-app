@@ -18,7 +18,7 @@ function useCreateRecipientMutation(userId: string) {
           recipients: [
             response.recipient,
             ...(current?.recipients.filter(
-              recipient => recipient.id !== response.recipient.id,
+              recipient => recipient.publicId !== response.recipient.publicId,
             ) ?? []),
           ],
         }),
@@ -32,15 +32,15 @@ function useDeleteRecipientMutation(userId: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (recipientId: number) => client.deleteRecipient(recipientId),
-    onSuccess: (_, recipientId) => {
+    mutationFn: (recipientPublicId: string) => client.deleteRecipient(recipientPublicId),
+    onSuccess: (_, recipientPublicId) => {
       queryClient.setQueryData<{ recipients: Recipient[] } | undefined>(
         recipientsKeys.list(userId),
         current =>
           current
             ? {
                 recipients: current.recipients.filter(
-                  recipient => recipient.id !== recipientId,
+                  recipient => recipient.publicId !== recipientPublicId,
                 ),
               }
             : current,

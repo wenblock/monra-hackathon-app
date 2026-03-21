@@ -1,17 +1,5 @@
 import { config } from "../config.js";
-import type { TransferAsset } from "../types.js";
-
-const ORDER_CACHE_TTL_MS = 10 * 60 * 1000;
-
-interface CachedSwapOrder {
-  createdAt: number;
-  inputAsset: TransferAsset;
-  inputAmountRaw: string;
-  outputAsset: TransferAsset;
-  outputAmountRaw: string;
-  userId: number;
-  walletAddress: string;
-}
+import { fetchWithRetry } from "./outboundHttp.js";
 
 interface JupiterOrderApiResponse {
   feeBps?: number;
@@ -61,15 +49,13 @@ export class JupiterApiError extends Error {
   }
 }
 
-const swapOrderCache = new Map<string, CachedSwapOrder>();
-
 export async function getJupiterSwapOrder(input: {
   amount: string;
   inputMint: string;
   outputMint: string;
   taker: string;
 }) {
-  const response = await fetch(
+  const response = await fetchWithRetry(
     `${config.jupiterApiBaseUrl}/order?${new URLSearchParams({
       amount: input.amount,
       inputMint: input.inputMint,
@@ -78,6 +64,10 @@ export async function getJupiterSwapOrder(input: {
     }).toString()}`,
     {
       headers: buildJupiterHeaders(),
+    },
+    {
+      retries: config.outboundRequestRetries,
+      timeoutMs: config.outboundRequestTimeoutMs,
     },
   );
 
@@ -99,14 +89,21 @@ export async function getJupiterSwapOrder(input: {
 }
 
 export async function executeJupiterSwap(input: { requestId: string; signedTransaction: string }) {
-  const response = await fetch(`${config.jupiterApiBaseUrl}/execute`, {
-    method: "POST",
-    headers: {
-      ...buildJupiterHeaders(),
-      "Content-Type": "application/json",
+  const response = await fetchWithRetry(
+    `${config.jupiterApiBaseUrl}/execute`,
+    {
+      method: "POST",
+      headers: {
+        ...buildJupiterHeaders(),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
     },
-    body: JSON.stringify(input),
-  });
+    {
+      retries: config.outboundRequestRetries,
+      timeoutMs: config.outboundRequestTimeoutMs,
+    },
+  );
 
   const payload = await readJupiterJson<JupiterExecuteApiResponse>(response);
 
@@ -120,26 +117,6 @@ export async function executeJupiterSwap(input: { requestId: string; signedTrans
     signature: typeof payload.signature === "string" ? payload.signature : null,
     status: payload.status === "Success" ? "Success" : "Failed",
   } satisfies JupiterSwapExecution;
-}
-
-export function rememberSwapOrder(
-  requestId: string,
-  order: Omit<CachedSwapOrder, "createdAt">,
-) {
-  pruneExpiredSwapOrders(Date.now());
-  swapOrderCache.set(requestId, {
-    ...order,
-    createdAt: Date.now(),
-  });
-}
-
-export function getCachedSwapOrder(requestId: string, now = Date.now()) {
-  pruneExpiredSwapOrders(now);
-  return swapOrderCache.get(requestId) ?? null;
-}
-
-export function clearCachedSwapOrdersForTests() {
-  swapOrderCache.clear();
 }
 
 function buildJupiterHeaders() {
@@ -182,15 +159,6 @@ function extractJupiterErrorMessage(payload: unknown) {
 
   return null;
 }
-
-function pruneExpiredSwapOrders(now: number) {
-  for (const [requestId, order] of swapOrderCache.entries()) {
-    if (now - order.createdAt > ORDER_CACHE_TTL_MS) {
-      swapOrderCache.delete(requestId);
-    }
-  }
-}
-
 function safeParseJson(value: string) {
   try {
     return JSON.parse(value) as unknown;

@@ -24,7 +24,7 @@ describe("api-client", () => {
     globalThis.fetch = originalFetch;
   });
 
-  it("sends swap order requests with body auth", async () => {
+  it("sends swap order requests with bearer auth", async () => {
     const originalFetch = globalThis.fetch;
     const fetchMock = vi.fn(async () =>
       new Response(
@@ -64,14 +64,52 @@ describe("api-client", () => {
         "http://localhost:4000/api/swaps/order",
         expect.objectContaining({
           body: JSON.stringify({
-            accessToken: "token",
             amount: "10",
             inputAsset: "usdc",
             outputAsset: "eurc",
           }),
+          headers: expect.any(Headers),
           method: "POST",
         }),
       );
+
+      const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(new Headers(options.headers).get("Authorization")).toBe("Bearer token");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("uses GET with bearer auth for bridge status sync", async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      bridge: {
+        customerStatus: "active",
+        hasAcceptedTermsOfService: true,
+        showKycAlert: false,
+        showTosAlert: false,
+      },
+      user: null,
+    }), {
+      status: 200,
+    }));
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    try {
+      const client = createApiClient(async () => "token");
+      await client.syncBridgeStatus();
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "http://localhost:4000/api/bridge/status",
+        expect.objectContaining({
+          body: undefined,
+          headers: expect.any(Headers),
+          method: "GET",
+        }),
+      );
+
+      const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(new Headers(options.headers).get("Authorization")).toBe("Bearer token");
     } finally {
       globalThis.fetch = originalFetch;
     }

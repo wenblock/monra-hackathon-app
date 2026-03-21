@@ -1,12 +1,13 @@
-import { Router, type Request } from "express";
+import { Router } from "express";
 import { z } from "zod";
 
-import { validateAccessToken } from "../auth/validateAccessToken.js";
+import { readAppUser, requireAppUser } from "../auth/requestAuth.js";
 import {
   createRecipient,
   deleteRecipientByIdForUser,
+  deleteRecipientByPublicIdForUser,
   getRecipientByIdForUser,
-  getUserByCdpUserId,
+  getRecipientByPublicIdForUser,
   listRecipientsByUserId,
 } from "../db.js";
 import {
@@ -21,13 +22,11 @@ import { isValidSolanaAddress } from "../lib/solana.js";
 const createRecipientSchema = z
   .discriminatedUnion("kind", [
     z.object({
-      accessToken: z.string().trim().min(1, "Missing accessToken parameter."),
       kind: z.literal("wallet"),
       fullName: z.string().trim().min(1, "Full name is required."),
       walletAddress: z.string().trim().min(1, "Solana wallet address is required."),
     }),
     z.object({
-      accessToken: z.string().trim().min(1, "Missing accessToken parameter."),
       kind: z.literal("bank"),
       bankCountryCode: z.string().trim().length(3, "Bank country must be a 3-letter ISO code."),
       recipientType: z.enum(["individual", "business"]),
@@ -79,31 +78,22 @@ const createRecipientSchema = z
     }
   });
 
-const recipientIdSchema = z.object({
-  recipientId: z.coerce.number().int().positive("Recipient id must be a positive integer."),
+const recipientReferenceSchema = z.object({
+  recipientReference: z.string().trim().min(1, "Recipient identifier is required."),
 });
 
 export const recipientsRouter = Router();
+recipientsRouter.use(requireAppUser);
 
 recipientsRouter.get("/", async (request, response) => {
   try {
-    const accessToken = extractAccessToken(request);
-    if (!accessToken) {
-      return sendError(response, 400, "Missing access token.");
-    }
-
-    const identity = await validateAccessToken(accessToken);
-    const user = await getUserByCdpUserId(identity.cdpUserId);
-
-    if (!user) {
-      return sendError(response, 404, "Monra user not found.");
-    }
+    const user = readAppUser(request);
 
     const recipients = await listRecipientsByUserId(user.id);
     return response.json({ recipients });
   } catch (error) {
     console.error(error);
-    return sendError(response, 401, "Invalid or expired CDP access token.");
+    return sendError(response, 500, "Unable to load recipients.");
   }
 });
 
@@ -114,12 +104,7 @@ recipientsRouter.post("/", async (request, response) => {
       return sendError(response, 400, parsedBody.error.issues[0]?.message ?? "Invalid request.");
     }
 
-    const identity = await validateAccessToken(parsedBody.data.accessToken);
-    const user = await getUserByCdpUserId(identity.cdpUserId);
-
-    if (!user) {
-      return sendError(response, 404, "Monra user not found.");
-    }
+    const user = readAppUser(request);
 
     if (parsedBody.data.kind === "wallet") {
       const walletAddress = parsedBody.data.walletAddress.trim();
@@ -218,14 +203,9 @@ recipientsRouter.post("/", async (request, response) => {
   }
 });
 
-recipientsRouter.delete("/:recipientId", async (request, response) => {
+recipientsRouter.delete("/:recipientReference", async (request, response) => {
   try {
-    const accessToken = extractAccessToken(request);
-    if (!accessToken) {
-      return sendError(response, 400, "Missing access token.");
-    }
-
-    const parsedParams = recipientIdSchema.safeParse(request.params);
+    const parsedParams = recipientReferenceSchema.safeParse(request.params);
     if (!parsedParams.success) {
       return sendError(
         response,
@@ -234,14 +214,16 @@ recipientsRouter.delete("/:recipientId", async (request, response) => {
       );
     }
 
-    const identity = await validateAccessToken(accessToken);
-    const user = await getUserByCdpUserId(identity.cdpUserId);
-
-    if (!user) {
-      return sendError(response, 404, "Monra user not found.");
+    const user = readAppUser(request);
+    const recipientReference = parseRecipientReference(parsedParams.data.recipientReference);
+    if (!recipientReference) {
+      return sendError(response, 400, "Invalid recipient identifier.");
     }
 
-    const recipient = await getRecipientByIdForUser(user.id, parsedParams.data.recipientId);
+    const recipient =
+      recipientReference.kind === "publicId"
+        ? await getRecipientByPublicIdForUser(user.id, recipientReference.value)
+        : await getRecipientByIdForUser(user.id, recipientReference.value);
     if (!recipient) {
       return sendError(response, 404, "Recipient not found.");
     }
@@ -257,7 +239,12 @@ recipientsRouter.delete("/:recipientId", async (request, response) => {
       });
     }
 
-    await deleteRecipientByIdForUser(user.id, parsedParams.data.recipientId);
+    if (recipientReference.kind === "publicId") {
+      await deleteRecipientByPublicIdForUser(user.id, recipientReference.value);
+    } else {
+      await deleteRecipientByIdForUser(user.id, recipientReference.value);
+    }
+
     return response.status(204).send();
   } catch (error) {
     console.error(error);
@@ -270,24 +257,23 @@ recipientsRouter.delete("/:recipientId", async (request, response) => {
   }
 });
 
-function extractAccessToken(request: Request) {
-  const authorizationHeader =
-    typeof request.headers.authorization === "string" ? request.headers.authorization : undefined;
-
-  if (!authorizationHeader) {
-    return null;
-  }
-
-  const [scheme, token] = authorizationHeader.split(" ");
-  if (scheme !== "Bearer" || !token?.trim()) {
-    return null;
-  }
-
-  return token.trim();
-}
-
 function normalizeCompactValue(value: string) {
   return value.trim().toUpperCase().replace(/\s+/g, "");
+}
+
+function parseRecipientReference(value: string) {
+  const normalized = value.trim();
+
+  if (/^\d+$/.test(normalized)) {
+    const parsed = Number.parseInt(normalized, 10);
+    return Number.isFinite(parsed) && parsed > 0
+      ? { kind: "legacyId" as const, value: parsed }
+      : null;
+  }
+
+  return z.string().uuid().safeParse(normalized).success
+    ? { kind: "publicId" as const, value: normalized }
+    : null;
 }
 
 function isUniqueViolation(error: unknown) {

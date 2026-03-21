@@ -1,16 +1,11 @@
 import { Router } from "express";
-import { z } from "zod";
 
-import { validateAccessToken } from "../auth/validateAccessToken.js";
+import { readAuthIdentity, requireAuthIdentity } from "../auth/requestAuth.js";
 import { getUserByCdpUserId } from "../db.js";
 import { buildStoredBridgeComplianceState, syncBridgeStatus } from "../lib/bridge.js";
 import { sendError } from "../lib/http.js";
 import { requiresOnboarding } from "../lib/onboardingFlow.js";
 import type { AppUser } from "../types.js";
-
-const sessionSchema = z.object({
-  accessToken: z.string().trim().min(1, "Missing accessToken parameter."),
-});
 
 export const authRouter = Router();
 
@@ -18,14 +13,9 @@ export function getSessionStatus(user: AppUser | null) {
   return requiresOnboarding(user) ? "needs_onboarding" : "active";
 }
 
-authRouter.post("/session", async (request, response) => {
+authRouter.post("/session", requireAuthIdentity, async (request, response) => {
   try {
-    const parsedBody = sessionSchema.safeParse(request.body);
-    if (!parsedBody.success) {
-      return sendError(response, 400, parsedBody.error.issues[0]?.message ?? "Invalid request.");
-    }
-
-    const identity = await validateAccessToken(parsedBody.data.accessToken);
+    const identity = readAuthIdentity(request);
     if (!identity.email) {
       return sendError(response, 400, "Authenticated email is required to continue.");
     }
@@ -62,6 +52,6 @@ authRouter.post("/session", async (request, response) => {
     });
   } catch (error) {
     console.error(error);
-    return sendError(response, 401, "Invalid or expired CDP access token.");
+    return sendError(response, 500, "Unable to bootstrap session.");
   }
 });

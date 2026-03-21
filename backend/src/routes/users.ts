@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { z } from "zod";
 
-import { validateAccessToken } from "../auth/validateAccessToken.js";
-import { getUserBalancesByUserId, getUserByCdpUserId, updateUserSolanaAddress } from "../db.js";
+import { readAppUser, requireAppUser } from "../auth/requestAuth.js";
+import { getUserBalancesByUserId, updateUserSolanaAddress } from "../db.js";
 import {
   buildTreasuryValuation,
   createUnavailableTreasuryValuation,
@@ -15,13 +15,11 @@ import { sendError } from "../lib/http.js";
 import { isValidSolanaAddress } from "../lib/solana.js";
 
 const solanaAddressSchema = z.object({
-  accessToken: z.string().trim().min(1, "Missing accessToken parameter."),
   solanaAddress: z.string().trim().min(1, "Solana address is required."),
 });
 
 const solanaTransactionContextSchema = z
   .object({
-    accessToken: z.string().trim().min(1, "Missing accessToken parameter."),
     asset: z.enum(["sol", "usdc", "eurc"]),
     senderAddress: z.string().trim().min(1, "Sender wallet address is required."),
     recipientAddress: z.string().trim().min(1, "Recipient wallet address is required."),
@@ -38,6 +36,7 @@ const solanaTransactionContextSchema = z
   });
 
 export const usersRouter = Router();
+usersRouter.use(requireAppUser);
 
 usersRouter.post("/solana-address", async (request, response) => {
   try {
@@ -47,12 +46,7 @@ usersRouter.post("/solana-address", async (request, response) => {
       return sendError(response, 400, parsedBody.error.issues[0]?.message ?? "Invalid request.");
     }
 
-    const identity = await validateAccessToken(parsedBody.data.accessToken);
-    const existingUser = await getUserByCdpUserId(identity.cdpUserId);
-
-    if (!existingUser) {
-      return sendError(response, 404, "Monra user not found.");
-    }
+    const existingUser = readAppUser(request);
 
     if (!isValidSolanaAddress(parsedBody.data.solanaAddress)) {
       return sendError(response, 400, "Solana address is invalid.");
@@ -73,7 +67,10 @@ usersRouter.post("/solana-address", async (request, response) => {
       addressesToAdd: [parsedBody.data.solanaAddress],
     });
 
-    const user = await updateUserSolanaAddress(identity.cdpUserId, parsedBody.data.solanaAddress);
+    const user = await updateUserSolanaAddress(
+      existingUser.cdpUserId,
+      parsedBody.data.solanaAddress,
+    );
 
     if (!user) {
       return sendError(response, 404, "Monra user not found.");
@@ -97,17 +94,7 @@ usersRouter.post("/solana-address", async (request, response) => {
 
 usersRouter.get("/balances", async (request, response) => {
   try {
-    const accessToken = extractAccessToken(request.headers.authorization);
-    if (!accessToken) {
-      return sendError(response, 400, "Missing access token.");
-    }
-
-    const identity = await validateAccessToken(accessToken);
-    const user = await getUserByCdpUserId(identity.cdpUserId);
-
-    if (!user) {
-      return sendError(response, 404, "Monra user not found.");
-    }
+    const user = readAppUser(request);
 
     const balances = await getUserBalancesByUserId(user.id);
     const valuation = await getTreasuryPrices()
@@ -125,10 +112,6 @@ usersRouter.get("/balances", async (request, response) => {
   } catch (error) {
     console.error(error);
 
-    if (isUnauthorizedTokenError(error)) {
-      return sendError(response, 401, "Invalid or expired CDP access token.");
-    }
-
     return sendError(response, 500, "Unable to fetch Solana balances.");
   }
 });
@@ -141,12 +124,7 @@ usersRouter.post("/solana-transaction-context", async (request, response) => {
       return sendError(response, 400, parsedBody.error.issues[0]?.message ?? "Invalid request.");
     }
 
-    const identity = await validateAccessToken(parsedBody.data.accessToken);
-    const user = await getUserByCdpUserId(identity.cdpUserId);
-
-    if (!user) {
-      return sendError(response, 404, "Monra user not found.");
-    }
+    readAppUser(request);
 
     if (!isValidSolanaAddress(parsedBody.data.senderAddress)) {
       return sendError(response, 400, "Sender wallet address is invalid.");
@@ -179,23 +157,6 @@ usersRouter.post("/solana-transaction-context", async (request, response) => {
     return sendError(response, 500, "Unable to prepare Solana transaction context.");
   }
 });
-
-function extractAccessToken(authorizationHeader: string | undefined) {
-  if (!authorizationHeader) {
-    return null;
-  }
-
-  const [scheme, token] = authorizationHeader.split(" ");
-  if (scheme !== "Bearer" || !token?.trim()) {
-    return null;
-  }
-
-  return token.trim();
-}
-
-function isUnauthorizedTokenError(error: unknown) {
-  return error instanceof Error && /access token/i.test(error.message);
-}
 
 function isUniqueViolation(error: unknown) {
   return !!error && typeof error === "object" && "code" in error && error.code === "23505";

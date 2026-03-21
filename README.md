@@ -43,6 +43,9 @@ These values are secrets or server-only settings and must stay out of the fronte
 - `ALCHEMY_WEBHOOK_SIGNING_KEY`
 - `BRIDGE_API_KEY`
 - `BRIDGE_API_BASE_URL`
+- `OUTBOUND_REQUEST_RETRIES` (optional)
+- `OUTBOUND_REQUEST_TIMEOUT_MS` (optional)
+- `RECONCILIATION_INTERVAL_MS` (optional)
 - `STREAM_TOKEN_SECRET`
 
 ## Deployment notes

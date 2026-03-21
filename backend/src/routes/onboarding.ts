@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 
-import { validateAccessToken } from "../auth/validateAccessToken.js";
+import { readAuthIdentity, requireAuthIdentity } from "../auth/requestAuth.js";
 import { getUserByCdpUserId } from "../db.js";
 import { isBridgeApiError } from "../lib/bridge.js";
 import { sendError } from "../lib/http.js";
@@ -14,7 +14,6 @@ import {
 
 const onboardingSchema = z
   .object({
-    accessToken: z.string().trim().min(1, "Missing accessToken parameter."),
     accountType: z.enum(["individual", "business"]),
     fullName: z.string().trim().min(1, "Full name is required."),
     countryCode: z.string().trim().length(2, "Country code must be a 2-letter ISO code."),
@@ -32,7 +31,7 @@ const onboardingSchema = z
 
 export const onboardingRouter = Router();
 
-onboardingRouter.post("/", async (request, response) => {
+onboardingRouter.post("/", requireAuthIdentity, async (request, response) => {
   try {
     const parsedBody = onboardingSchema.safeParse(request.body);
 
@@ -44,7 +43,7 @@ onboardingRouter.post("/", async (request, response) => {
       );
     }
 
-    const identity = await validateAccessToken(parsedBody.data.accessToken);
+    const identity = readAuthIdentity(request);
 
     const existingUser = await getUserByCdpUserId(identity.cdpUserId);
     if (existingUser && !requiresOnboarding(existingUser)) {

@@ -1,8 +1,21 @@
-import type { Response } from "express";
+import { setTimeout as scheduleTimeout } from "node:timers";
 
+import type { Response } from "express";
+import { Client } from "pg";
+
+import { config } from "../config.js";
+import {
+  getTransactionStreamChannelName,
+  getTransactionStreamEventById,
+  publishTransactionStreamEvent,
+} from "../db/runtime.js";
 import type { TransactionStreamResponse } from "../types.js";
 
 const userStreams = new Map<number, Set<Response>>();
+let listenerClient: Client | null = null;
+let initializePromise: Promise<void> | null = null;
+let listenerState: "connecting" | "degraded" | "idle" | "ready" = "idle";
+let reconnectTimer: NodeJS.Timeout | null = null;
 
 export function registerTransactionStream(userId: number, response: Response) {
   const currentStreams = userStreams.get(userId) ?? new Set<Response>();
@@ -26,7 +39,7 @@ export function sendTransactionSnapshot(response: Response, payload: Transaction
   response.write(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
-export function broadcastTransactionSnapshot(userId: number, payload: TransactionStreamResponse) {
+function broadcastTransactionSnapshotLocal(userId: number, payload: TransactionStreamResponse) {
   const streams = userStreams.get(userId);
   if (!streams || streams.size === 0) {
     return;
@@ -35,4 +48,111 @@ export function broadcastTransactionSnapshot(userId: number, payload: Transactio
   for (const response of streams) {
     sendTransactionSnapshot(response, payload);
   }
+}
+
+export async function initializeTransactionStream() {
+  if (initializePromise) {
+    return initializePromise;
+  }
+
+  initializePromise = connectTransactionStreamListener().catch(error => {
+    initializePromise = null;
+    markTransactionStreamDegraded();
+    throw error;
+  });
+
+  return initializePromise;
+}
+
+export async function closeTransactionStream() {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+
+  initializePromise = null;
+  listenerState = "idle";
+
+  if (!listenerClient) {
+    return;
+  }
+
+  const client = listenerClient;
+  listenerClient = null;
+  client.removeAllListeners();
+  await client.end().catch(() => undefined);
+}
+
+export function isTransactionStreamReady() {
+  return listenerState === "ready";
+}
+
+export async function broadcastTransactionSnapshot(userId: number, payload: TransactionStreamResponse) {
+  await publishTransactionStreamEvent(userId, payload);
+
+  if (!isTransactionStreamReady()) {
+    broadcastTransactionSnapshotLocal(userId, payload);
+  }
+}
+
+async function connectTransactionStreamListener() {
+  listenerState = "connecting";
+  const client = new Client({
+    connectionString: config.databaseUrl,
+  });
+
+  client.on("error", () => {
+    markTransactionStreamDegraded();
+  });
+  client.on("end", () => {
+    markTransactionStreamDegraded();
+  });
+  client.on("notification", notification => {
+    if (notification.channel !== getTransactionStreamChannelName()) {
+      return;
+    }
+
+    void handleTransactionStreamNotification(notification.payload);
+  });
+
+  await client.connect();
+  await client.query(`LISTEN ${getTransactionStreamChannelName()}`);
+
+  listenerClient = client;
+  listenerState = "ready";
+}
+
+async function handleTransactionStreamNotification(payload: string | undefined) {
+  const parsedId = Number.parseInt(payload ?? "", 10);
+  if (!Number.isFinite(parsedId)) {
+    return;
+  }
+
+  const event = await getTransactionStreamEventById(parsedId);
+  if (!event) {
+    return;
+  }
+
+  broadcastTransactionSnapshotLocal(event.userId, event.payload);
+}
+
+function markTransactionStreamDegraded() {
+  initializePromise = null;
+  listenerState = "degraded";
+
+  if (listenerClient) {
+    const client = listenerClient;
+    listenerClient = null;
+    client.removeAllListeners();
+    void client.end().catch(() => undefined);
+  }
+
+  if (reconnectTimer) {
+    return;
+  }
+
+  reconnectTimer = scheduleTimeout(() => {
+    reconnectTimer = null;
+    void initializeTransactionStream().catch(() => undefined);
+  }, 1000);
 }

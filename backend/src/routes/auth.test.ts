@@ -33,6 +33,7 @@ function createUserFixture(bridgeCustomerId: string | null): AppUser {
     email: "jane@example.com",
     fullName: "Jane Doe",
     id: 1,
+    publicId: "00000000-0000-4000-8000-000000000001",
     solanaAddress: null,
     updatedAt: "2026-03-19T00:00:00.000Z",
   };

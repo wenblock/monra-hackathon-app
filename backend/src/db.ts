@@ -1,9 +1,8 @@
-import { readFile, readdir } from "node:fs/promises";
-import path from "node:path";
+import type { PoolClient } from "pg";
 
-import { Pool, type PoolClient } from "pg";
-
-import { config } from "./config.js";
+import { pool } from "./db/pool.js";
+export { getSerialSequenceRepairState, initializeDatabase, repairManagedSerialSequences } from "./db/bootstrap.js";
+export { closeDatabase } from "./db/pool.js";
 import {
   TRANSFER_ASSETS,
   getTransferAssetDecimals,
@@ -30,58 +29,9 @@ import type {
   TransferAsset,
 } from "./types.js";
 
-const pool = new Pool({
-  connectionString: config.databaseUrl,
-});
-
-let databaseInitialized: Promise<void> | null = null;
-
-const managedSerialSequences = [
-  {
-    columnName: "id",
-    tableName: "users",
-  },
-  {
-    columnName: "id",
-    tableName: "recipients",
-  },
-  {
-    columnName: "id",
-    tableName: "transactions",
-  },
-] as const;
-
-export function getSerialSequenceRepairState(maxId: number | null) {
-  if (maxId === null) {
-    return {
-      isCalled: false,
-      nextValue: 1,
-      setValue: 1,
-    };
-  }
-
-  return {
-    isCalled: true,
-    nextValue: maxId + 1,
-    setValue: maxId,
-  };
-}
-
-export async function repairManagedSerialSequences(client: Pool | PoolClient = pool) {
-  for (const sequence of managedSerialSequences) {
-    await client.query(`
-      SELECT setval(
-        pg_get_serial_sequence('${sequence.tableName}', '${sequence.columnName}'),
-        COALESCE(MAX(${sequence.columnName}), 1),
-        MAX(${sequence.columnName}) IS NOT NULL
-      )
-      FROM ${sequence.tableName}
-    `);
-  }
-}
-
 interface UserRow {
   id: string;
+  public_id: string;
   cdp_user_id: string;
   email: string;
   account_type: AccountType;
@@ -100,6 +50,15 @@ interface UserRow {
   updated_at: Date;
 }
 
+interface PendingBridgeTransactionRow {
+  bridge_transfer_id: string;
+  created_at: Date;
+  entry_type: TransactionEntryType;
+  id: string;
+  updated_at: Date;
+  user_id: string;
+}
+
 interface UserBalanceRow {
   user_id: string;
   sol_raw: string;
@@ -111,6 +70,7 @@ interface UserBalanceRow {
 
 interface RecipientRow {
   id: string;
+  public_id: string;
   user_id: string;
   kind: RecipientKind;
   display_name: string;
@@ -131,6 +91,7 @@ interface RecipientRow {
 
 interface TransactionRow {
   id: string;
+  public_id: string;
   user_id: string;
   recipient_id: string | null;
   direction: TransactionDirection;
@@ -166,6 +127,7 @@ interface TransactionRow {
 
 interface LedgerTransaction {
   id: number;
+  publicId: string;
   userId: number;
   recipientId: number | null;
   direction: TransactionDirection;
@@ -202,6 +164,12 @@ interface TransactionPageCursor {
   sortAt: string;
 }
 
+interface PaginatedTransactionRow extends TransactionRow {
+  fee_rank: string;
+  fee_raw: string | null;
+  sort_at: Date;
+}
+
 interface ListTransactionsOptions {
   cursor?: string | null;
   limit?: number;
@@ -213,7 +181,7 @@ interface ListTransactionsResult {
 }
 
 const userSelection = `
-  id, cdp_user_id, email, account_type, full_name, country_code, country_name,
+  id, public_id, cdp_user_id, email, account_type, full_name, country_code, country_name,
   business_name, solana_address, bridge_kyc_link_id, bridge_kyc_link, bridge_tos_link,
   bridge_kyc_status, bridge_tos_status, bridge_customer_id, created_at, updated_at
 `;
@@ -223,13 +191,13 @@ const userBalanceSelection = `
 `;
 
 const recipientSelection = `
-  id, user_id, kind, display_name, bank_recipient_type, wallet_address,
+  id, public_id, user_id, kind, display_name, bank_recipient_type, wallet_address,
   bank_country_code, bank_name, iban, bic, first_name, last_name, business_name,
   bridge_external_account_id, last_payment_at, created_at, updated_at
 `;
 
 const transactionSelection = `
-  id, user_id, recipient_id, direction, entry_type, asset, amount_decimal, amount_raw, network,
+  id, public_id, user_id, recipient_id, direction, entry_type, asset, amount_decimal, amount_raw, network,
   tracked_wallet_address, from_wallet_address, counterparty_name, counterparty_wallet_address,
   bridge_transfer_id, bridge_transfer_status, bridge_source_amount, bridge_source_currency,
   bridge_source_deposit_instructions, bridge_destination_tx_hash, bridge_receipt_url,
@@ -247,6 +215,7 @@ const userBalanceColumns = {
 function mapUser(row: UserRow): AppUser {
   return {
     id: Number(row.id),
+    publicId: row.public_id,
     cdpUserId: row.cdp_user_id,
     email: row.email,
     accountType: row.account_type,
@@ -269,6 +238,7 @@ function mapUser(row: UserRow): AppUser {
 function mapRecipient(row: RecipientRow): Recipient {
   return {
     id: Number(row.id),
+    publicId: row.public_id,
     userId: Number(row.user_id),
     kind: row.kind,
     displayName: row.display_name,
@@ -328,6 +298,7 @@ function mapBridgeSourceDepositInstructions(value: unknown): BridgeSourceDeposit
 function mapLedgerTransaction(row: TransactionRow): LedgerTransaction {
   return {
     id: Number(row.id),
+    publicId: row.public_id,
     userId: Number(row.user_id),
     recipientId: row.recipient_id === null ? null : Number(row.recipient_id),
     direction: row.direction,
@@ -544,6 +515,19 @@ export async function getUsersBySolanaAddresses(addresses: string[]) {
       WHERE solana_address = ANY($1::TEXT[])
     `,
     [Array.from(new Set(addresses))],
+  );
+
+  return result.rows.map(mapUser);
+}
+
+export async function listUsersWithSolanaAddresses() {
+  const result = await pool.query<UserRow>(
+    `
+      SELECT ${userSelection}
+      FROM users
+      WHERE solana_address IS NOT NULL
+      ORDER BY id ASC
+    `,
   );
 
   return result.rows.map(mapUser);
@@ -788,6 +772,19 @@ export async function getRecipientByIdForUser(userId: number, recipientId: numbe
   return result.rows[0] ? mapRecipient(result.rows[0]) : null;
 }
 
+export async function getRecipientByPublicIdForUser(userId: number, recipientPublicId: string) {
+  const result = await pool.query<RecipientRow>(
+    `
+      SELECT ${recipientSelection}
+      FROM recipients
+      WHERE public_id = $1 AND user_id = $2
+    `,
+    [recipientPublicId, userId],
+  );
+
+  return result.rows[0] ? mapRecipient(result.rows[0]) : null;
+}
+
 export async function deleteRecipientByIdForUser(userId: number, recipientId: number) {
   const result = await pool.query<RecipientRow>(
     `
@@ -796,6 +793,19 @@ export async function deleteRecipientByIdForUser(userId: number, recipientId: nu
       RETURNING ${recipientSelection}
     `,
     [recipientId, userId],
+  );
+
+  return result.rows[0] ? mapRecipient(result.rows[0]) : null;
+}
+
+export async function deleteRecipientByPublicIdForUser(userId: number, recipientPublicId: string) {
+  const result = await pool.query<RecipientRow>(
+    `
+      DELETE FROM recipients
+      WHERE public_id = $1 AND user_id = $2
+      RETURNING ${recipientSelection}
+    `,
+    [recipientPublicId, userId],
   );
 
   return result.rows[0] ? mapRecipient(result.rows[0]) : null;
@@ -819,17 +829,74 @@ export async function listTransactionsByUserIdPaginated(
   userId: number,
   options: ListTransactionsOptions = {},
 ): Promise<ListTransactionsResult> {
-  const result = await pool.query<TransactionRow>(
+  const limit = normalizeTransactionLimit(options.limit);
+  const cursor = decodeTransactionCursor(options.cursor);
+  const limitParameterPosition = cursor ? 4 : 2;
+  const cursorClause = cursor
+    ? `
+      AND (
+        sort_at < $2::timestamptz
+        OR (
+          sort_at = $2::timestamptz
+          AND id < $3::bigint
+        )
+      )
     `
-      SELECT ${transactionSelection}
-      FROM transactions
-      WHERE user_id = $1
-      ORDER BY COALESCE(confirmed_at, created_at) DESC, id DESC
+    : "";
+  const result = await pool.query<PaginatedTransactionRow>(
+    `
+      WITH fee_totals AS (
+        SELECT
+          transaction_signature,
+          tracked_wallet_address,
+          SUM((amount_raw)::NUMERIC)::TEXT AS fee_raw
+        FROM transactions
+        WHERE user_id = $1
+          AND entry_type = 'network_fee'
+          AND direction = 'outbound'
+        GROUP BY transaction_signature, tracked_wallet_address
+      ),
+      ranked_entries AS (
+        SELECT
+          t.*,
+          fee_totals.fee_raw,
+          ROW_NUMBER() OVER (
+            PARTITION BY t.transaction_signature, t.tracked_wallet_address
+            ORDER BY
+              CASE WHEN t.direction = 'outbound' THEN 0 ELSE 1 END,
+              COALESCE(t.confirmed_at, t.created_at) DESC,
+              t.id DESC
+          ) AS fee_rank,
+          COALESCE(t.confirmed_at, t.created_at) AS sort_at
+        FROM transactions t
+        LEFT JOIN fee_totals
+          ON fee_totals.transaction_signature = t.transaction_signature
+          AND fee_totals.tracked_wallet_address = t.tracked_wallet_address
+        WHERE t.user_id = $1
+          AND t.entry_type IN ('transfer', 'onramp', 'offramp', 'swap')
+      )
+      SELECT
+        *
+      FROM ranked_entries
+      WHERE 1 = 1
+        ${cursorClause}
+      ORDER BY sort_at DESC, id DESC
+      LIMIT $${limitParameterPosition}
     `,
-    [userId],
+    cursor ? [userId, cursor.sortAt, cursor.id, limit + 1] : [userId, limit + 1],
   );
 
-  return paginateTransactions(collapseLedgerTransactions(result.rows), options);
+  const hasMore = result.rows.length > limit;
+  const pageRows = result.rows.slice(0, limit);
+  const transactions = pageRows.map(row =>
+    mapCollapsedTransaction(mapLedgerTransaction(row), getAttachedFeeForPaginatedRow(row)),
+  );
+  const lastRow = pageRows[pageRows.length - 1];
+
+  return {
+    nextCursor: hasMore && lastRow ? encodeTransactionCursorFromRow(lastRow) : null,
+    transactions,
+  };
 }
 
 export async function getUserBalancesByUserId(userId: number): Promise<SolanaBalancesResponse["balances"]> {
@@ -1259,6 +1326,29 @@ export async function getOfframpByBroadcastDetails(input: {
     transactionSignature: row.transaction_signature,
     userId: Number(row.user_id),
   };
+}
+
+export async function listStalePendingBridgeTransactions() {
+  const result = await pool.query<PendingBridgeTransactionRow>(
+    `
+      SELECT id, user_id, entry_type, bridge_transfer_id, created_at, updated_at
+      FROM transactions
+      WHERE entry_type IN ('onramp', 'offramp')
+        AND status = 'pending'
+        AND bridge_transfer_id IS NOT NULL
+        AND updated_at < NOW() - INTERVAL '15 minutes'
+      ORDER BY updated_at ASC, id ASC
+    `,
+  );
+
+  return result.rows.map(row => ({
+    bridgeTransferId: row.bridge_transfer_id,
+    createdAt: row.created_at.toISOString(),
+    entryType: row.entry_type,
+    id: Number(row.id),
+    updatedAt: row.updated_at.toISOString(),
+    userId: Number(row.user_id),
+  }));
 }
 
 async function reconcilePendingOnrampWithConfirmedTransfer(client: PoolClient, txHash: string) {
@@ -2043,83 +2133,6 @@ export async function getRecipientByWalletAddressForUser(
   }
 }
 
-export async function closeDatabase() {
-  await pool.end();
-}
-
-export async function initializeDatabase() {
-  if (!databaseInitialized) {
-    databaseInitialized = initializeDatabaseInternal();
-  }
-
-  return databaseInitialized;
-}
-
-async function initializeDatabaseInternal() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS schema_migrations (
-      name TEXT PRIMARY KEY,
-      applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-
-  const schemaPath = path.resolve(process.cwd(), "src", "db", "schema.sql");
-  const migrationsDirectory = path.resolve(process.cwd(), "src", "db", "migrations");
-
-  const schemaSql = await readFile(schemaPath, "utf8");
-  if (schemaSql.trim().length > 0) {
-    await pool.query(schemaSql);
-  }
-
-  let migrationFiles: string[] = [];
-
-  try {
-    migrationFiles = (await readdir(migrationsDirectory))
-      .filter(fileName => fileName.endsWith(".sql"))
-      .sort();
-  } catch (error) {
-    if (!isMissingDirectoryError(error)) {
-      throw error;
-    }
-  }
-
-  for (const migrationFile of migrationFiles) {
-    const alreadyApplied = await pool.query<{ name: string }>(
-      "SELECT name FROM schema_migrations WHERE name = $1",
-      [migrationFile],
-    );
-
-    if (alreadyApplied.rowCount) {
-      continue;
-    }
-
-    const migrationPath = path.join(migrationsDirectory, migrationFile);
-    const migrationSql = await readFile(migrationPath, "utf8");
-
-    await pool.query("BEGIN");
-
-    try {
-      await pool.query(migrationSql);
-      await pool.query("INSERT INTO schema_migrations (name) VALUES ($1)", [migrationFile]);
-      await pool.query("COMMIT");
-    } catch (error) {
-      await pool.query("ROLLBACK");
-      throw error;
-    }
-  }
-
-  await repairManagedSerialSequences();
-}
-
-function isMissingDirectoryError(error: unknown) {
-  return (
-    !!error &&
-    typeof error === "object" &&
-    "code" in error &&
-    error.code === "ENOENT"
-  );
-}
-
 function collapseLedgerTransactions(rows: TransactionRow[]) {
   const ledgerTransactions = rows.map(mapLedgerTransaction);
   const groupedTransactions = new Map<
@@ -2264,6 +2277,15 @@ function encodeTransactionCursor(transaction: AppTransaction) {
   return Buffer.from(JSON.stringify(payload)).toString("base64url");
 }
 
+function encodeTransactionCursorFromRow(row: Pick<PaginatedTransactionRow, "id" | "sort_at">) {
+  const payload: TransactionPageCursor = {
+    id: Number(row.id),
+    sortAt: row.sort_at.toISOString(),
+  };
+
+  return Buffer.from(JSON.stringify(payload)).toString("base64url");
+}
+
 function decodeTransactionCursor(cursor?: string | null): TransactionPageCursor | null {
   if (!cursor) {
     return null;
@@ -2293,4 +2315,15 @@ function decodeTransactionCursor(cursor?: string | null): TransactionPageCursor 
 
 function formatAssetAmount(rawAmount: string, asset: TransferAsset) {
   return formatTokenAmount(rawAmount, getTransferAssetDecimals(asset));
+}
+
+function getAttachedFeeForPaginatedRow(row: Pick<PaginatedTransactionRow, "direction" | "fee_rank" | "fee_raw">) {
+  if (row.direction !== "outbound" || row.fee_raw === null || Number.parseInt(row.fee_rank, 10) !== 1) {
+    return null;
+  }
+
+  return {
+    display: formatTokenAmount(row.fee_raw, 9),
+    raw: row.fee_raw,
+  };
 }

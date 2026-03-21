@@ -1,11 +1,10 @@
-import { Router, type Request } from "express";
+import { Router } from "express";
 
 import {
   getUserBalancesByUserId,
-  getUserByCdpUserId,
   listTransactionsByUserIdPaginated,
 } from "../db.js";
-import { validateAccessToken } from "../auth/validateAccessToken.js";
+import { readAppUser, requireAppUser } from "../auth/requestAuth.js";
 import { createStreamToken, verifyStreamToken } from "../lib/streamToken.js";
 import {
   registerTransactionStream,
@@ -16,19 +15,9 @@ import { sendError } from "../lib/http.js";
 
 export const transactionsRouter = Router();
 
-transactionsRouter.get("/", async (request, response) => {
+transactionsRouter.get("/", requireAppUser, async (request, response) => {
   try {
-    const accessToken = extractAccessToken(request);
-    if (!accessToken) {
-      return sendError(response, 400, "Missing access token.");
-    }
-
-    const identity = await validateAccessToken(accessToken);
-    const user = await getUserByCdpUserId(identity.cdpUserId);
-
-    if (!user) {
-      return sendError(response, 404, "Monra user not found.");
-    }
+    const user = readAppUser(request);
 
     const limit = readLimitFromQuery(request.query.limit);
     const cursor = readCursorFromQuery(request.query.cursor);
@@ -37,29 +26,15 @@ transactionsRouter.get("/", async (request, response) => {
   } catch (error) {
     console.error(error);
 
-    if (isUnauthorizedTokenError(error)) {
-      return sendError(response, 401, "Invalid or expired CDP access token.");
-    }
-
     return sendError(response, 500, "Unable to load transactions.");
   }
 });
 
-transactionsRouter.post("/stream-token", async (request, response) => {
+transactionsRouter.post("/stream-token", requireAppUser, async (request, response) => {
   try {
-    const accessToken = extractAccessToken(request);
-    if (!accessToken) {
-      return sendError(response, 400, "Missing access token.");
-    }
+    const user = readAppUser(request);
 
-    const identity = await validateAccessToken(accessToken);
-    const user = await getUserByCdpUserId(identity.cdpUserId);
-
-    if (!user) {
-      return sendError(response, 404, "Monra user not found.");
-    }
-
-    const streamToken = createStreamToken(identity.cdpUserId);
+    const streamToken = createStreamToken(user.cdpUserId);
 
     return response.json({
       token: streamToken.token,
@@ -67,10 +42,6 @@ transactionsRouter.post("/stream-token", async (request, response) => {
     });
   } catch (error) {
     console.error(error);
-
-    if (isUnauthorizedTokenError(error)) {
-      return sendError(response, 401, "Invalid or expired CDP access token.");
-    }
 
     return sendError(response, 500, "Unable to create transaction stream token.");
   }
@@ -129,22 +100,6 @@ transactionsRouter.get("/stream", async (request, response) => {
   }
 });
 
-function extractAccessToken(request: Request) {
-  const authorizationHeader =
-    typeof request.headers.authorization === "string" ? request.headers.authorization : undefined;
-
-  if (!authorizationHeader) {
-    return null;
-  }
-
-  const [scheme, token] = authorizationHeader.split(" ");
-  if (scheme !== "Bearer" || !token?.trim()) {
-    return null;
-  }
-
-  return token.trim();
-}
-
 function readTokenFromQuery(value: unknown) {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
@@ -160,10 +115,6 @@ function readLimitFromQuery(value: unknown) {
 
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : undefined;
-}
-
-function isUnauthorizedTokenError(error: unknown) {
-  return error instanceof Error && /access token/i.test(error.message);
 }
 
 function isInvalidStreamTokenError(error: unknown) {

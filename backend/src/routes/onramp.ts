@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { z } from "zod";
 
-import { validateAccessToken } from "../auth/validateAccessToken.js";
-import { createPendingOnrampTransaction, getUserByCdpUserId } from "../db.js";
+import { readAppUser, requireAppUser } from "../auth/requestAuth.js";
+import { createPendingOnrampTransaction } from "../db.js";
 import {
   createBridgeOnrampTransfer,
   isBridgeApiError,
@@ -11,12 +11,12 @@ import {
 import { sendError } from "../lib/http.js";
 
 const createOnrampSchema = z.object({
-  accessToken: z.string().trim().min(1, "Missing accessToken parameter."),
   amount: z.string().trim().min(1, "EUR amount is required."),
   destinationAsset: z.enum(["usdc", "eurc"]).default("usdc"),
 });
 
 export const onrampRouter = Router();
+onrampRouter.use(requireAppUser);
 
 onrampRouter.post("/", async (request, response) => {
   try {
@@ -26,12 +26,7 @@ onrampRouter.post("/", async (request, response) => {
     }
 
     const amount = normalizeEurAmount(parsedBody.data.amount);
-    const identity = await validateAccessToken(parsedBody.data.accessToken);
-    const existingUser = await getUserByCdpUserId(identity.cdpUserId);
-
-    if (!existingUser) {
-      return sendError(response, 404, "Monra user not found.");
-    }
+    const existingUser = readAppUser(request);
 
     if (!existingUser.bridgeCustomerId) {
       return sendError(response, 409, "Bridge onboarding must be completed before using on-ramp.");

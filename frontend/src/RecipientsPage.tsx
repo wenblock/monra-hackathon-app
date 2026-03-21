@@ -48,7 +48,7 @@ interface RecipientsPageProps {
   isLoading: boolean;
   loadError: string | null;
   onCreateRecipient: (payload: CreateRecipientPayload) => Promise<Recipient>;
-  onDeleteRecipient: (recipientId: number) => Promise<void>;
+  onDeleteRecipient: (recipientPublicId: string) => Promise<void>;
   recipients: Recipient[];
 }
 
@@ -84,7 +84,7 @@ function RecipientsPage({
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [recipientPendingDelete, setRecipientPendingDelete] = useState<Recipient | null>(null);
-  const [deletingRecipientId, setDeletingRecipientId] = useState<number | null>(null);
+  const [deletingRecipientPublicId, setDeletingRecipientPublicId] = useState<string | null>(null);
 
   useEffect(() => {
     if (isCreateSheetOpen) {
@@ -119,13 +119,13 @@ function RecipientsPage({
     }
 
     try {
-      setDeletingRecipientId(recipientPendingDelete.id);
-      await onDeleteRecipient(recipientPendingDelete.id);
+      setDeletingRecipientPublicId(recipientPendingDelete.publicId);
+      await onDeleteRecipient(recipientPendingDelete.publicId);
       setRecipientPendingDelete(null);
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "Unable to delete recipient.");
     } finally {
-      setDeletingRecipientId(null);
+      setDeletingRecipientPublicId(null);
     }
   };
 
@@ -172,9 +172,9 @@ function RecipientsPage({
               ) : (
                 recipients.map(recipient => (
                   <RecipientDesktopRow
-                    key={recipient.id}
+                    key={recipient.publicId}
                     recipient={recipient}
-                    isDeleting={deletingRecipientId === recipient.id}
+                    isDeleting={deletingRecipientPublicId === recipient.publicId}
                     onDelete={() => setRecipientPendingDelete(recipient)}
                   />
                 ))
@@ -197,9 +197,9 @@ function RecipientsPage({
               ) : (
                 recipients.map(recipient => (
                   <RecipientMobileCard
-                    key={recipient.id}
+                    key={recipient.publicId}
                     recipient={recipient}
-                    isDeleting={deletingRecipientId === recipient.id}
+                    isDeleting={deletingRecipientPublicId === recipient.publicId}
                     onDelete={() => setRecipientPendingDelete(recipient)}
                   />
                 ))
@@ -427,7 +427,7 @@ function RecipientsPage({
               type="button"
               variant="secondary"
               onClick={() => setRecipientPendingDelete(null)}
-              disabled={deletingRecipientId !== null}
+              disabled={deletingRecipientPublicId !== null}
             >
               Cancel
             </Button>
@@ -435,9 +435,9 @@ function RecipientsPage({
               type="button"
               variant="destructive"
               onClick={() => void handleDeleteRecipient()}
-              disabled={deletingRecipientId !== null}
+              disabled={deletingRecipientPublicId !== null}
             >
-              {deletingRecipientId !== null ? "Deleting..." : "Delete"}
+              {deletingRecipientPublicId !== null ? "Deleting..." : "Delete"}
             </Button>
           </DialogFooter>
         </DialogContent>

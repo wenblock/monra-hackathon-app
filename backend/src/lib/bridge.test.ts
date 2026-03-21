@@ -192,6 +192,57 @@ test("createBridgeOnrampTransfer requests a EURC destination transfer", async ()
   }
 });
 
+test("createBridgeOnrampTransfer uses a deterministic idempotency key for identical inputs", async () => {
+  const originalFetch = globalThis.fetch;
+  const idempotencyKeys: string[] = [];
+
+  globalThis.fetch = async (_input, init) => {
+    idempotencyKeys.push(new Headers(init?.headers).get("Idempotency-Key") ?? "");
+
+    return new Response(
+      JSON.stringify({
+        amount: "25",
+        id: "bridge-transfer-id",
+        receipt: {
+          final_amount: "24.75",
+          url: "https://bridge.example/receipt",
+        },
+        source: {
+          currency: "eur",
+          payment_rail: "sepa",
+        },
+        state: "pending",
+      }),
+      {
+        headers: {
+          "Content-Type": "application/json",
+        },
+        status: 200,
+      },
+    );
+  };
+
+  try {
+    await createBridgeOnrampTransfer({
+      amount: "25",
+      bridgeCustomerId: "customer-id",
+      destinationAddress: "wallet-address",
+      destinationAsset: "usdc",
+    });
+    await createBridgeOnrampTransfer({
+      amount: "25",
+      bridgeCustomerId: "customer-id",
+      destinationAddress: "wallet-address",
+      destinationAsset: "usdc",
+    });
+
+    assert.equal(idempotencyKeys.length, 2);
+    assert.equal(idempotencyKeys[0], idempotencyKeys[1]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("createBridgeOfframpTransfer requests a USDC source transfer with return instructions", async () => {
   const originalFetch = globalThis.fetch;
   let requestBody:

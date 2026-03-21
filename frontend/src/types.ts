@@ -36,6 +36,7 @@ export type BridgeCustomerStatus =
 
 export interface AppUser {
   id: number;
+  publicId: string;
   cdpUserId: string;
   email: string;
   accountType: AccountType;
@@ -123,6 +124,7 @@ export interface FetchSolanaTransactionContextPayload {
 
 export interface Recipient {
   id: number;
+  publicId: string;
   userId: number;
   kind: RecipientKind;
   displayName: string;
@@ -149,7 +151,7 @@ export interface CreateOnrampPayload {
 export interface CreateOfframpPayload {
   amount: string;
   sourceAsset: OfframpSourceAsset;
-  recipientId: number;
+  recipientPublicId: string;
 }
 
 export interface CreateSwapOrderPayload {
@@ -214,6 +216,7 @@ export interface BridgeSourceDepositInstructions {
 
 export interface AppTransaction {
   id: number;
+  publicId: string;
   userId: number;
   recipientId: number | null;
   direction: TransactionDirection;

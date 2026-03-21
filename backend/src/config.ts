@@ -58,6 +58,9 @@ export const config = {
   jupiterApiKey: readOptionalEnv("JUPITER_API_KEY"),
   bridgeWebhookPublicKey: readEnv("BRIDGE_WEBHOOK_PUBLIC_KEY").replace(/\\n/g, "\n"),
   bridgeWebhookMaxAgeMs: Number(process.env.BRIDGE_WEBHOOK_MAX_AGE_MS ?? 600000),
+  outboundRequestRetries: Number(process.env.OUTBOUND_REQUEST_RETRIES ?? 1),
+  outboundRequestTimeoutMs: Number(process.env.OUTBOUND_REQUEST_TIMEOUT_MS ?? 8000),
+  reconciliationIntervalMs: Number(process.env.RECONCILIATION_INTERVAL_MS ?? 0),
   streamTokenSecret:
     readOptionalEnv("STREAM_TOKEN_SECRET") ??
     (process.env.NODE_ENV === "production"

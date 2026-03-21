@@ -51,6 +51,7 @@ describe("TransactionsRouteComponent", () => {
             transactions: [
               {
                 id: 1,
+                publicId: "00000000-0000-4000-8000-000000000001",
                 userId: 1,
                 recipientId: null,
                 direction: "inbound",

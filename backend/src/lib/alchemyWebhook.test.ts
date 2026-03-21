@@ -31,12 +31,14 @@ test("normalizeAlchemyTransaction creates EURC inbound and outbound ledger entri
       sourceWallet,
       {
         id: 1,
+        publicId: "00000000-0000-4000-8000-000000000001",
       },
     ],
     [
       destinationWallet,
       {
         id: 2,
+        publicId: "00000000-0000-4000-8000-000000000002",
       },
     ],
   ]) as unknown as Map<string, AppUser>;

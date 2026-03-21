@@ -1,35 +1,19 @@
-import { Router } from "express";
-import { z } from "zod";
+import { Router, type Request, type Response } from "express";
 
-import { validateAccessToken } from "../auth/validateAccessToken.js";
-import { getUserByCdpUserId } from "../db.js";
+import { readAppUser, requireAppUser } from "../auth/requestAuth.js";
 import {
   buildStoredBridgeComplianceState,
   isBridgeApiError,
   syncBridgeStatus,
 } from "../lib/bridge.js";
 import { sendError } from "../lib/http.js";
-
-const bridgeStatusSchema = z.object({
-  accessToken: z.string().trim().min(1, "Missing accessToken parameter."),
-});
+import { logError } from "../lib/logger.js";
 
 export const bridgeRouter = Router();
 
-bridgeRouter.post("/status", async (request, response) => {
+async function handleBridgeStatus(request: Request, response: Response) {
   try {
-    const parsedBody = bridgeStatusSchema.safeParse(request.body);
-
-    if (!parsedBody.success) {
-      return sendError(response, 400, parsedBody.error.issues[0]?.message ?? "Invalid request.");
-    }
-
-    const identity = await validateAccessToken(parsedBody.data.accessToken);
-    const user = await getUserByCdpUserId(identity.cdpUserId);
-
-    if (!user) {
-      return sendError(response, 404, "Monra user not found.");
-    }
+    const user = readAppUser(request);
 
     if (!user.bridgeCustomerId) {
       return response.json({
@@ -41,11 +25,17 @@ bridgeRouter.post("/status", async (request, response) => {
     const synced = await syncBridgeStatus(user);
     return response.json(synced);
   } catch (error) {
-    console.error(error);
+    logError("bridge.status_failed", error, {
+      requestId: request.requestId ?? null,
+    });
+
     if (isBridgeApiError(error)) {
       return sendError(response, 502, error.message);
     }
 
-    return sendError(response, 502, "Unable to sync Bridge status.");
+    return sendError(response, 500, "Unable to sync Bridge status.");
   }
-});
+}
+
+bridgeRouter.get("/status", requireAppUser, handleBridgeStatus);
+bridgeRouter.post("/status", requireAppUser, handleBridgeStatus);

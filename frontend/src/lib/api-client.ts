@@ -27,7 +27,6 @@ if (import.meta.env.PROD && !configuredApiBaseUrl) {
 export const API_BASE_URL = (configuredApiBaseUrl || "http://localhost:4000").replace(/\/$/, "");
 
 type AccessTokenProvider = () => Promise<string | null>;
-type AuthMode = "bearer" | "body";
 
 export class ApiClientError extends Error {
   status: number;
@@ -64,14 +63,13 @@ export function createApiClient(getAccessToken: AccessTokenProvider) {
   async function request<T>(
     path: string,
     options: {
-      authMode?: AuthMode;
       body?: object;
       method?: string;
       searchParams?: Record<string, string | number | null | undefined>;
       signal?: AbortSignal;
     } = {},
   ): Promise<T> {
-    const { authMode = "bearer", body, method = "GET", searchParams, signal } = options;
+    const { body, method = "GET", searchParams, signal } = options;
     const token = await getAccessToken();
     if (!token) {
       throw new Error("Unable to fetch a CDP access token.");
@@ -89,19 +87,10 @@ export function createApiClient(getAccessToken: AccessTokenProvider) {
 
     const headers = new Headers();
     let requestBody: string | undefined;
-
-    if (authMode === "bearer") {
-      headers.set("Authorization", `Bearer ${token}`);
-      if (body) {
-        headers.set("Content-Type", "application/json");
-        requestBody = JSON.stringify(body);
-      }
-    } else {
+    headers.set("Authorization", `Bearer ${token}`);
+    if (body) {
       headers.set("Content-Type", "application/json");
-      requestBody = JSON.stringify({
-        accessToken: token,
-        ...body,
-      });
+      requestBody = JSON.stringify(body);
     }
 
     const response = await fetch(url.toString(), {
@@ -117,14 +106,12 @@ export function createApiClient(getAccessToken: AccessTokenProvider) {
   return {
     bootstrapSession(signal?: AbortSignal) {
       return request<SessionBootstrapResponse>("/api/auth/session", {
-        authMode: "body",
         method: "POST",
         signal,
       });
     },
     submitOnboarding(payload: OnboardingPayload, signal?: AbortSignal) {
       return request<SessionBootstrapResponse>("/api/onboarding", {
-        authMode: "body",
         method: "POST",
         body: payload,
         signal,
@@ -132,14 +119,12 @@ export function createApiClient(getAccessToken: AccessTokenProvider) {
     },
     syncBridgeStatus(signal?: AbortSignal) {
       return request<BridgeStatusResponse>("/api/bridge/status", {
-        authMode: "body",
-        method: "POST",
+        method: "GET",
         signal,
       });
     },
     saveSolanaAddress(solanaAddress: string, signal?: AbortSignal) {
       return request<{ user: BridgeStatusResponse["user"] }>("/api/users/solana-address", {
-        authMode: "body",
         method: "POST",
         body: { solanaAddress },
         signal,
@@ -156,7 +141,6 @@ export function createApiClient(getAccessToken: AccessTokenProvider) {
       signal?: AbortSignal,
     ) {
       return request<SolanaTransactionContextResponse>("/api/users/solana-transaction-context", {
-        authMode: "body",
         method: "POST",
         body: payload,
         signal,
@@ -170,7 +154,6 @@ export function createApiClient(getAccessToken: AccessTokenProvider) {
     },
     createRecipient(payload: CreateRecipientPayload, signal?: AbortSignal) {
       return request<{ recipient: Recipient }>("/api/recipients", {
-        authMode: "body",
         method: "POST",
         body: payload,
         signal,
@@ -178,7 +161,6 @@ export function createApiClient(getAccessToken: AccessTokenProvider) {
     },
     createOnramp(payload: CreateOnrampPayload, signal?: AbortSignal) {
       return request<{ transaction: TransactionListResponse["transactions"][number] }>("/api/onramp", {
-        authMode: "body",
         method: "POST",
         body: payload,
         signal,
@@ -186,7 +168,6 @@ export function createApiClient(getAccessToken: AccessTokenProvider) {
     },
     createOfframp(payload: CreateOfframpPayload, signal?: AbortSignal) {
       return request<{ transaction: TransactionListResponse["transactions"][number] }>("/api/offramp", {
-        authMode: "body",
         method: "POST",
         body: payload,
         signal,
@@ -194,7 +175,6 @@ export function createApiClient(getAccessToken: AccessTokenProvider) {
     },
     fetchSwapOrder(payload: CreateSwapOrderPayload, signal?: AbortSignal) {
       return request<SwapOrderResponse>("/api/swaps/order", {
-        authMode: "body",
         method: "POST",
         body: payload,
         signal,
@@ -202,14 +182,13 @@ export function createApiClient(getAccessToken: AccessTokenProvider) {
     },
     executeSwap(payload: ExecuteSwapPayload, signal?: AbortSignal) {
       return request<SwapExecuteResponse>("/api/swaps/execute", {
-        authMode: "body",
         method: "POST",
         body: payload,
         signal,
       });
     },
-    async deleteRecipient(recipientId: number, signal?: AbortSignal) {
-      await request<void>(`/api/recipients/${recipientId}`, {
+    async deleteRecipient(recipientPublicId: string, signal?: AbortSignal) {
+      await request<void>(`/api/recipients/${encodeURIComponent(recipientPublicId)}`, {
         method: "DELETE",
         signal,
       });

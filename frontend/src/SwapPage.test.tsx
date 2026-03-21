@@ -227,6 +227,7 @@ function buildSwapOrder(
 function buildSwapTransaction(): AppTransaction {
   return {
     id: 42,
+    publicId: "00000000-0000-4000-8000-000000000042",
     userId: 1,
     recipientId: null,
     direction: "outbound",

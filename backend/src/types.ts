@@ -39,6 +39,7 @@ export type BridgeTosStatus = "approved" | "pending";
 
 export interface AppUser {
   id: number;
+  publicId: string;
   cdpUserId: string;
   email: string;
   accountType: AccountType;
@@ -100,6 +101,7 @@ export interface SolanaTransactionContextResponse {
 
 export interface Recipient {
   id: number;
+  publicId: string;
   userId: number;
   kind: RecipientKind;
   displayName: string;
@@ -139,6 +141,7 @@ export interface BridgeSourceDepositInstructions {
 
 export interface AppTransaction {
   id: number;
+  publicId: string;
   userId: number;
   recipientId: number | null;
   direction: TransactionDirection;

@@ -2,6 +2,7 @@ import { createHash, createVerify, randomUUID } from "node:crypto";
 
 import { config } from "../config.js";
 import { updateUserBridgeStatuses } from "../db.js";
+import { fetchWithRetry } from "./outboundHttp.js";
 import type {
   AccountType,
   AppUser,
@@ -143,15 +144,22 @@ async function bridgeRequest<T>({
   method = "GET",
   path,
 }: BridgeRequestOptions): Promise<T> {
-  const response = await fetch(`${config.bridgeApiBaseUrl}${path}`, {
-    method,
-    headers: {
-      "Api-Key": config.bridgeApiKey,
-      "Content-Type": "application/json",
-      ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
+  const response = await fetchWithRetry(
+    `${config.bridgeApiBaseUrl}${path}`,
+    {
+      method,
+      headers: {
+        "Api-Key": config.bridgeApiKey,
+        "Content-Type": "application/json",
+        ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
+    {
+      retries: config.outboundRequestRetries,
+      timeoutMs: config.outboundRequestTimeoutMs,
+    },
+  );
 
   return readBridgeJson<T>(response);
 }
@@ -189,6 +197,14 @@ function createExternalAccountIdempotencyKey(input: {
     .digest("hex");
 
   return `monra-recipient-${digest}`;
+}
+
+function createTransferIdempotencyKey(input: Record<string, string>) {
+  const digest = createHash("sha256")
+    .update(JSON.stringify(input))
+    .digest("hex");
+
+  return `monra-transfer-${digest}`;
 }
 
 function readString(value: unknown) {
@@ -303,7 +319,13 @@ export async function createBridgeOnrampTransfer(input: {
   const transfer = await bridgeRequest<BridgeTransferResponse>({
     method: "POST",
     path: "/transfers",
-    idempotencyKey: randomUUID(),
+    idempotencyKey: createTransferIdempotencyKey({
+      amount: input.amount,
+      bridgeCustomerId: input.bridgeCustomerId,
+      destinationAddress: input.destinationAddress,
+      destinationAsset: input.destinationAsset,
+      type: "onramp",
+    }),
     body: {
       on_behalf_of: input.bridgeCustomerId,
       source: {
@@ -348,7 +370,15 @@ export async function createBridgeOfframpTransfer(input: {
   const transfer = await bridgeRequest<BridgeTransferResponse>({
     method: "POST",
     path: "/transfers",
-    idempotencyKey: randomUUID(),
+    idempotencyKey: createTransferIdempotencyKey({
+      amount: input.amount,
+      bridgeCustomerId: input.bridgeCustomerId,
+      externalAccountId: input.externalAccountId,
+      returnAddress: input.returnAddress,
+      sourceAddress: input.sourceAddress,
+      sourceAsset: input.sourceAsset,
+      type: "offramp",
+    }),
     body: {
       on_behalf_of: input.bridgeCustomerId,
       source: {

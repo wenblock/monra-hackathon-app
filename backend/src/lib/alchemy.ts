@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 import { config } from "../config.js";
+import { fetchWithRetry } from "./outboundHttp.js";
 import {
   TRANSFER_ASSETS,
   SPL_TRANSFER_ASSETS,
@@ -255,7 +256,7 @@ function extractAlchemyErrorMessage(data: unknown, rawText: string, status: numb
 }
 
 async function fetchAlchemyTokenBalances(address: string, pageKey?: string) {
-  const response = await fetch(
+  const response = await fetchWithRetry(
     `${ALCHEMY_API_BASE_URL}/data/v1/${config.alchemyApiKey}/assets/tokens/balances/by-address`,
     {
       method: "POST",
@@ -272,6 +273,10 @@ async function fetchAlchemyTokenBalances(address: string, pageKey?: string) {
         ...(pageKey ? { pageKey } : {}),
       }),
     },
+    {
+      retries: config.outboundRequestRetries,
+      timeoutMs: config.outboundRequestTimeoutMs,
+    },
   );
 
   return readAlchemyJson<AlchemyTokenBalancesPayload>(response);
@@ -284,29 +289,43 @@ async function fetchAlchemyTokenPricesBySymbol(symbols: string[]) {
     url.searchParams.append("symbols", symbol);
   }
 
-  const response = await fetch(url, {
-    method: "GET",
-    headers: {
-      Accept: "application/json",
+  const response = await fetchWithRetry(
+    url,
+    {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
     },
-  });
+    {
+      retries: config.outboundRequestRetries,
+      timeoutMs: config.outboundRequestTimeoutMs,
+    },
+  );
 
   return readAlchemyJson<AlchemyTokenPricesPayload>(response);
 }
 
 async function fetchAlchemyRpc<T>(method: string, params: unknown[]) {
-  const response = await fetch(ALCHEMY_SOLANA_RPC_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
+  const response = await fetchWithRetry(
+    ALCHEMY_SOLANA_RPC_URL,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: `${method}-${Date.now()}`,
+        method,
+        params,
+      }),
     },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: `${method}-${Date.now()}`,
-      method,
-      params,
-    }),
-  });
+    {
+      retries: config.outboundRequestRetries,
+      timeoutMs: config.outboundRequestTimeoutMs,
+    },
+  );
 
   const data = await readAlchemyJson<T & { error?: { message?: string } }>(response);
 
@@ -572,18 +591,25 @@ export async function updateAlchemyWebhookAddresses(input: {
     return;
   }
 
-  const response = await fetch(`${ALCHEMY_DASHBOARD_API_BASE_URL}/update-webhook-addresses`, {
-    method: "PATCH",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Alchemy-Token": config.alchemyWebhookAuthToken,
+  const response = await fetchWithRetry(
+    `${ALCHEMY_DASHBOARD_API_BASE_URL}/update-webhook-addresses`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Alchemy-Token": config.alchemyWebhookAuthToken,
+      },
+      body: JSON.stringify({
+        webhook_id: config.alchemyWebhookId,
+        addresses_to_add: addressesToAdd,
+        addresses_to_remove: addressesToRemove,
+      }),
     },
-    body: JSON.stringify({
-      webhook_id: config.alchemyWebhookId,
-      addresses_to_add: addressesToAdd,
-      addresses_to_remove: addressesToRemove,
-    }),
-  });
+    {
+      retries: config.outboundRequestRetries,
+      timeoutMs: config.outboundRequestTimeoutMs,
+    },
+  );
 
   await readAlchemyJson<Record<string, never>>(response);
 }

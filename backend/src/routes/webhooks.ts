@@ -303,7 +303,7 @@ async function broadcastLatestTransactionSnapshot(userId: number) {
     getTreasuryPrices(),
   ]);
 
-  broadcastTransactionSnapshot(userId, {
+  await broadcastTransactionSnapshot(userId, {
     balances,
     valuation: buildTreasuryValuation(balances, treasuryPrices),
     transactions: transactionPage.transactions,

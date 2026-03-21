@@ -1,10 +1,9 @@
 import { Router } from "express";
 import { z } from "zod";
 
-import { validateAccessToken } from "../auth/validateAccessToken.js";
+import { readAppUser, requireAppUser } from "../auth/requestAuth.js";
 import {
   createConfirmedSwapTransaction,
-  getUserByCdpUserId,
   listTransactionsByUserIdPaginated,
 } from "../db.js";
 import { buildTreasuryValuation, getTreasuryPrices } from "../lib/alchemy.js";
@@ -15,29 +14,27 @@ import {
 } from "../lib/assets.js";
 import {
   executeJupiterSwap,
-  getCachedSwapOrder,
   getJupiterSwapOrder,
   JupiterApiError,
-  rememberSwapOrder,
 } from "../lib/jupiter.js";
+import { getSharedSwapQuote, storeSharedSwapQuote } from "../db/runtime.js";
 import { sendError } from "../lib/http.js";
 import { broadcastTransactionSnapshot } from "../lib/transactionStream.js";
 import type { TransferAsset } from "../types.js";
 
 const createSwapOrderSchema = z.object({
-  accessToken: z.string().trim().min(1, "Missing accessToken parameter."),
   amount: z.string().trim().min(1, "Amount is required."),
   inputAsset: z.enum(["sol", "usdc", "eurc"]),
   outputAsset: z.enum(["sol", "usdc", "eurc"]),
 });
 
 const executeSwapSchema = z.object({
-  accessToken: z.string().trim().min(1, "Missing accessToken parameter."),
   requestId: z.string().trim().min(1, "Request id is required."),
   signedTransaction: z.string().trim().min(1, "Signed transaction is required."),
 });
 
 export const swapsRouter = Router();
+swapsRouter.use(requireAppUser);
 
 swapsRouter.post("/order", async (request, response) => {
   try {
@@ -51,12 +48,7 @@ swapsRouter.post("/order", async (request, response) => {
     }
 
     const normalizedAmount = normalizeSwapAmount(parsedBody.data.amount, parsedBody.data.inputAsset);
-    const identity = await validateAccessToken(parsedBody.data.accessToken);
-    const existingUser = await getUserByCdpUserId(identity.cdpUserId);
-
-    if (!existingUser) {
-      return sendError(response, 404, "Monra user not found.");
-    }
+    const existingUser = readAppUser(request);
 
     if (!existingUser.solanaAddress) {
       return sendError(response, 409, "Your Solana wallet is still syncing. Try again in a moment.");
@@ -69,11 +61,12 @@ swapsRouter.post("/order", async (request, response) => {
       taker: existingUser.solanaAddress,
     });
 
-    rememberSwapOrder(order.requestId, {
+    await storeSharedSwapQuote({
       inputAmountRaw: normalizedAmount.raw,
       inputAsset: parsedBody.data.inputAsset,
       outputAmountRaw: order.outAmount,
       outputAsset: parsedBody.data.outputAsset,
+      requestId: order.requestId,
       userId: existingUser.id,
       walletAddress: existingUser.solanaAddress,
     });
@@ -117,18 +110,13 @@ swapsRouter.post("/execute", async (request, response) => {
       return sendError(response, 400, parsedBody.error.issues[0]?.message ?? "Invalid request.");
     }
 
-    const identity = await validateAccessToken(parsedBody.data.accessToken);
-    const existingUser = await getUserByCdpUserId(identity.cdpUserId);
-
-    if (!existingUser) {
-      return sendError(response, 404, "Monra user not found.");
-    }
+    const existingUser = readAppUser(request);
 
     if (!existingUser.solanaAddress) {
       return sendError(response, 409, "Your Solana wallet is still syncing. Try again in a moment.");
     }
 
-    const cachedOrder = getCachedSwapOrder(parsedBody.data.requestId);
+    const cachedOrder = await getSharedSwapQuote(parsedBody.data.requestId);
     if (!cachedOrder || cachedOrder.userId !== existingUser.id) {
       return sendError(response, 409, "Swap quote expired. Refresh the quote and try again.");
     }
@@ -241,7 +229,7 @@ async function broadcastLatestTransactionSnapshot(
     return;
   }
 
-  broadcastTransactionSnapshot(userId, {
+  await broadcastTransactionSnapshot(userId, {
     balances,
     valuation: buildTreasuryValuation(balances, treasuryPrices),
     transactions: transactionPage.transactions,

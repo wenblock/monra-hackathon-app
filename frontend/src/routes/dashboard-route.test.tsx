@@ -78,6 +78,7 @@ describe("DashboardRouteComponent", () => {
       },
       user: {
         id: 1,
+        publicId: "00000000-0000-4000-8000-000000000001",
         cdpUserId: "cdp-user-1",
         email: "user@example.com",
         accountType: "individual",

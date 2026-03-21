@@ -17,11 +17,8 @@ process.env.JUPITER_API_BASE_URL = "https://api.jup.ag/swap/v2";
 
 const {
   JupiterApiError,
-  clearCachedSwapOrdersForTests,
   executeJupiterSwap,
-  getCachedSwapOrder,
   getJupiterSwapOrder,
-  rememberSwapOrder,
 } = await import("./jupiter.js");
 
 test("getJupiterSwapOrder parses the Jupiter order response", async () => {
@@ -160,20 +157,4 @@ test("getJupiterSwapOrder surfaces upstream errors", async () => {
   } finally {
     globalThis.fetch = originalFetch;
   }
-});
-
-test("cached swap orders expire after the ttl window", () => {
-  clearCachedSwapOrdersForTests();
-
-  rememberSwapOrder("request-1", {
-    inputAmountRaw: "1000000",
-    inputAsset: "usdc",
-    outputAmountRaw: "864570",
-    outputAsset: "eurc",
-    userId: 1,
-    walletAddress: "wallet-address",
-  });
-
-  assert.ok(getCachedSwapOrder("request-1", Date.now()));
-  assert.equal(getCachedSwapOrder("request-1", Date.now() + 600_001), null);
 });

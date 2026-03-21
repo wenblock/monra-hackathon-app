@@ -65,7 +65,7 @@ function SendDrawer({
   );
   const [amount, setAmount] = useState("");
   const [asset, setAsset] = useState<TransferAsset>("sol");
-  const [selectedRecipientId, setSelectedRecipientId] = useState("");
+  const [selectedRecipientPublicId, setSelectedRecipientPublicId] = useState("");
   const [isRecipientFormOpen, setIsRecipientFormOpen] = useState(false);
   const [newRecipientFullName, setNewRecipientFullName] = useState("");
   const [newRecipientWalletAddress, setNewRecipientWalletAddress] = useState("");
@@ -75,7 +75,7 @@ function SendDrawer({
   const [transactionSignature, setTransactionSignature] = useState<string | null>(null);
 
   const selectedRecipient =
-    walletRecipients.find(recipient => String(recipient.id) === selectedRecipientId) ?? null;
+    walletRecipients.find(recipient => recipient.publicId === selectedRecipientPublicId) ?? null;
   const availableRawBalance = balances?.[asset].raw ?? "0";
   const transferFeeHint = getWalletTransferFeeHint({
     asset,
@@ -102,7 +102,7 @@ function SendDrawer({
           walletAddress: newRecipientWalletAddress,
         }),
       );
-      setSelectedRecipientId(String(recipient.id));
+      setSelectedRecipientPublicId(recipient.publicId);
       setIsRecipientFormOpen(false);
       setNewRecipientFullName("");
       setNewRecipientWalletAddress("");
@@ -285,13 +285,13 @@ function SendDrawer({
                   </Button>
                 </div>
 
-                <Select value={selectedRecipientId} onValueChange={setSelectedRecipientId}>
+                <Select value={selectedRecipientPublicId} onValueChange={setSelectedRecipientPublicId}>
                   <SelectTrigger>
                     <SelectValue placeholder="Choose a wallet recipient" />
                   </SelectTrigger>
                   <SelectContent>
                     {walletRecipients.map(recipient => (
-                      <SelectItem key={recipient.id} value={String(recipient.id)}>
+                      <SelectItem key={recipient.publicId} value={recipient.publicId}>
                         {recipient.displayName}
                       </SelectItem>
                     ))}
@@ -382,7 +382,7 @@ function SendDrawer({
   function resetState() {
     setAmount("");
     setAsset("sol");
-    setSelectedRecipientId("");
+    setSelectedRecipientPublicId("");
     setIsRecipientFormOpen(false);
     setNewRecipientFullName("");
     setNewRecipientWalletAddress("");

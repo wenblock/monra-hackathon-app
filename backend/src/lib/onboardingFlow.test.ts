@@ -35,6 +35,7 @@ function createUserFixture(overrides: Partial<AppUser> = {}): AppUser {
     email: "jane@example.com",
     fullName: "Jane A.-Doe",
     id: 7,
+    publicId: "00000000-0000-4000-8000-000000000007",
     solanaAddress: null,
     updatedAt: "2026-03-19T00:00:00.000Z",
     ...overrides,

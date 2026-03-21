@@ -75,7 +75,7 @@ function mergeTransactionHistory(
 function upsertTransactions(transactions: AppTransaction[], transaction: AppTransaction) {
   return [
     transaction,
-    ...transactions.filter(currentTransaction => currentTransaction.id !== transaction.id),
+    ...transactions.filter(currentTransaction => currentTransaction.publicId !== transaction.publicId),
   ];
 }
 
