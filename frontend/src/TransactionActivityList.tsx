@@ -5,9 +5,9 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import {
   formatActivityAmount,
+  formatActivityRowTitle,
   formatActivityStatus,
   formatActivityTimestamp,
-  formatActivityTitle,
   getTransactionDirectionTone,
   isSwapTransaction,
 } from "@/transaction-display";
@@ -60,7 +60,7 @@ function TransactionActivityList({ transactions }: TransactionActivityListProps)
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="truncate font-semibold text-foreground">
-                    {formatActivityTitle(transaction)}
+                    {formatActivityRowTitle(transaction)}
                   </p>
                   <Badge variant={transaction.status === "confirmed" ? "success" : "secondary"}>
                     {formatActivityStatus(transaction)}

@@ -77,6 +77,17 @@ export function formatActivityTitle(transaction: AppTransaction) {
     : `Send to ${counterpartyDisplay}`;
 }
 
+export function formatActivityRowTitle(transaction: AppTransaction) {
+  if (transaction.direction === "inbound" && !transaction.counterpartyName) {
+    const walletAddress = getTransactionCounterpartyWalletAddress(transaction);
+    const counterpartyDisplay = walletAddress ? shortenWalletAddress(walletAddress) : "Unknown wallet";
+
+    return `Received from ${counterpartyDisplay}`;
+  }
+
+  return formatActivityTitle(transaction);
+}
+
 export function formatActivityStatus(transaction: AppTransaction) {
   switch (transaction.status) {
     case "confirmed":
@@ -181,6 +192,10 @@ export function getTransactionCounterpartyWalletAddress(transaction: AppTransact
 
 export function getAssetLabel(asset: AppTransaction["asset"]) {
   return getTransferAssetLabel(asset);
+}
+
+function shortenWalletAddress(walletAddress: string) {
+  return `${walletAddress.slice(0, 4)}...${walletAddress.slice(-4)}`;
 }
 
 function formatPendingOnrampAmount(transaction: AppTransaction) {

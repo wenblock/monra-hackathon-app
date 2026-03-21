@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   formatActivityAmount,
+  formatActivityRowTitle,
   formatActivityStatus,
   formatActivityTimestamp,
   formatActivityTitle,
+  getTransactionCounterpartyDisplay,
 } from "@/transaction-display";
 import type { AppTransaction } from "@/types";
 
@@ -45,6 +47,45 @@ describe("transaction-display", () => {
         entryType: "swap",
       }),
     ).toBe("-1.00 USDC");
+  });
+
+  it("shortens inbound wallet addresses only in transaction row titles", () => {
+    expect(
+      formatActivityRowTitle({
+        ...buildTransaction(),
+        direction: "inbound",
+        fromWalletAddress: "2Fm9E2KheaFYSCH8QcTu6uAJC4rR9h4gLBKMtX8xuvDn",
+      }),
+    ).toBe("Received from 2Fm9...uvDn");
+  });
+
+  it("keeps outbound wallet addresses unshortened in transaction row titles", () => {
+    expect(
+      formatActivityRowTitle({
+        ...buildTransaction(),
+        counterpartyWalletAddress: "2Fm9E2KheaFYSCH8QcTu6uAJC4rR9h4gLBKMtX8xuvDn",
+      }),
+    ).toBe("Send to 2Fm9E2KheaFYSCH8QcTu6uAJC4rR9h4gLBKMtX8xuvDn");
+  });
+
+  it("keeps the full wallet address in the drawer title formatter", () => {
+    expect(
+      formatActivityTitle({
+        ...buildTransaction(),
+        direction: "inbound",
+        fromWalletAddress: "2Fm9E2KheaFYSCH8QcTu6uAJC4rR9h4gLBKMtX8xuvDn",
+      }),
+    ).toBe("Received from 2Fm9E2KheaFYSCH8QcTu6uAJC4rR9h4gLBKMtX8xuvDn");
+  });
+
+  it("keeps the full wallet address available for transaction details", () => {
+    expect(
+      getTransactionCounterpartyDisplay({
+        ...buildTransaction(),
+        direction: "inbound",
+        fromWalletAddress: "2Fm9E2KheaFYSCH8QcTu6uAJC4rR9h4gLBKMtX8xuvDn",
+      }),
+    ).toBe("2Fm9E2KheaFYSCH8QcTu6uAJC4rR9h4gLBKMtX8xuvDn");
   });
 });
 
