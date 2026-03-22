@@ -1,7 +1,6 @@
 import { createHash, createVerify, randomUUID } from "node:crypto";
 
 import { config } from "../config.js";
-import { updateUserBridgeStatuses } from "../db.js";
 import { fetchWithRetry } from "./outboundHttp.js";
 import type {
   AccountType,
@@ -566,30 +565,4 @@ export function validateBridgeWebhookSignature(
       error: error instanceof Error ? error.message : "Bridge webhook verification failed.",
     };
   }
-}
-
-export async function syncBridgeStatus(user: AppUser) {
-  if (!user.bridgeCustomerId) {
-    return {
-      bridge: buildStoredBridgeComplianceState(user),
-      user,
-    };
-  }
-
-  const customer = await fetchBridgeCustomer(user.bridgeCustomerId);
-  const updatedUser = await updateUserBridgeStatuses({
-    bridgeKycStatus: customer.status,
-    bridgeTosStatus: customer.hasAcceptedTermsOfService ? "approved" : "pending",
-    userId: user.id,
-  });
-
-  return {
-    bridge: {
-      customerStatus: customer.status,
-      hasAcceptedTermsOfService: customer.hasAcceptedTermsOfService,
-      showKycAlert: Boolean(updatedUser.bridgeKycLink && customer.status !== "active"),
-      showTosAlert: Boolean(updatedUser.bridgeTosLink && !customer.hasAcceptedTermsOfService),
-    },
-    user: updatedUser,
-  };
 }

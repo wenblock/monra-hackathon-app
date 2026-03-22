@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 
 import { readAuthIdentity, requireAuthIdentity } from "../auth/requestAuth.js";
-import { getUserByCdpUserId } from "../db.js";
+import { getUserByCdpUserId } from "../db/repositories/usersRepo.js";
 import { isConstraintViolation } from "../db/errors.js";
 import { isBridgeApiError } from "../lib/bridge.js";
 import { sendError } from "../lib/http.js";

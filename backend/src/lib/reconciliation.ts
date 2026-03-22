@@ -1,8 +1,11 @@
 import {
-  getUserBalancesByUserId,
   listStalePendingBridgeTransactions,
+} from "../db/repositories/transactionsReadRepo.js";
+import {
+  getUserBalancesByUserId,
   listUsersWithSolanaAddresses,
-} from "../db.js";
+} from "../db/repositories/usersRepo.js";
+import { cleanupRuntimeState } from "../db/runtime.js";
 import { config } from "../config.js";
 import { fetchSolanaBalances } from "./alchemy.js";
 import { logError, logInfo, logWarn } from "./logger.js";
@@ -60,6 +63,8 @@ export function startReconciliationJob() {
           userId: transaction.userId,
         });
       }
+
+      await cleanupRuntimeState();
 
       logInfo("reconciliation.completed", {
         checkedUsers: users.length,

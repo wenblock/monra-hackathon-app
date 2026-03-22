@@ -5,15 +5,11 @@ import { Client } from "pg";
 
 import { config } from "../config.js";
 import {
-  getUserBalancesByUserId,
-  listTransactionsByUserIdPaginated,
-} from "../db.js";
-import {
   getTransactionStreamChannelName,
   getTransactionStreamEventById,
   publishTransactionStreamEvent,
 } from "../db/runtime.js";
-import { buildTreasuryValuation, getTreasuryPrices } from "./alchemy.js";
+import { buildLatestTransactionSnapshot as buildLatestTransactionSnapshotPayload } from "../services/transactionsService.js";
 import type { SolanaBalancesResponse, TransactionStreamResponse } from "../types.js";
 
 const userStreams = new Map<number, Set<Response>>();
@@ -48,17 +44,7 @@ export async function buildLatestTransactionSnapshot(
   userId: number,
   balancesOverride?: SolanaBalancesResponse["balances"],
 ): Promise<TransactionStreamResponse> {
-  const [balances, transactionPage, treasuryPrices] = await Promise.all([
-    balancesOverride ? Promise.resolve(balancesOverride) : getUserBalancesByUserId(userId),
-    listTransactionsByUserIdPaginated(userId, { limit: 5 }),
-    getTreasuryPrices(),
-  ]);
-
-  return {
-    balances,
-    valuation: buildTreasuryValuation(balances, treasuryPrices),
-    transactions: transactionPage.transactions,
-  };
+  return buildLatestTransactionSnapshotPayload(userId, balancesOverride);
 }
 
 function broadcastTransactionSnapshotLocal(userId: number, payload: TransactionStreamResponse) {

@@ -4,10 +4,10 @@ import { readAppUser, requireAppUser } from "../auth/requestAuth.js";
 import {
   buildStoredBridgeComplianceState,
   isBridgeApiError,
-  syncBridgeStatus,
 } from "../lib/bridge.js";
 import { sendError } from "../lib/http.js";
 import { logError } from "../lib/logger.js";
+import { syncBridgeStatus } from "../services/bridgeStatusService.js";
 
 export const bridgeRouter = Router();
 

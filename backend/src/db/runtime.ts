@@ -36,13 +36,6 @@ interface TransactionStreamEventRow {
 export async function storeSharedSwapQuote(input: Omit<SharedSwapQuote, "createdAt">) {
   await pool.query(
     `
-      DELETE FROM swap_quote_sessions
-      WHERE expires_at <= NOW()
-    `,
-  );
-
-  await pool.query(
-    `
       INSERT INTO swap_quote_sessions (
         request_id,
         user_id,
@@ -116,14 +109,6 @@ export async function publishTransactionStreamEvent(
 
   try {
     await client.query("BEGIN");
-    await client.query(
-      `
-        DELETE FROM transaction_stream_events
-        WHERE created_at < NOW() - ($1::bigint * INTERVAL '1 millisecond')
-      `,
-      [STREAM_EVENT_TTL_MS],
-    );
-
     const inserted = await client.query<{ id: string }>(
       `
         INSERT INTO transaction_stream_events (user_id, payload)
@@ -150,6 +135,23 @@ export async function publishTransactionStreamEvent(
   } finally {
     client.release();
   }
+}
+
+export async function cleanupRuntimeState() {
+  await pool.query(
+    `
+      DELETE FROM swap_quote_sessions
+      WHERE expires_at <= NOW()
+    `,
+  );
+
+  await pool.query(
+    `
+      DELETE FROM transaction_stream_events
+      WHERE created_at < NOW() - ($1::bigint * INTERVAL '1 millisecond')
+    `,
+    [STREAM_EVENT_TTL_MS],
+  );
 }
 
 export async function getTransactionStreamEventById(eventId: number) {

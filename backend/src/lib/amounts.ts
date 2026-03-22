@@ -44,6 +44,34 @@ function normalizeDecimalAmount(value: string, options: NormalizeDecimalOptions)
   };
 }
 
+export function parseDecimalAmountToRaw(value: string, decimals: number) {
+  const trimmed = value.trim();
+  if (!/^\d+(\.\d+)?$/.test(trimmed)) {
+    throw new Error(`Invalid decimal amount: ${value}`);
+  }
+
+  const [wholePart, fractionPart = ""] = trimmed.split(".");
+  if (fractionPart.length > decimals) {
+    throw new Error(`Amount exceeds supported precision for ${decimals} decimal places.`);
+  }
+
+  const normalizedWhole = wholePart.replace(/^0+/, "") || "0";
+  const normalizedFraction = fractionPart.padEnd(decimals, "0");
+  return BigInt(`${normalizedWhole}${normalizedFraction}` || "0").toString();
+}
+
+export function formatAssetAmount(rawAmount: string, asset: TransferAsset) {
+  const decimals = getTransferAssetDecimals(asset);
+  const isNegative = rawAmount.startsWith("-");
+  const unsignedAmount = isNegative ? rawAmount.slice(1) : rawAmount;
+  const normalizedAmount = unsignedAmount.replace(/^0+/, "") || "0";
+  const paddedAmount = normalizedAmount.padStart(decimals + 1, "0");
+  const whole = paddedAmount.slice(0, -decimals);
+  const fraction = paddedAmount.slice(-decimals).replace(/0+$/, "");
+
+  return `${isNegative ? "-" : ""}${whole}${fraction ? `.${fraction}` : ""}`;
+}
+
 export function normalizeMinimumCurrencyAmount(input: {
   currencyCode: string;
   decimals: number;

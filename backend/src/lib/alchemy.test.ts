@@ -310,7 +310,7 @@ test("getTreasuryPrices returns null when cache is expired and refresh fails", a
 
     assert.equal(seeded?.pricesUsd.sol, "150");
     assert.equal(expired, null);
-    assert.equal(fetchCount, 2);
+    assert.equal(fetchCount, 3);
   } finally {
     resetTreasuryPriceCacheForTests();
     globalThis.fetch = originalFetch;

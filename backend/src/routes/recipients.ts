@@ -10,7 +10,7 @@ import {
   getRecipientByIdForUser,
   getRecipientByPublicIdForUser,
   listRecipientsByUserId,
-} from "../db.js";
+} from "../db/repositories/recipientsRepo.js";
 import {
   createBridgeExternalAccount,
   deleteBridgeExternalAccount,

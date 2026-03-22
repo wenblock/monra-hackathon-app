@@ -1,10 +1,7 @@
 import { Router } from "express";
 
-import {
-  getUserByCdpUserId,
-  listTransactionsByUserIdPaginated,
-} from "../db.js";
 import { readAppUser, requireAppUser } from "../auth/requestAuth.js";
+import { getUserByCdpUserId } from "../db/repositories/usersRepo.js";
 import {
   createStreamToken,
   isInvalidStreamTokenError,
@@ -18,6 +15,7 @@ import {
 import { sendError } from "../lib/http.js";
 import { logError } from "../lib/logger.js";
 import { highCostUserActionRateLimit } from "../middleware/rateLimits.js";
+import { listTransactionsPage } from "../services/transactionsService.js";
 
 export const transactionsRouter = Router();
 
@@ -27,7 +25,7 @@ transactionsRouter.get("/", requireAppUser, async (request, response) => {
 
     const limit = readLimitFromQuery(request.query.limit);
     const cursor = readCursorFromQuery(request.query.cursor);
-    const result = await listTransactionsByUserIdPaginated(user.id, { cursor, limit });
+    const result = await listTransactionsPage(user.id, { cursor, limit });
     return response.json(result);
   } catch (error) {
     logError("transactions.list_failed", error, {

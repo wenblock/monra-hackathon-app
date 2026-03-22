@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { readAppUser, requireAppUser } from "../auth/requestAuth.js";
 import { isUniqueViolation } from "../db/errors.js";
-import { getUserBalancesByUserId, updateUserSolanaAddress } from "../db.js";
+import { getUserBalancesByUserId, updateUserSolanaAddress } from "../db/repositories/usersRepo.js";
 import {
   buildTreasuryValuation,
   createUnavailableTreasuryValuation,

@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 
-import { getUserByCdpUserId } from "../db.js";
+import { getUserByCdpUserId } from "../db/repositories/usersRepo.js";
 import { sendError } from "../lib/http.js";
 import { InvalidAccessTokenError, isInvalidAccessTokenError } from "./errors.js";
 import { validateAccessToken } from "./validateAccessToken.js";

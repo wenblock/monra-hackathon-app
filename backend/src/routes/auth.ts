@@ -1,12 +1,13 @@
 import { Router } from "express";
 
 import { readAuthIdentity, requireAuthIdentity } from "../auth/requestAuth.js";
-import { getUserByCdpUserId } from "../db.js";
-import { buildStoredBridgeComplianceState, syncBridgeStatus } from "../lib/bridge.js";
+import { getUserByCdpUserId } from "../db/repositories/usersRepo.js";
+import { buildStoredBridgeComplianceState } from "../lib/bridge.js";
 import { sendError } from "../lib/http.js";
 import { logError } from "../lib/logger.js";
 import { requiresOnboarding } from "../lib/onboardingFlow.js";
 import { authSessionRateLimit } from "../middleware/rateLimits.js";
+import { syncBridgeStatus } from "../services/bridgeStatusService.js";
 import type { AppUser } from "../types.js";
 
 export const authRouter = Router();

@@ -2,21 +2,13 @@ import { Router } from "express";
 import { z } from "zod";
 
 import { readAppUser, requireAppUser } from "../auth/requestAuth.js";
-import {
-  createPendingOfframpTransaction,
-  getRecipientByIdForUser,
-  getRecipientByPublicIdForUser,
-} from "../db.js";
 import { normalizeMinimumCurrencyAmount } from "../lib/amounts.js";
-import {
-  createBridgeOfframpTransfer,
-  isBridgeApiError,
-  syncBridgeStatus,
-} from "../lib/bridge.js";
 import type { OfframpSourceAsset } from "../types.js";
 import { sendError } from "../lib/http.js";
 import { logError } from "../lib/logger.js";
 import { userMutationRateLimit } from "../middleware/rateLimits.js";
+import { isServiceError } from "../services/errors.js";
+import { createOfframpForUser } from "../services/offrampService.js";
 
 const createOfframpSchema = z.object({
   amount: z.string().trim().min(1, "Amount is required."),
@@ -50,53 +42,12 @@ offrampRouter.post("/", userMutationRateLimit, async (request, response) => {
 
     const amount = normalizeOfframpAmount(parsedBody.data.amount, parsedBody.data.sourceAsset);
     const existingUser = readAppUser(request);
-
-    if (!existingUser.bridgeCustomerId) {
-      return sendError(response, 409, "Bridge onboarding must be completed before using off-ramp.");
-    }
-
-    if (!existingUser.solanaAddress) {
-      return sendError(response, 409, "Your Solana wallet is still syncing. Try again in a moment.");
-    }
-
-    const recipient = parsedBody.data.recipientPublicId
-      ? await getRecipientByPublicIdForUser(existingUser.id, parsedBody.data.recipientPublicId)
-      : await getRecipientByIdForUser(existingUser.id, parsedBody.data.recipientId!);
-    if (!recipient) {
-      return sendError(response, 404, "Recipient not found.");
-    }
-
-    if (recipient.kind !== "bank" || !recipient.bridgeExternalAccountId) {
-      return sendError(response, 409, "Off-ramp requires a saved bank recipient.");
-    }
-
-    const synced = await syncBridgeStatus(existingUser);
-    if (synced.bridge.customerStatus !== "active" || !synced.bridge.hasAcceptedTermsOfService) {
-      return sendError(response, 409, "Bridge onboarding must be active before creating an off-ramp.");
-    }
-
-    const bridgeTransfer = await createBridgeOfframpTransfer({
+    const transaction = await createOfframpForUser({
       amount,
-      bridgeCustomerId: existingUser.bridgeCustomerId,
-      externalAccountId: recipient.bridgeExternalAccountId,
-      returnAddress: existingUser.solanaAddress,
-      sourceAddress: existingUser.solanaAddress,
+      recipientId: parsedBody.data.recipientId,
+      recipientPublicId: parsedBody.data.recipientPublicId,
       sourceAsset: parsedBody.data.sourceAsset,
-    });
-
-    const transaction = await createPendingOfframpTransaction({
-      amount,
-      asset: parsedBody.data.sourceAsset,
-      bridgeTransferId: bridgeTransfer.bridgeTransferId,
-      bridgeTransferStatus: bridgeTransfer.bridgeTransferStatus,
-      depositInstructions: bridgeTransfer.depositInstructions,
-      receiptUrl: bridgeTransfer.receiptUrl,
-      recipientId: recipient.id,
-      recipientName: recipient.displayName,
-      sourceAmount: bridgeTransfer.sourceAmount,
-      sourceCurrency: bridgeTransfer.sourceCurrency,
-      userId: existingUser.id,
-      walletAddress: existingUser.solanaAddress,
+      user: existingUser,
     });
 
     return response.status(201).json({ transaction });
@@ -105,12 +56,8 @@ offrampRouter.post("/", userMutationRateLimit, async (request, response) => {
       requestId: request.requestId,
     });
 
-    if (isBridgeApiError(error)) {
-      return sendError(response, 502, error.message);
-    }
-
-    if (error instanceof Error && /amount/i.test(error.message)) {
-      return sendError(response, 400, error.message);
+    if (isServiceError(error)) {
+      return sendError(response, error.status, error.message);
     }
 
     return sendError(response, 500, "Unable to create off-ramp.");

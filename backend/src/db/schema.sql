@@ -152,6 +152,9 @@ CREATE INDEX IF NOT EXISTS transactions_recipient_id_idx
 CREATE INDEX IF NOT EXISTS transactions_user_id_confirmed_at_idx
   ON transactions (user_id, confirmed_at DESC, id DESC);
 
+CREATE INDEX IF NOT EXISTS transactions_user_id_feed_sort_idx
+  ON transactions (user_id, (COALESCE(confirmed_at, created_at)) DESC, id DESC);
+
 CREATE INDEX IF NOT EXISTS transactions_transaction_signature_idx
   ON transactions (transaction_signature);
 
