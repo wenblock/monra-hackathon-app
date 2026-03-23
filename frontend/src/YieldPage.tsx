@@ -34,6 +34,7 @@ import {
   parseYieldAmount,
 } from "@/features/yield/runtime";
 import { logRuntimeError } from "@/lib/log-runtime-error";
+import { readErrorMessage } from "@/lib/read-error-message";
 import { cn } from "@/lib/utils";
 import type { YieldAction, YieldAsset } from "@/types";
 
@@ -89,6 +90,15 @@ function YieldPage() {
     asset: selectedAsset ?? "usdc",
     enabled: selectedAsset !== null,
   });
+  const ledgerSummaryErrorMessage = ledgerSummaryQuery.error
+    ? readErrorMessage(ledgerSummaryQuery.error, "Unable to load the yield ledger summary.")
+    : null;
+  const onchainErrorMessage = onchainQuery.error
+    ? readErrorMessage(onchainQuery.error, "Unable to load yield market data.")
+    : null;
+  const previewErrorMessage = previewQuery.error
+    ? readErrorMessage(previewQuery.error, "Unable to preview this yield action.")
+    : null;
 
   useEffect(() => {
     setSubmitError(null);
@@ -164,7 +174,7 @@ function YieldPage() {
       setSelectedAsset(null);
     } catch (error) {
       logRuntimeError("Unable to complete the yield action.", error);
-      setSubmitError(extractErrorMessage(error, "Unable to complete the yield action."));
+      setSubmitError(readErrorMessage(error, "Unable to complete the yield action."));
     } finally {
       setIsSubmitting(false);
     }
@@ -234,15 +244,15 @@ function YieldPage() {
               </InlineNotice>
             ) : null}
 
-            {ledgerSummaryQuery.error instanceof Error ? (
+            {ledgerSummaryErrorMessage ? (
               <InlineNotice title="Yield ledger unavailable" variant="warning">
-                {ledgerSummaryQuery.error.message}
+                {ledgerSummaryErrorMessage}
               </InlineNotice>
             ) : null}
 
-            {onchainQuery.error instanceof Error ? (
+            {onchainErrorMessage ? (
               <InlineNotice title="Yield market data unavailable" variant="warning">
-                {onchainQuery.error.message}
+                {onchainErrorMessage}
               </InlineNotice>
             ) : null}
 
@@ -323,7 +333,7 @@ function YieldPage() {
         onSubmit={() => void handleSubmit()}
         open={selectedVault !== null}
         previewAmountRaw={previewQuery.data?.previewAmountRaw ?? null}
-        previewError={previewQuery.error instanceof Error ? previewQuery.error.message : null}
+        previewError={previewErrorMessage}
         selectedAction={activeAction}
         submitError={submitError}
         vault={selectedVault}
@@ -663,10 +673,6 @@ function formatCompactAsset(rawAmount: string, asset: YieldAsset) {
     maximumFractionDigits: 1,
     notation: "compact",
   }).format(formattedAmount)} ${asset.toUpperCase()}`;
-}
-
-function extractErrorMessage(error: unknown, fallback: string) {
-  return error instanceof Error && error.message.trim() ? error.message : fallback;
 }
 
 export default YieldPage;

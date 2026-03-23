@@ -1,5 +1,3 @@
-import { Buffer } from "buffer";
-
 import { PublicKey, TransactionMessage, VersionedTransaction } from "@solana/web3.js";
 
 import {
@@ -7,6 +5,7 @@ import {
   getTransferAssetLabel,
   getTransferAssetMintAddress,
 } from "@/assets";
+import { getInstalledBuffer, installBrowserPolyfills } from "@/lib/browser-polyfills";
 import { solanaConnection } from "@/lib/solana-connection";
 import type { YieldAction, YieldAsset } from "@/types";
 
@@ -35,6 +34,7 @@ interface YieldOnchainSnapshot {
 }
 
 export async function fetchYieldOnchainSnapshot(walletAddress: string): Promise<YieldOnchainSnapshot> {
+  installBrowserPolyfills();
   const { Client } = await import("@jup-ag/lend-read");
   const client = new Client(solanaConnection);
   const user = new PublicKey(walletAddress);
@@ -86,6 +86,7 @@ export async function fetchYieldPreview(input: {
   amountRaw: string;
   asset: YieldAsset;
 }): Promise<YieldPreviewResult> {
+  installBrowserPolyfills();
   const [{ Client }, bnModule] = await Promise.all([import("@jup-ag/lend-read"), import("bn.js")]);
   const BN = (bnModule.default ?? bnModule) as typeof import("bn.js");
   const client = new Client(solanaConnection);
@@ -107,8 +108,10 @@ export async function buildYieldTransaction(input: {
   asset: YieldAsset;
   walletAddress: string;
 }) {
+  installBrowserPolyfills();
   const [lendModule, bnModule] = await Promise.all([import("@jup-ag/lend/earn"), import("bn.js")]);
   const BN = (bnModule.default ?? bnModule) as typeof import("bn.js");
+  const Buffer = getInstalledBuffer();
   const assetPublicKey = new PublicKey(getTransferAssetMintAddress(input.asset));
   const signerPublicKey = new PublicKey(input.walletAddress);
   const amount = new BN(input.amountRaw);

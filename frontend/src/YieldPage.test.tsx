@@ -171,6 +171,10 @@ describe("YieldPage", () => {
     expect(screen.getByText("Your Deposits")).toBeInTheDocument();
     expect(screen.getByText("Projected Annual Yield")).toBeInTheDocument();
     expect(screen.getByText("Stablecoin vaults only")).toBeInTheDocument();
+    expect(screen.getByText("3.50%")).toBeInTheDocument();
+    expect(screen.getByText("0.26%")).toBeInTheDocument();
+    expect(screen.getByText("524M USDC")).toBeInTheDocument();
+    expect(screen.getByText("13.3M EURC")).toBeInTheDocument();
 
     const vaultRowButton = screen
       .getAllByRole("button")
@@ -183,5 +187,19 @@ describe("YieldPage", () => {
       screen.getByText("Manage your Jupiter Earn position and record it in the Monra ledger."),
     ).toBeInTheDocument();
     expect(screen.getAllByText("Deposit").length).toBeGreaterThan(0);
+  });
+
+  it("renders non-Error yield query failures without crashing", () => {
+    yieldOnchainQueryMock.useYieldOnchainQuery.mockReturnValue({
+      data: undefined,
+      error: {
+        message: "Buffer is not defined",
+      },
+    });
+
+    renderWithQueryClient(<YieldPage />);
+
+    expect(screen.getByText("Yield market data unavailable")).toBeInTheDocument();
+    expect(screen.getByText("Buffer is not defined")).toBeInTheDocument();
   });
 });
