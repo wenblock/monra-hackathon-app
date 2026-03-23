@@ -68,7 +68,7 @@ export async function listTransactionsByUserIdPaginated(
           ON fee_totals.transaction_signature = t.transaction_signature
           AND fee_totals.tracked_wallet_address = t.tracked_wallet_address
         WHERE t.user_id = $1
-          AND t.entry_type IN ('transfer', 'onramp', 'offramp', 'swap')
+          AND t.entry_type IN ('transfer', 'onramp', 'offramp', 'swap', 'yield_deposit', 'yield_withdraw')
       )
       SELECT
         *
@@ -100,6 +100,20 @@ export async function getSwapTransactionUserIdsBySignature(signature: string) {
       SELECT DISTINCT user_id
       FROM transactions
       WHERE entry_type = 'swap'
+        AND transaction_signature = $1::text
+    `,
+    [signature],
+  );
+
+  return result.rows.map(row => Number(row.user_id));
+}
+
+export async function getManagedTransferActionUserIdsBySignature(signature: string) {
+  const result = await pool.query<{ user_id: string }>(
+    `
+      SELECT DISTINCT user_id
+      FROM transactions
+      WHERE entry_type IN ('swap', 'yield_deposit', 'yield_withdraw')
         AND transaction_signature = $1::text
     `,
     [signature],

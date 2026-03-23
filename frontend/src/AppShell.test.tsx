@@ -57,4 +57,15 @@ describe("AppShell", () => {
       "11111111111111111111111111111111",
     );
   });
+
+  it("renders the Yield navigation item in the sidebar", () => {
+    render(
+      <AppShell>
+        <div>Child content</div>
+      </AppShell>,
+    );
+
+    expect(screen.getAllByText("Yield").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Earn on stablecoins").length).toBeGreaterThan(0);
+  });
 });

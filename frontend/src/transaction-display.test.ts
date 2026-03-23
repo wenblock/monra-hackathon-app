@@ -38,7 +38,7 @@ describe("transaction-display", () => {
         entryType: "swap",
         outputAsset: "eurc",
       }),
-    ).toBe("Swap USDC → EURC");
+    ).toBe("Swap USDC -> EURC");
 
     expect(
       formatActivityAmount({
@@ -47,6 +47,26 @@ describe("transaction-display", () => {
         entryType: "swap",
       }),
     ).toBe("-1.00 USDC");
+  });
+
+  it("formats yield activity titles and vault labels", () => {
+    expect(
+      formatActivityTitle({
+        ...buildTransaction(),
+        asset: "usdc",
+        counterpartyName: "Jupiter USDC Earn Vault",
+        entryType: "yield_deposit",
+      }),
+    ).toBe("Yield deposit to USDC vault");
+
+    expect(
+      getTransactionCounterpartyDisplay({
+        ...buildTransaction(),
+        asset: "eurc",
+        counterpartyName: null,
+        entryType: "yield_withdraw",
+      }),
+    ).toBe("Jupiter EURC Earn Vault");
   });
 
   it("shortens inbound wallet addresses only in transaction row titles", () => {

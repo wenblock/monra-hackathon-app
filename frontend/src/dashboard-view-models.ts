@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
   ArrowLeftRight,
+  PiggyBank,
   Landmark,
   LayoutDashboard,
   ReceiptText,
@@ -49,6 +50,14 @@ export const sidebarItems: SidebarItem[] = [
     icon: ArrowLeftRight,
     state: "active",
     href: "/swap",
+  },
+  {
+    id: "yield",
+    label: "Yield",
+    caption: "Earn on stablecoins",
+    icon: PiggyBank,
+    state: "active",
+    href: "/yield",
   },
   {
     id: "transactions",

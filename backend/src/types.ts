@@ -6,9 +6,18 @@ export type TransferAsset = "sol" | "usdc" | "eurc";
 export type StablecoinAsset = Exclude<TransferAsset, "sol">;
 export type OnrampDestinationAsset = StablecoinAsset;
 export type OfframpSourceAsset = StablecoinAsset;
+export type YieldAsset = StablecoinAsset;
+export type YieldAction = "deposit" | "withdraw";
 export type TransactionStatus = "pending" | "confirmed" | "failed";
 export type TransactionDirection = "inbound" | "outbound";
-export type TransactionEntryType = "transfer" | "network_fee" | "onramp" | "offramp" | "swap";
+export type TransactionEntryType =
+  | "transfer"
+  | "network_fee"
+  | "onramp"
+  | "offramp"
+  | "swap"
+  | "yield_deposit"
+  | "yield_withdraw";
 export type BridgeTransferState =
   | "pending"
   | "awaiting_funds"
@@ -181,4 +190,26 @@ export interface TransactionStreamResponse {
   balances: SolanaBalancesResponse["balances"];
   valuation: TreasuryValuation;
   transactions: AppTransaction[];
+}
+
+export interface YieldLedgerSummary {
+  eurc: TokenBalanceAmount;
+  usdc: TokenBalanceAmount;
+}
+
+export interface YieldLedgerSummaryResponse {
+  ledgerSummary: YieldLedgerSummary;
+}
+
+export interface ConfirmYieldTransactionPayload {
+  action: YieldAction;
+  asset: YieldAsset;
+  amount: string;
+  transactionSignature: string;
+}
+
+export interface YieldConfirmResponse {
+  balances: SolanaBalancesResponse["balances"];
+  transaction: AppTransaction;
+  ledgerSummary: YieldLedgerSummary;
 }

@@ -1,6 +1,6 @@
 import type { PoolClient } from "pg";
 
-import { TRANSFER_ASSETS, getTransferAssetDecimals } from "../../lib/assets.js";
+import { TRANSFER_ASSETS, YIELD_ASSETS, getTransferAssetDecimals, getTransferAssetLabel } from "../../lib/assets.js";
 import { formatAssetAmount, parseDecimalAmountToRaw } from "../../lib/amounts.js";
 import type {
   BridgeSourceDepositInstructions,
@@ -9,6 +9,9 @@ import type {
   OnrampDestinationAsset,
   SolanaBalancesResponse,
   TransferAsset,
+  YieldAction,
+  YieldAsset,
+  YieldLedgerSummary,
 } from "../../types.js";
 import { createEmptyBalance, mapBalances, mapCollapsedTransaction, mapLedgerTransaction } from "../mappers.js";
 import { pool } from "../pool.js";
@@ -54,6 +57,18 @@ export interface CreateConfirmedSwapTransactionInput {
   walletAddress: string;
 }
 
+export interface CreateConfirmedYieldTransactionInput {
+  action: YieldAction;
+  amountRaw: string;
+  asset: YieldAsset;
+  confirmedAt: Date;
+  counterpartyWalletAddress?: string | null;
+  fromWalletAddress: string;
+  transactionSignature: string;
+  userId: number;
+  walletAddress: string;
+}
+
 function buildOnrampCounterpartyName(paymentRail: string | null | undefined) {
   const normalizedRail = paymentRail?.trim();
   return normalizedRail ? `Bridge ${normalizedRail.toUpperCase()} On-ramp` : "Bridge On-ramp";
@@ -65,6 +80,10 @@ function buildOfframpNormalizationKey(bridgeTransferId: string) {
 
 function buildSwapNormalizationKey(transactionSignature: string, trackedWalletAddress: string) {
   return `swap:${transactionSignature}:${trackedWalletAddress}`;
+}
+
+function buildYieldNormalizationKey(transactionSignature: string, trackedWalletAddress: string) {
+  return `yield:${transactionSignature}:${trackedWalletAddress}`;
 }
 
 export function addBalanceDelta(
@@ -342,4 +361,154 @@ export async function createConfirmedSwapTransaction(input: CreateConfirmedSwapT
       transaction: mapCollapsedTransaction(mapLedgerTransaction(row), null),
     };
   });
+}
+
+export async function createConfirmedYieldTransaction(input: CreateConfirmedYieldTransactionInput) {
+  const normalizationKey = buildYieldNormalizationKey(input.transactionSignature, input.walletAddress);
+  const direction = input.action === "deposit" ? "outbound" : "inbound";
+  const entryType = input.action === "deposit" ? "yield_deposit" : "yield_withdraw";
+  const counterpartyName = `Jupiter ${getTransferAssetLabel(input.asset)} Earn Vault`;
+
+  return withTransaction(async client => {
+    const inserted = await client.query<TransactionRow>(
+      `
+        INSERT INTO transactions (
+          user_id,
+          recipient_id,
+          direction,
+          entry_type,
+          asset,
+          amount_decimal,
+          amount_raw,
+          network,
+          tracked_wallet_address,
+          from_wallet_address,
+          counterparty_name,
+          counterparty_wallet_address,
+          bridge_transfer_id,
+          bridge_transfer_status,
+          bridge_source_amount,
+          bridge_source_currency,
+          bridge_source_deposit_instructions,
+          bridge_destination_tx_hash,
+          bridge_receipt_url,
+          output_asset,
+          output_amount_decimal,
+          output_amount_raw,
+          transaction_signature,
+          webhook_event_id,
+          normalization_key,
+          status,
+          confirmed_at,
+          failed_at,
+          failure_reason
+        )
+        VALUES (
+          $1, NULL, $2, $3, $4, $5, $6, 'solana-mainnet', $7, $8, $9, $10, NULL, NULL,
+          NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, $11, NULL, $12, 'confirmed', $13, NULL, NULL
+        )
+        ON CONFLICT (normalization_key) DO NOTHING
+        RETURNING ${transactionSelection}
+      `,
+      [
+        input.userId,
+        direction,
+        entryType,
+        input.asset,
+        formatAssetAmount(input.amountRaw, input.asset),
+        input.amountRaw,
+        input.walletAddress,
+        input.fromWalletAddress,
+        counterpartyName,
+        input.counterpartyWalletAddress ?? null,
+        input.transactionSignature,
+        normalizationKey,
+        input.confirmedAt,
+      ],
+    );
+
+    const row =
+      inserted.rows[0] ??
+      (
+        await client.query<TransactionRow>(
+          `
+            SELECT ${transactionSelection}
+            FROM transactions
+            WHERE normalization_key = $1::text
+            LIMIT 1
+          `,
+          [normalizationKey],
+        )
+      ).rows[0];
+
+    if (!row) {
+      throw new Error("Unable to load the stored yield transaction.");
+    }
+
+    if (inserted.rows[0]) {
+      const balanceDeltas = new Map<number, Record<TransferAsset, bigint>>();
+      addBalanceDelta(
+        balanceDeltas,
+        input.userId,
+        input.asset,
+        input.action === "deposit" ? BigInt(input.amountRaw) * -1n : BigInt(input.amountRaw),
+      );
+      await applyBalanceDeltas(client, balanceDeltas);
+    }
+
+    const balanceRow = await getUserBalanceRow(client, input.userId);
+
+    return {
+      balances: balanceRow
+        ? mapBalances(balanceRow)
+        : (Object.fromEntries(
+            TRANSFER_ASSETS.map(asset => [asset, createEmptyBalance(getTransferAssetDecimals(asset))]),
+          ) as SolanaBalancesResponse["balances"]),
+      transaction: mapCollapsedTransaction(mapLedgerTransaction(row), null),
+    };
+  });
+}
+
+export async function getYieldLedgerSummaryByUserId(userId: number): Promise<YieldLedgerSummary> {
+  const result = await pool.query<{ asset: YieldAsset; principal_raw: string }>(
+    `
+      SELECT
+        asset,
+        COALESCE(
+          SUM(
+            CASE
+              WHEN entry_type = 'yield_deposit' THEN amount_raw::NUMERIC
+              WHEN entry_type = 'yield_withdraw' THEN -amount_raw::NUMERIC
+              ELSE 0
+            END
+          )::TEXT,
+          '0'
+        ) AS principal_raw
+      FROM transactions
+      WHERE user_id = $1::bigint
+        AND status = 'confirmed'
+        AND entry_type IN ('yield_deposit', 'yield_withdraw')
+      GROUP BY asset
+    `,
+    [userId],
+  );
+
+  const rawByAsset = Object.fromEntries(
+    YIELD_ASSETS.map(asset => [asset, "0"]),
+  ) as Record<YieldAsset, string>;
+
+  for (const row of result.rows) {
+    rawByAsset[row.asset] = row.principal_raw;
+  }
+
+  return {
+    eurc: {
+      formatted: formatAssetAmount(rawByAsset.eurc, "eurc"),
+      raw: rawByAsset.eurc,
+    },
+    usdc: {
+      formatted: formatAssetAmount(rawByAsset.usdc, "usdc"),
+      raw: rawByAsset.usdc,
+    },
+  };
 }

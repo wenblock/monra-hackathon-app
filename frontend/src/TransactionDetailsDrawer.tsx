@@ -1,4 +1,10 @@
-import { ArrowDownLeft, ArrowUpRight, ArrowLeftRight, ExternalLink } from "lucide-react";
+import {
+  ArrowDownLeft,
+  ArrowUpRight,
+  ArrowLeftRight,
+  ExternalLink,
+  PiggyBank,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import {
@@ -20,6 +26,9 @@ import {
   isOfframpTransaction,
   isOnrampTransaction,
   isSwapTransaction,
+  isYieldDepositTransaction,
+  isYieldTransaction,
+  isYieldWithdrawTransaction,
 } from "@/transaction-display";
 import type { AppTransaction } from "@/types";
 
@@ -49,6 +58,8 @@ function TransactionDetailsDrawer({
                 <span className="mt-1 flex size-11 shrink-0 items-center justify-center rounded-2xl bg-secondary text-foreground">
                   {isSwapTransaction(transaction) ? (
                     <ArrowLeftRight className="size-5" />
+                  ) : isYieldTransaction(transaction) ? (
+                    <PiggyBank className="size-5" />
                   ) : transaction.direction === "inbound" ? (
                     <ArrowDownLeft className="size-5" />
                   ) : (
@@ -64,6 +75,10 @@ function TransactionDetailsDrawer({
                           ? "Off-ramp"
                           : isSwapTransaction(transaction)
                             ? "Swap"
+                            : isYieldDepositTransaction(transaction)
+                              ? "Yield deposit"
+                              : isYieldWithdrawTransaction(transaction)
+                                ? "Yield withdraw"
                           : transaction.direction === "inbound"
                             ? "Received"
                             : "Send"}
@@ -88,6 +103,8 @@ function TransactionDetailsDrawer({
               <OfframpDetails transaction={transaction} explorerSignature={explorerSignature} />
             ) : isSwapTransaction(transaction) ? (
               <SwapDetails transaction={transaction} explorerSignature={explorerSignature} />
+            ) : isYieldTransaction(transaction) ? (
+              <YieldDetails transaction={transaction} explorerSignature={explorerSignature} />
             ) : (
               <div className="space-y-5 p-6">
                 <DetailBlock
@@ -166,6 +183,60 @@ function SwapDetails({
             ? `${transaction.outputAmountDisplay} ${transaction.outputAsset.toUpperCase()}`
             : "Unavailable"
         }
+      />
+
+      <DetailBlock label="Wallet" value={transaction.trackedWalletAddress} monospace />
+
+      <DetailBlock label="Signature" value={transaction.transactionSignature} monospace />
+
+      {explorerSignature ? (
+        <a
+          className="inline-flex items-center gap-2 text-sm font-medium text-primary transition-colors hover:text-primary/80"
+          href={`https://explorer.solana.com/tx/${explorerSignature}`}
+          rel="noopener noreferrer"
+          target="_blank"
+        >
+          View on Solana Explorer
+          <ExternalLink className="size-4" />
+        </a>
+      ) : null}
+
+      <DetailBlock label="Network" value="Solana Mainnet" />
+
+      {transaction.networkFeeDisplay ? (
+        <DetailBlock label="Network fee" value={`${transaction.networkFeeDisplay} SOL`} />
+      ) : null}
+
+      {transaction.failureReason ? (
+        <DetailBlock label="Failure reason" value={transaction.failureReason} />
+      ) : null}
+    </div>
+  );
+}
+
+function YieldDetails({
+  explorerSignature,
+  transaction,
+}: {
+  explorerSignature: string | null;
+  transaction: AppTransaction;
+}) {
+  return (
+    <div className="space-y-5 p-6">
+      <DetailBlock
+        label={transaction.status === "confirmed" ? "Completed" : "Created"}
+        value={formatActivityAbsoluteTimestamp(transaction.confirmedAt ?? transaction.createdAt)}
+      />
+
+      <DetailBlock
+        label="Vault"
+        value={getTransactionCounterpartyDisplay(transaction)}
+        secondaryValue={getTransactionCounterpartyWalletAddress(transaction)}
+      />
+
+      <DetailBlock
+        label={isYieldDepositTransaction(transaction) ? "Deposited" : "Withdrawn"}
+        value={`${transaction.amountDisplay} ${transaction.asset.toUpperCase()}`}
       />
 
       <DetailBlock label="Wallet" value={transaction.trackedWalletAddress} monospace />

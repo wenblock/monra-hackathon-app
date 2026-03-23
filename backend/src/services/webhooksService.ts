@@ -5,9 +5,9 @@ import {
   type WebhookLedgerEntryInput,
 } from "../db/repositories/webhooksRepo.js";
 import {
+  getManagedTransferActionUserIdsBySignature,
   getOfframpByBroadcastDetails,
   getPendingOnrampByDestinationTxHash,
-  getSwapTransactionUserIdsBySignature,
 } from "../db/repositories/transactionsReadRepo.js";
 import { getRecipientByWalletAddressForUser } from "../db/repositories/recipientsRepo.js";
 import { getUsersBySolanaAddresses } from "../db/repositories/usersRepo.js";
@@ -142,9 +142,9 @@ async function buildAlchemyEffectsForSignature(input: {
   }
 
   const candidateAddresses = extractCandidateWalletAddresses(parsedTransaction);
-  const [users, swapUserIds, pendingOnramp] = await Promise.all([
+  const [users, managedActionUserIds, pendingOnramp] = await Promise.all([
     getUsersBySolanaAddresses(candidateAddresses),
-    getSwapTransactionUserIdsBySignature(input.signature),
+    getManagedTransferActionUserIdsBySignature(input.signature),
     getPendingOnrampByDestinationTxHash(input.signature),
   ]);
 
@@ -163,11 +163,11 @@ async function buildAlchemyEffectsForSignature(input: {
     signature: input.signature,
     usersByAddress,
   });
-  const swapUserIdSet = new Set(swapUserIds);
+  const managedActionUserIdSet = new Set(managedActionUserIds);
   const effects: AlchemyWebhookEffect[] = [];
 
   for (const entry of normalizedEntries) {
-    if (entry.entryType === "transfer" && swapUserIdSet.has(entry.userId)) {
+    if (entry.entryType === "transfer" && managedActionUserIdSet.has(entry.userId)) {
       continue;
     }
 

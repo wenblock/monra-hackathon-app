@@ -31,6 +31,12 @@ const swapRoute = createRoute({
   component: lazyRouteComponent(() => import("@/routes/swap-route")),
 });
 
+const yieldRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/yield",
+  component: lazyRouteComponent(() => import("@/routes/yield-route")),
+});
+
 const transactionsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/transactions",
@@ -41,6 +47,7 @@ const routeTree = rootRoute.addChildren([
   dashboardRoute,
   recipientsRoute,
   swapRoute,
+  yieldRoute,
   transactionsRoute,
 ]);
 

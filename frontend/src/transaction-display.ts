@@ -13,6 +13,18 @@ export function isSwapTransaction(transaction: AppTransaction) {
   return transaction.entryType === "swap";
 }
 
+export function isYieldDepositTransaction(transaction: AppTransaction) {
+  return transaction.entryType === "yield_deposit";
+}
+
+export function isYieldWithdrawTransaction(transaction: AppTransaction) {
+  return transaction.entryType === "yield_withdraw";
+}
+
+export function isYieldTransaction(transaction: AppTransaction) {
+  return isYieldDepositTransaction(transaction) || isYieldWithdrawTransaction(transaction);
+}
+
 export function getTransactionDirectionTone(transaction: AppTransaction) {
   return transaction.direction === "inbound"
     ? "text-emerald-600"
@@ -67,7 +79,15 @@ export function formatActivityTitle(transaction: AppTransaction) {
   }
 
   if (isSwapTransaction(transaction)) {
-    return `Swap ${getTransferAssetLabel(transaction.asset)} → ${getTransferAssetLabel(transaction.outputAsset ?? transaction.asset)}`;
+    return `Swap ${getTransferAssetLabel(transaction.asset)} -> ${getTransferAssetLabel(transaction.outputAsset ?? transaction.asset)}`;
+  }
+
+  if (isYieldDepositTransaction(transaction)) {
+    return `Yield deposit to ${getTransferAssetLabel(transaction.asset)} vault`;
+  }
+
+  if (isYieldWithdrawTransaction(transaction)) {
+    return `Yield withdraw from ${getTransferAssetLabel(transaction.asset)} vault`;
   }
 
   const counterpartyDisplay = getTransactionCounterpartyDisplay(transaction);
@@ -149,6 +169,10 @@ export function formatCounterpartyLabel(transaction: AppTransaction) {
     return "Received";
   }
 
+  if (isYieldTransaction(transaction)) {
+    return "Vault";
+  }
+
   return transaction.direction === "inbound" ? "From" : "To";
 }
 
@@ -165,6 +189,10 @@ export function getTransactionCounterpartyDisplay(transaction: AppTransaction) {
     return transaction.outputAmountDisplay && transaction.outputAsset
       ? `${transaction.outputAmountDisplay} ${getTransferAssetLabel(transaction.outputAsset)}`
       : "Quoted output";
+  }
+
+  if (isYieldTransaction(transaction)) {
+    return transaction.counterpartyName ?? `Jupiter ${getTransferAssetLabel(transaction.asset)} Earn Vault`;
   }
 
   return (
@@ -185,6 +213,10 @@ export function getTransactionCounterpartyWalletAddress(transaction: AppTransact
 
   if (isSwapTransaction(transaction)) {
     return transaction.trackedWalletAddress;
+  }
+
+  if (isYieldTransaction(transaction)) {
+    return transaction.counterpartyWalletAddress ?? null;
   }
 
   return transaction.counterpartyWalletAddress ?? transaction.fromWalletAddress ?? null;

@@ -1,4 +1,4 @@
-import type { StablecoinAsset, TransferAsset } from "../types.js";
+import type { StablecoinAsset, TransferAsset, YieldAsset } from "../types.js";
 
 export const SOLANA_NATIVE_MINT_ADDRESS = "So11111111111111111111111111111111111111112";
 
@@ -32,6 +32,7 @@ export const SPL_TRANSFER_ASSETS = TRANSFER_ASSETS.filter(
 ) as StablecoinAsset[];
 export const ONRAMP_DESTINATION_ASSETS = SPL_TRANSFER_ASSETS;
 export const OFFRAMP_SOURCE_ASSETS = SPL_TRANSFER_ASSETS;
+export const YIELD_ASSETS = ["usdc", "eurc"] as const satisfies YieldAsset[];
 
 const splAssetMintToAsset = new Map(
   SPL_TRANSFER_ASSETS.map(asset => [TRANSFER_ASSET_METADATA[asset].mintAddress!, asset]),
@@ -69,4 +70,8 @@ export function isOnrampDestinationAsset(asset: TransferAsset): asset is Stablec
 
 export function isOfframpSourceAsset(asset: TransferAsset): asset is StablecoinAsset {
   return asset !== "sol";
+}
+
+export function isYieldAsset(asset: TransferAsset): asset is YieldAsset {
+  return asset === "usdc" || asset === "eurc";
 }

@@ -220,7 +220,9 @@ export function collapseLedgerTransactions(rows: TransactionRow[]) {
       transaction.entryType === "transfer" ||
       transaction.entryType === "onramp" ||
       transaction.entryType === "offramp" ||
-      transaction.entryType === "swap"
+      transaction.entryType === "swap" ||
+      transaction.entryType === "yield_deposit" ||
+      transaction.entryType === "yield_withdraw"
     ) {
       group.transfers.push(transaction);
     }

@@ -22,6 +22,7 @@ import { swapsRouter } from "./routes/swaps.js";
 import { transactionsRouter } from "./routes/transactions.js";
 import { usersRouter } from "./routes/users.js";
 import { alchemyWebhookRouter, bridgeWebhookRouter } from "./routes/webhooks.js";
+import { yieldRouter } from "./routes/yield.js";
 
 const require = createRequire(import.meta.url);
 const helmet = require("helmet") as () => RequestHandler;
@@ -75,6 +76,7 @@ app.use("/api/recipients", recipientsRouter);
 app.use("/api/swaps", swapsRouter);
 app.use("/api/transactions", transactionsRouter);
 app.use("/api/users", usersRouter);
+app.use("/api/yield", yieldRouter);
 
 app.use((_request, response) => {
   sendError(response, 404, "Route not found.");

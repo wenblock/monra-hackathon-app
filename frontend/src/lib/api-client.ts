@@ -9,6 +9,7 @@ import type {
   OnboardingPayload,
   Recipient,
   RecipientListResponse,
+  ConfirmYieldTransactionPayload,
   SessionBootstrapResponse,
   SolanaBalancesResponse,
   SolanaTransactionContextResponse,
@@ -16,6 +17,8 @@ import type {
   SwapOrderResponse,
   StreamTokenResponse,
   TransactionListResponse,
+  YieldConfirmResponse,
+  YieldLedgerSummaryResponse,
 } from "@/types";
 
 const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
@@ -182,6 +185,19 @@ export function createApiClient(getAccessToken: AccessTokenProvider) {
     },
     executeSwap(payload: ExecuteSwapPayload, signal?: AbortSignal) {
       return request<SwapExecuteResponse>("/api/swaps/execute", {
+        method: "POST",
+        body: payload,
+        signal,
+      });
+    },
+    fetchYieldLedgerSummary(signal?: AbortSignal) {
+      return request<YieldLedgerSummaryResponse>("/api/yield/ledger-summary", {
+        method: "GET",
+        signal,
+      });
+    },
+    confirmYieldTransaction(payload: ConfirmYieldTransactionPayload, signal?: AbortSignal) {
+      return request<YieldConfirmResponse>("/api/yield/confirm", {
         method: "POST",
         body: payload,
         signal,

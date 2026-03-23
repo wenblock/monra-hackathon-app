@@ -29,9 +29,16 @@ export default defineConfig(({ mode }) => {
         : []),
     ],
     resolve: {
-      alias: {
-        "@": path.resolve(__dirname, "./src"),
-      },
+      alias: [
+        {
+          find: /^@coral-xyz\/anchor$/,
+          replacement: path.resolve(__dirname, "./src/shims/anchor-browser.ts"),
+        },
+        {
+          find: "@",
+          replacement: path.resolve(__dirname, "./src"),
+        },
+      ],
     },
     build: {
       rollupOptions: {
