@@ -8,9 +8,10 @@ function useYieldOnchainQuery(walletAddress: string | null, enabled = true) {
     queryKey: yieldKeys.onchain(walletAddress ?? "wallet-pending"),
     queryFn: () => fetchYieldOnchainSnapshot(walletAddress!),
     enabled: enabled && Boolean(walletAddress),
-    refetchInterval: 15000,
+    staleTime: 60000,
+    refetchInterval: 60000,
     refetchIntervalInBackground: false,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: false,
   });
 }
 

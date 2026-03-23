@@ -8,15 +8,17 @@ import type {
   YieldLedgerSummary,
 } from "@/types";
 
+import { formatYieldCompactAsset, formatYieldCompactUsd } from "./formatters";
 import { formatYieldRawAmount, type YieldOnchainSnapshot } from "./runtime";
 
 const YIELD_ASSETS = ["usdc", "eurc"] as const satisfies YieldAsset[];
-const YIELD_RATE_PRECISION = 1_000_000_000_000;
+const YIELD_SUPPLY_RATE_PRECISION = 10_000_000_000;
 
 export interface YieldVaultViewModel {
   apyDisplay: string;
   apyPercent: number;
   asset: YieldAsset;
+  conversionRateToSharesRaw: string;
   currentPositionDisplay: string;
   currentPositionRaw: string;
   currentPositionUsd: string | null;
@@ -29,8 +31,6 @@ export interface YieldVaultViewModel {
   iconPath: string;
   label: string;
   projectedAnnualYieldUsd: string | null;
-  totalSupplyDisplay: string;
-  totalSupplyRaw: string;
   tvlDisplay: string;
   tvlRaw: string;
   tvlUsd: string | null;
@@ -79,8 +79,7 @@ export function buildYieldVaultViewModel(input: {
   const depositedRaw = input.depositedRaw;
   const currentPositionRaw = vault.userPositionRaw;
   const earningsRaw = (BigInt(currentPositionRaw) - BigInt(depositedRaw)).toString();
-  const apyPercent =
-    ((Number(vault.supplyRateRaw) + Number(vault.rewardsRateRaw)) / YIELD_RATE_PRECISION) * 100;
+  const apyPercent = Number(vault.supplyRateRaw) / YIELD_SUPPLY_RATE_PRECISION;
   const currentPositionUsdValue = calculateUsdValue(currentPositionRaw, input.asset, input.valuation);
   const projectedAnnualYieldUsdValue =
     currentPositionUsdValue !== null ? currentPositionUsdValue * (apyPercent / 100) : null;
@@ -89,6 +88,7 @@ export function buildYieldVaultViewModel(input: {
     apyDisplay: `${apyPercent.toFixed(2)}%`,
     apyPercent,
     asset: input.asset,
+    conversionRateToSharesRaw: vault.conversionRateToSharesRaw,
     currentPositionDisplay: `${formatYieldRawAmount(currentPositionRaw, input.asset)} ${label}`,
     currentPositionRaw,
     currentPositionUsd: formatUsd(currentPositionUsdValue),
@@ -101,11 +101,9 @@ export function buildYieldVaultViewModel(input: {
     iconPath: getTransferAssetIconPath(input.asset),
     label,
     projectedAnnualYieldUsd: formatUsd(projectedAnnualYieldUsdValue),
-    totalSupplyDisplay: `${formatYieldRawAmount(vault.totalSupplyRaw, input.asset)} ${label}`,
-    totalSupplyRaw: vault.totalSupplyRaw,
-    tvlDisplay: `${formatYieldRawAmount(vault.totalAssetsRaw, input.asset)} ${label}`,
+    tvlDisplay: formatYieldCompactAsset(vault.totalAssetsRaw, input.asset),
     tvlRaw: vault.totalAssetsRaw,
-    tvlUsd: formatUsd(calculateUsdValue(vault.totalAssetsRaw, input.asset, input.valuation)),
+    tvlUsd: formatYieldCompactUsd(calculateUsdValue(vault.totalAssetsRaw, input.asset, input.valuation)),
     warning:
       BigInt(currentPositionRaw) > 0n && BigInt(depositedRaw) === 0n
         ? `This ${label} position exists on-chain, but Monra has no recorded Yield principal for it yet.`

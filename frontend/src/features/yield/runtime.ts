@@ -11,12 +11,9 @@ import type { YieldAction, YieldAsset } from "@/types";
 
 const YIELD_ASSETS = ["usdc", "eurc"] as const satisfies YieldAsset[];
 
-interface YieldPreviewResult {
-  previewAmountRaw: string;
-}
-
 interface YieldOnchainVaultSnapshot {
   asset: YieldAsset;
+  conversionRateToSharesRaw: string;
   decimals: number;
   jlTokenMintAddress: string;
   rewardsRateRaw: string;
@@ -38,23 +35,30 @@ export async function fetchYieldOnchainSnapshot(walletAddress: string): Promise<
   const { Client } = await import("@jup-ag/lend-read");
   const client = new Client(solanaConnection);
   const user = new PublicKey(walletAddress);
-  const [allDetails, userPositions] = await Promise.all([
-    client.lending.getAllJlTokenDetails(),
-    client.lending.getUserPositions(user),
+  const [details, positions] = await Promise.all([
+    Promise.all(
+      YIELD_ASSETS.map(async asset => {
+        const mint = new PublicKey(getTransferAssetMintAddress(asset));
+
+        return [asset, await client.lending.getJlTokenDetails(mint)] as const;
+      }),
+    ),
+    Promise.all(
+      YIELD_ASSETS.map(async asset => {
+        const mint = new PublicKey(getTransferAssetMintAddress(asset));
+
+        return [asset, await client.lending.getUserPosition(mint, user)] as const;
+      }),
+    ),
   ]);
-  const detailsByUnderlying = new Map(
-    allDetails.map(detail => [detail.underlyingAddress.toBase58(), detail]),
-  );
-  const positionsByUnderlying = new Map(
-    userPositions.map(position => [position.jlTokenDetails.underlyingAddress.toBase58(), position]),
-  );
+  const detailsByAsset = new Map(details);
+  const positionsByAsset = new Map(positions);
 
   return {
     vaults: Object.fromEntries(
       YIELD_ASSETS.map(asset => {
-        const underlyingAddress = getTransferAssetMintAddress(asset);
-        const detail = detailsByUnderlying.get(underlyingAddress);
-        const position = positionsByUnderlying.get(underlyingAddress);
+        const detail = detailsByAsset.get(asset);
+        const position = positionsByAsset.get(asset);
 
         if (!detail) {
           throw new Error(`Yield vault data is unavailable for ${getTransferAssetLabel(asset)}.`);
@@ -64,6 +68,7 @@ export async function fetchYieldOnchainSnapshot(walletAddress: string): Promise<
           asset,
           {
             asset,
+            conversionRateToSharesRaw: detail.conversionRateToShares.toString(),
             decimals: detail.decimals,
             jlTokenMintAddress: detail.tokenAddress.toBase58(),
             rewardsRateRaw: detail.rewardsRate.toString(),
@@ -71,34 +76,13 @@ export async function fetchYieldOnchainSnapshot(walletAddress: string): Promise<
             totalAssetsRaw: detail.totalAssets.toString(),
             totalSupplyRaw: detail.totalSupply.toString(),
             underlyingAddress: detail.underlyingAddress.toBase58(),
-            userJlTokenSharesRaw: position?.userPosition.jlTokenShares.toString() ?? "0",
-            userPositionRaw: position?.userPosition.underlyingAssets.toString() ?? "0",
-            walletBalanceRaw: position?.userPosition.underlyingBalance.toString() ?? "0",
+            userJlTokenSharesRaw: position?.jlTokenShares.toString() ?? "0",
+            userPositionRaw: position?.underlyingAssets.toString() ?? "0",
+            walletBalanceRaw: position?.underlyingBalance.toString() ?? "0",
           } satisfies YieldOnchainVaultSnapshot,
         ];
       }),
     ) as Record<YieldAsset, YieldOnchainVaultSnapshot>,
-  };
-}
-
-export async function fetchYieldPreview(input: {
-  action: YieldAction;
-  amountRaw: string;
-  asset: YieldAsset;
-}): Promise<YieldPreviewResult> {
-  installBrowserPolyfills();
-  const [{ Client }, bnModule] = await Promise.all([import("@jup-ag/lend-read"), import("bn.js")]);
-  const BN = (bnModule.default ?? bnModule) as typeof import("bn.js");
-  const client = new Client(solanaConnection);
-  const assetMint = new PublicKey(getTransferAssetMintAddress(input.asset));
-  const amount = new BN(input.amountRaw);
-  const previews = await client.lending.getPreviews(assetMint, amount, amount);
-
-  return {
-    previewAmountRaw:
-      input.action === "deposit"
-        ? previews.previewDeposit.toString()
-        : previews.previewWithdraw.toString(),
   };
 }
 
@@ -220,6 +204,22 @@ export function derivePresetYieldAmount(rawAmount: string, asset: YieldAsset, di
   }
 
   return formatYieldRawAmount(nextRawAmount, asset);
+}
+
+export function estimateYieldPreviewSharesRaw(input: {
+  amountRaw: string;
+  asset: YieldAsset;
+  conversionRateToSharesRaw: string;
+}) {
+  const amountRaw = BigInt(input.amountRaw);
+
+  if (amountRaw <= 0n) {
+    return "0";
+  }
+
+  const scale = 10n ** BigInt(getTransferAssetDecimals(input.asset));
+
+  return ((amountRaw * BigInt(input.conversionRateToSharesRaw)) / scale).toString();
 }
 
 function formatRawAmount(rawAmount: string, decimals: number) {

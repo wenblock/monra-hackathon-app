@@ -26,11 +26,12 @@ import { buildYieldOverviewViewModel } from "@/features/yield/view-models";
 import { useYieldConfirmMutation } from "@/features/yield/use-yield-confirm-mutation";
 import { useYieldLedgerSummary } from "@/features/yield/use-yield-ledger-summary";
 import { useYieldOnchainQuery } from "@/features/yield/use-yield-onchain-query";
-import { useYieldPreviewQuery } from "@/features/yield/use-yield-preview-query";
 import {
   buildYieldTransaction,
   confirmYieldSignature,
   derivePresetYieldAmount,
+  estimateYieldPreviewSharesRaw,
+  formatYieldRawAmount,
   parseYieldAmount,
 } from "@/features/yield/runtime";
 import { logRuntimeError } from "@/lib/log-runtime-error";
@@ -83,21 +84,34 @@ function YieldPage() {
         ? `Insufficient ${selectedVault?.label ?? "asset"} balance for this deposit.`
         : `Amount exceeds the current ${selectedVault?.label ?? "asset"} position.`
       : null;
-  const previewQuery = useYieldPreviewQuery({
-    action: activeAction,
-    amountRaw:
-      amountValidation?.error || amountLimitError ? null : amountValidation?.rawAmount ?? null,
-    asset: selectedAsset ?? "usdc",
-    enabled: selectedAsset !== null,
-  });
+  const previewAmountDisplay = useMemo(() => {
+    if (!selectedVault || !selectedAsset || !amountValidation?.rawAmount) {
+      return null;
+    }
+
+    if (amountValidation.error || amountLimitError) {
+      return null;
+    }
+
+    const previewRawAmount = estimateYieldPreviewSharesRaw({
+      amountRaw: amountValidation.rawAmount,
+      asset: selectedAsset,
+      conversionRateToSharesRaw: selectedVault.conversionRateToSharesRaw,
+    });
+
+    return formatYieldRawAmount(previewRawAmount, selectedAsset);
+  }, [
+    amountLimitError,
+    amountValidation?.error,
+    amountValidation?.rawAmount,
+    selectedAsset,
+    selectedVault,
+  ]);
   const ledgerSummaryErrorMessage = ledgerSummaryQuery.error
     ? readErrorMessage(ledgerSummaryQuery.error, "Unable to load the yield ledger summary.")
     : null;
   const onchainErrorMessage = onchainQuery.error
     ? readErrorMessage(onchainQuery.error, "Unable to load yield market data.")
-    : null;
-  const previewErrorMessage = previewQuery.error
-    ? readErrorMessage(previewQuery.error, "Unable to preview this yield action.")
     : null;
 
   useEffect(() => {
@@ -332,8 +346,7 @@ function YieldPage() {
         }}
         onSubmit={() => void handleSubmit()}
         open={selectedVault !== null}
-        previewAmountRaw={previewQuery.data?.previewAmountRaw ?? null}
-        previewError={previewErrorMessage}
+        previewAmountDisplay={previewAmountDisplay}
         selectedAction={activeAction}
         submitError={submitError}
         vault={selectedVault}
@@ -356,8 +369,7 @@ function YieldVaultDialog(input: {
   onSelectPreset: (divisor: bigint) => void;
   onSubmit: () => void;
   open: boolean;
-  previewAmountRaw: string | null;
-  previewError: string | null;
+  previewAmountDisplay: string | null;
   selectedAction: YieldAction;
   submitError: string | null;
   vault: ReturnType<typeof buildYieldOverviewViewModel>["vaults"][number] | null;
@@ -412,11 +424,6 @@ function YieldVaultDialog(input: {
               <div className="rounded-[1.5rem] border border-[#1d2740] bg-[#111824] px-5 py-4">
                 <MetricLine label="APY" value={input.vault.apyDisplay} valueClassName="text-[#72f0b8]" />
                 <MetricLine label="Vault TVL" value={input.vault.tvlDisplay} subvalue={input.vault.tvlUsd} />
-                <MetricLine
-                  label="Total Supply"
-                  value={input.vault.totalSupplyDisplay}
-                  isLast
-                />
               </div>
 
               <div className="inline-flex w-full items-center rounded-full border border-[#182235] bg-[#081018] p-1">
@@ -496,18 +503,14 @@ function YieldVaultDialog(input: {
                     {" "}
                     {availabilityLabel}
                   </span>
-                  {input.previewAmountRaw ? (
+                  {input.previewAmountDisplay ? (
                     <span>
                       Estimated {input.selectedAction === "deposit" ? "shares minted" : "shares burned"}:
                       {" "}
-                      {input.previewAmountRaw}
+                      {input.previewAmountDisplay}
                     </span>
                   ) : null}
                 </div>
-
-                {input.previewError ? (
-                  <p className="mt-2 text-sm text-[#ffb4b4]">{input.previewError}</p>
-                ) : null}
               </div>
 
               <Button
@@ -582,7 +585,7 @@ function VaultRow(input: {
       />
       <DataCell
         label="TVL"
-        value={formatCompactAsset(input.vault.tvlRaw, input.vault.asset)}
+        value={input.vault.tvlDisplay}
         secondaryValue={input.vault.tvlUsd ?? "$0.00"}
       />
 
@@ -655,24 +658,6 @@ function PresetButton(input: { label: string; onClick: () => void }) {
 
 function LoadingRow() {
   return <div className="h-28 rounded-[1.35rem] bg-white/[0.03]" />;
-}
-
-function formatCompactAsset(rawAmount: string, asset: YieldAsset) {
-  const amount = Number.parseFloat(
-    rawAmount.replace(/^0+/, "") ? rawAmount : "0",
-  );
-
-  if (!Number.isFinite(amount)) {
-    return "0";
-  }
-
-  const divisor = asset === "usdc" || asset === "eurc" ? 1_000_000 : 1;
-  const formattedAmount = amount / divisor;
-
-  return `${new Intl.NumberFormat("en-US", {
-    maximumFractionDigits: 1,
-    notation: "compact",
-  }).format(formattedAmount)} ${asset.toUpperCase()}`;
 }
 
 export default YieldPage;

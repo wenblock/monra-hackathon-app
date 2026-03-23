@@ -42,8 +42,10 @@ describe("buildYieldOverviewViewModel", () => {
     expect(overview.totalDepositsUsd).toBe("$1.00");
     expect(overview.totalEarningsUsd).toBe("$0.25");
     expect(overview.projectedAnnualYieldUsd).toBe("$0.04");
-    expect(overview.vaults[0]?.apyDisplay).toBe("3.50%");
+    expect(overview.vaults[0]?.apyDisplay).toBe("3.35%");
     expect(overview.vaults[0]?.earningsDisplay).toBe("0.25 USDC");
+    expect(overview.vaults[0]?.tvlDisplay).toBe("524M USDC");
+    expect(overview.vaults[0]?.tvlUsd).toBe("$524M");
   });
 
   it("shows a warning when Monra has no principal recorded for an existing on-chain position", () => {
@@ -73,10 +75,11 @@ function createOnchainSnapshot(): YieldOnchainSnapshot {
     vaults: {
       eurc: {
         asset: "eurc",
+        conversionRateToSharesRaw: "998000",
         decimals: 6,
         jlTokenMintAddress: "jl-eurc",
-        rewardsRateRaw: "0",
-        supplyRateRaw: "0",
+        rewardsRateRaw: "8000000000",
+        supplyRateRaw: "2600000000",
         totalAssetsRaw: "13300000000000",
         totalSupplyRaw: "13300000000000",
         underlyingAddress: "eurc-mint",
@@ -86,10 +89,11 @@ function createOnchainSnapshot(): YieldOnchainSnapshot {
       },
       usdc: {
         asset: "usdc",
+        conversionRateToSharesRaw: "990000",
         decimals: 6,
         jlTokenMintAddress: "jl-usdc",
-        rewardsRateRaw: "5000000000",
-        supplyRateRaw: "30000000000",
+        rewardsRateRaw: "50000000000",
+        supplyRateRaw: "33500000000",
         totalAssetsRaw: "524000000000000",
         totalSupplyRaw: "522000000000000",
         underlyingAddress: "usdc-mint",

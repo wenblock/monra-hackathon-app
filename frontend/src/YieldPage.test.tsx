@@ -30,10 +30,6 @@ const yieldOnchainQueryMock = vi.hoisted(() => ({
   useYieldOnchainQuery: vi.fn(),
 }));
 
-const yieldPreviewQueryMock = vi.hoisted(() => ({
-  useYieldPreviewQuery: vi.fn(),
-}));
-
 const yieldConfirmMutationMock = vi.hoisted(() => ({
   useYieldConfirmMutation: vi.fn(),
 }));
@@ -60,7 +56,6 @@ vi.mock("@/features/dashboard/use-dashboard-snapshot", () => dashboardSnapshotMo
 vi.mock("@/features/session/use-persisted-solana-address", () => persistedSolanaAddressMock);
 vi.mock("@/features/yield/use-yield-ledger-summary", () => yieldLedgerSummaryMock);
 vi.mock("@/features/yield/use-yield-onchain-query", () => yieldOnchainQueryMock);
-vi.mock("@/features/yield/use-yield-preview-query", () => yieldPreviewQueryMock);
 vi.mock("@/features/yield/use-yield-confirm-mutation", () => yieldConfirmMutationMock);
 
 describe("YieldPage", () => {
@@ -126,10 +121,11 @@ describe("YieldPage", () => {
         vaults: {
           eurc: {
             asset: "eurc",
+            conversionRateToSharesRaw: "998000",
             decimals: 6,
             jlTokenMintAddress: "jl-eurc",
-            rewardsRateRaw: "2600000000",
-            supplyRateRaw: "0",
+            rewardsRateRaw: "8000000000",
+            supplyRateRaw: "2600000000",
             totalAssetsRaw: "13300000000000",
             totalSupplyRaw: "13300000000000",
             underlyingAddress: "eurc-mint",
@@ -139,10 +135,11 @@ describe("YieldPage", () => {
           },
           usdc: {
             asset: "usdc",
+            conversionRateToSharesRaw: "990000",
             decimals: 6,
             jlTokenMintAddress: "jl-usdc",
             rewardsRateRaw: "5000000000",
-            supplyRateRaw: "30000000000",
+            supplyRateRaw: "33500000000",
             totalAssetsRaw: "524000000000000",
             totalSupplyRaw: "522000000000000",
             underlyingAddress: "usdc-mint",
@@ -152,10 +149,6 @@ describe("YieldPage", () => {
           },
         },
       },
-      error: null,
-    });
-    yieldPreviewQueryMock.useYieldPreviewQuery.mockReturnValue({
-      data: null,
       error: null,
     });
     yieldConfirmMutationMock.useYieldConfirmMutation.mockReturnValue({
@@ -171,7 +164,7 @@ describe("YieldPage", () => {
     expect(screen.getByText("Your Deposits")).toBeInTheDocument();
     expect(screen.getByText("Projected Annual Yield")).toBeInTheDocument();
     expect(screen.getByText("Stablecoin vaults only")).toBeInTheDocument();
-    expect(screen.getByText("3.50%")).toBeInTheDocument();
+    expect(screen.getByText("3.35%")).toBeInTheDocument();
     expect(screen.getByText("0.26%")).toBeInTheDocument();
     expect(screen.getByText("524M USDC")).toBeInTheDocument();
     expect(screen.getByText("13.3M EURC")).toBeInTheDocument();
@@ -187,6 +180,26 @@ describe("YieldPage", () => {
       screen.getByText("Manage your Jupiter Earn position and record it in the Monra ledger."),
     ).toBeInTheDocument();
     expect(screen.getAllByText("Deposit").length).toBeGreaterThan(0);
+    expect(screen.getByText("Vault TVL")).toBeInTheDocument();
+    expect(screen.getAllByText("524M USDC").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("$524M").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Total Supply")).not.toBeInTheDocument();
+  });
+
+  it("computes the preview locally when the amount changes", () => {
+    renderWithQueryClient(<YieldPage />);
+
+    const vaultRowButton = screen
+      .getAllByRole("button")
+      .find(button => button.textContent?.includes("USDC") && button.textContent?.includes("Jupiter Earn vault"));
+
+    fireEvent.click(vaultRowButton!);
+    fireEvent.change(screen.getAllByPlaceholderText("0.00").at(-1)!, {
+      target: { value: "1.5" },
+    });
+
+    expect(screen.getByText(/Estimated shares minted:/)).toBeInTheDocument();
+    expect(screen.getByText(/1.485/)).toBeInTheDocument();
   });
 
   it("renders non-Error yield query failures without crashing", () => {
