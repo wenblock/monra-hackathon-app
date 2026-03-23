@@ -9,8 +9,16 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const shouldAnalyze = env.BUNDLE_ANALYZE?.trim() === "true";
 
-  if (mode !== "development" && !env.VITE_API_BASE_URL?.trim()) {
-    throw new Error("Missing required VITE_API_BASE_URL for non-development builds.");
+  if (mode !== "development") {
+    const missingEnv = ["VITE_API_BASE_URL", "VITE_SOLANA_RPC_URL"].filter(
+      key => !env[key]?.trim(),
+    );
+
+    if (missingEnv.length > 0) {
+      throw new Error(
+        `Missing required ${missingEnv.join(", ")} for non-development builds.`,
+      );
+    }
   }
 
   return {
