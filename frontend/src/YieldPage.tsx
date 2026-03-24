@@ -408,14 +408,22 @@ function YieldVaultDialog(input: {
                 <SummaryCard
                   label="Your Earnings"
                   value={input.vault.earningsDisplay}
-                  note={input.vault.earningsUsd ?? "$0.00"}
+                  note={
+                    input.vault.isUntrackedPosition
+                      ? `Current position: ${input.vault.currentPositionDisplay}`
+                      : (input.vault.earningsUsd ?? "$0.00")
+                  }
                   accentClass="text-[#d6ff7b]"
                   compact
                 />
                 <SummaryCard
                   label="Deposited"
                   value={input.vault.depositedDisplay}
-                  note={input.vault.depositedUsd ?? "$0.00"}
+                  note={
+                    input.vault.isUntrackedPosition
+                      ? "Future Monra Yield actions will start tracked principal."
+                      : (input.vault.depositedUsd ?? "$0.00")
+                  }
                   accentClass="text-white"
                   compact
                 />
@@ -569,6 +577,9 @@ function VaultRow(input: {
         <div>
           <p className="text-2xl font-semibold text-white">{input.vault.label}</p>
           <p className="mt-1 text-sm text-[#8ea0c6]">Jupiter Earn vault</p>
+          {input.vault.trackingBadge ? (
+            <p className="mt-1 text-sm text-[#d6c071]">{input.vault.trackingBadge}</p>
+          ) : null}
         </div>
       </div>
 

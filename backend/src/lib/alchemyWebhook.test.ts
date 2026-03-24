@@ -122,3 +122,200 @@ test("normalizeAlchemyTransaction creates EURC inbound and outbound ledger entri
     ],
   );
 });
+
+test("normalizeAlchemyTransaction classifies Jupiter Lend deposits as yield entries and keeps the network fee", () => {
+  const userWallet = "UserWallet111111111111111111111111111111111";
+  const userUsdcAccount = "UserUsdc111111111111111111111111111111111";
+  const vaultUsdcAccount = "VaultUsdc11111111111111111111111111111111";
+  const userJlUsdcAccount = "UserJlUsdc111111111111111111111111111111";
+  const vaultWallet = "VaultWallet1111111111111111111111111111111";
+
+  const usersByAddress = new Map([
+    [
+      userWallet,
+      {
+        id: 7,
+        publicId: "00000000-0000-4000-8000-000000000007",
+      },
+    ],
+  ]) as unknown as Map<string, AppUser>;
+
+  const normalizedEntries = normalizeAlchemyTransaction({
+    parsedTransaction: {
+      blockTime: 1_700_000_000,
+      meta: {
+        err: null,
+        fee: 5000,
+        postTokenBalances: [
+          {
+            accountIndex: 0,
+            mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            owner: userWallet,
+            uiTokenAmount: { amount: "1000000" },
+          },
+          {
+            accountIndex: 1,
+            mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            owner: vaultWallet,
+            uiTokenAmount: { amount: "1000000" },
+          },
+          {
+            accountIndex: 2,
+            mint: "9BEcn9aPEmhSPbPQeFGjidRiEKki46fVQDyPpSQXPA2D",
+            owner: userWallet,
+            uiTokenAmount: { amount: "1000000" },
+          },
+        ],
+        preTokenBalances: [
+          {
+            accountIndex: 0,
+            mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            owner: userWallet,
+            uiTokenAmount: { amount: "2000000" },
+          },
+          {
+            accountIndex: 1,
+            mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            owner: vaultWallet,
+            uiTokenAmount: { amount: "0" },
+          },
+        ],
+      },
+      transaction: {
+        message: {
+          accountKeys: [userUsdcAccount, vaultUsdcAccount, userJlUsdcAccount, userWallet, vaultWallet],
+          instructions: [
+            {
+              programId: "jup3YeL8QhtSx1e253b2FDvsMNC87fDrgQZivbrndc9",
+              parsed: {
+                info: {},
+                type: "deposit",
+              },
+            },
+            {
+              parsed: {
+                info: {
+                  amount: "1000000",
+                  destination: vaultUsdcAccount,
+                  source: userUsdcAccount,
+                },
+                type: "transferChecked",
+              },
+              program: "spl-token",
+            },
+          ],
+        },
+      },
+    },
+    signature: "yield-deposit-signature",
+    usersByAddress,
+  });
+
+  assert.equal(normalizedEntries.filter(entry => entry.entryType === "transfer").length, 0);
+  assert.deepEqual(
+    normalizedEntries.map(entry => entry.entryType),
+    ["yield_deposit", "network_fee"],
+  );
+  assert.equal(normalizedEntries[0]?.counterpartyName, "Jupiter USDC Earn Vault");
+});
+
+test("normalizeAlchemyTransaction classifies Jupiter Lend withdrawals as yield entries", () => {
+  const userWallet = "UserWallet222222222222222222222222222222222";
+  const vaultWallet = "VaultWallet2222222222222222222222222222222";
+  const usersByAddress = new Map([
+    [
+      userWallet,
+      {
+        id: 8,
+        publicId: "00000000-0000-4000-8000-000000000008",
+      },
+    ],
+  ]) as unknown as Map<string, AppUser>;
+
+  const normalizedEntries = normalizeAlchemyTransaction({
+    parsedTransaction: {
+      blockTime: 1_700_000_000,
+      meta: {
+        err: null,
+        fee: 0,
+        postTokenBalances: [
+          {
+            accountIndex: 0,
+            mint: "GcV9tEj62VncGithz4o4N9x6HWXARxuRgEAYk9zahNA8",
+            owner: userWallet,
+            uiTokenAmount: { amount: "0" },
+          },
+          {
+            accountIndex: 1,
+            mint: "HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr",
+            owner: userWallet,
+            uiTokenAmount: { amount: "1000000" },
+          },
+          {
+            accountIndex: 2,
+            mint: "HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr",
+            owner: vaultWallet,
+            uiTokenAmount: { amount: "0" },
+          },
+        ],
+        preTokenBalances: [
+          {
+            accountIndex: 0,
+            mint: "GcV9tEj62VncGithz4o4N9x6HWXARxuRgEAYk9zahNA8",
+            owner: userWallet,
+            uiTokenAmount: { amount: "1000000" },
+          },
+          {
+            accountIndex: 1,
+            mint: "HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr",
+            owner: userWallet,
+            uiTokenAmount: { amount: "0" },
+          },
+          {
+            accountIndex: 2,
+            mint: "HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr",
+            owner: vaultWallet,
+            uiTokenAmount: { amount: "1000000" },
+          },
+        ],
+      },
+      transaction: {
+        message: {
+          accountKeys: [
+            "UserJlEurcAccount11111111111111111111111111111",
+            "UserEurcAccount111111111111111111111111111111",
+            "VaultEurcAccount1111111111111111111111111111",
+            userWallet,
+            vaultWallet,
+          ],
+          instructions: [
+            {
+              programId: "jup3YeL8QhtSx1e253b2FDvsMNC87fDrgQZivbrndc9",
+              parsed: {
+                info: {},
+                type: "withdraw",
+              },
+            },
+            {
+              parsed: {
+                info: {
+                  amount: "1000000",
+                  destination: "UserEurcAccount111111111111111111111111111111",
+                  source: "VaultEurcAccount1111111111111111111111111111",
+                },
+                type: "transferChecked",
+              },
+              program: "spl-token",
+            },
+          ],
+        },
+      },
+    },
+    signature: "yield-withdraw-signature",
+    usersByAddress,
+  });
+
+  assert.equal(normalizedEntries.length, 1);
+  assert.equal(normalizedEntries[0]?.entryType, "yield_withdraw");
+  assert.equal(normalizedEntries[0]?.asset, "eurc");
+});

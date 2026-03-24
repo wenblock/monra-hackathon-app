@@ -1,5 +1,4 @@
 import {
-  getTransferAssetIconPath,
   getTransferAssetLabel,
 } from "@/assets";
 import type {
@@ -9,10 +8,11 @@ import type {
 } from "@/types";
 
 import { formatYieldCompactAsset, formatYieldCompactUsd } from "./formatters";
+import { getYieldAssetIconPath } from "./metadata";
 import { formatYieldRawAmount, type YieldOnchainSnapshot } from "./runtime";
 
 const YIELD_ASSETS = ["usdc", "eurc"] as const satisfies YieldAsset[];
-const YIELD_SUPPLY_RATE_PRECISION = 10_000_000_000;
+const YIELD_SUPPLY_RATE_PRECISION = 100;
 
 export interface YieldVaultViewModel {
   apyDisplay: string;
@@ -29,8 +29,10 @@ export interface YieldVaultViewModel {
   earningsRaw: string;
   earningsUsd: string | null;
   iconPath: string;
+  isUntrackedPosition: boolean;
   label: string;
   projectedAnnualYieldUsd: string | null;
+  trackingBadge: string | null;
   tvlDisplay: string;
   tvlRaw: string;
   tvlUsd: string | null;
@@ -61,9 +63,9 @@ export function buildYieldOverviewViewModel(input: {
   );
 
   return {
-    projectedAnnualYieldUsd: formatUsd(sumFinite(vaults.map(vault => parseUsd(vault.projectedAnnualYieldUsd)))),
-    totalDepositsUsd: formatUsd(sumFinite(vaults.map(vault => parseUsd(vault.depositedUsd)))),
-    totalEarningsUsd: formatUsd(sumFinite(vaults.map(vault => parseUsd(vault.earningsUsd)))),
+    projectedAnnualYieldUsd: formatUsd(sumPresent(vaults.map(vault => parseUsd(vault.projectedAnnualYieldUsd)))),
+    totalDepositsUsd: formatUsd(sumPresent(vaults.map(vault => parseUsd(vault.depositedUsd)))),
+    totalEarningsUsd: formatUsd(sumPresent(vaults.map(vault => parseUsd(vault.earningsUsd)))),
     vaults,
   };
 }
@@ -78,11 +80,20 @@ export function buildYieldVaultViewModel(input: {
   const label = getTransferAssetLabel(input.asset);
   const depositedRaw = input.depositedRaw;
   const currentPositionRaw = vault.userPositionRaw;
-  const earningsRaw = (BigInt(currentPositionRaw) - BigInt(depositedRaw)).toString();
+  const isUntrackedPosition = BigInt(currentPositionRaw) > 0n && BigInt(depositedRaw) === 0n;
+  const earningsRaw = maxBigIntString(BigInt(currentPositionRaw) - BigInt(depositedRaw));
   const apyPercent = Number(vault.supplyRateRaw) / YIELD_SUPPLY_RATE_PRECISION;
   const currentPositionUsdValue = calculateUsdValue(currentPositionRaw, input.asset, input.valuation);
   const projectedAnnualYieldUsdValue =
-    currentPositionUsdValue !== null ? currentPositionUsdValue * (apyPercent / 100) : null;
+    !isUntrackedPosition && currentPositionUsdValue !== null
+      ? currentPositionUsdValue * (apyPercent / 100)
+      : null;
+  const trackedDepositedUsdValue = isUntrackedPosition
+    ? null
+    : calculateUsdValue(depositedRaw, input.asset, input.valuation);
+  const trackedEarningsUsdValue = isUntrackedPosition
+    ? null
+    : calculateUsdValue(earningsRaw, input.asset, input.valuation);
 
   return {
     apyDisplay: `${apyPercent.toFixed(2)}%`,
@@ -92,21 +103,27 @@ export function buildYieldVaultViewModel(input: {
     currentPositionDisplay: `${formatYieldRawAmount(currentPositionRaw, input.asset)} ${label}`,
     currentPositionRaw,
     currentPositionUsd: formatUsd(currentPositionUsdValue),
-    depositedDisplay: `${formatYieldRawAmount(depositedRaw, input.asset)} ${label}`,
+    depositedDisplay: isUntrackedPosition
+      ? "Untracked"
+      : `${formatYieldRawAmount(depositedRaw, input.asset)} ${label}`,
     depositedRaw,
-    depositedUsd: formatUsd(calculateUsdValue(depositedRaw, input.asset, input.valuation)),
-    earningsDisplay: `${formatYieldRawAmount(earningsRaw, input.asset)} ${label}`,
+    depositedUsd: formatUsd(trackedDepositedUsdValue),
+    earningsDisplay: isUntrackedPosition
+      ? "Untracked"
+      : `${formatYieldRawAmount(earningsRaw, input.asset)} ${label}`,
     earningsRaw,
-    earningsUsd: formatUsd(calculateUsdValue(earningsRaw, input.asset, input.valuation)),
-    iconPath: getTransferAssetIconPath(input.asset),
+    earningsUsd: formatUsd(trackedEarningsUsdValue),
+    iconPath: getYieldAssetIconPath(input.asset),
+    isUntrackedPosition,
     label,
     projectedAnnualYieldUsd: formatUsd(projectedAnnualYieldUsdValue),
+    trackingBadge: isUntrackedPosition ? "Untracked position" : null,
     tvlDisplay: formatYieldCompactAsset(vault.totalAssetsRaw, input.asset),
     tvlRaw: vault.totalAssetsRaw,
     tvlUsd: formatYieldCompactUsd(calculateUsdValue(vault.totalAssetsRaw, input.asset, input.valuation)),
     warning:
-      BigInt(currentPositionRaw) > 0n && BigInt(depositedRaw) === 0n
-        ? `This ${label} position exists on-chain, but Monra has no recorded Yield principal for it yet.`
+      isUntrackedPosition
+        ? `This ${label} position predates Monra Yield tracking. New Monra Yield activity will be tracked, but this existing position remains untracked.`
         : null,
     walletBalanceDisplay: `${formatYieldRawAmount(vault.walletBalanceRaw, input.asset)} ${label}`,
     walletBalanceRaw: vault.walletBalanceRaw,
@@ -136,18 +153,24 @@ function parseUsd(value: string | null) {
   return Number.parseFloat(value.replace(/[$,]/g, ""));
 }
 
-function sumFinite(values: Array<number | null>) {
+function sumPresent(values: Array<number | null>) {
   let total = 0;
+  let hasValue = false;
 
   for (const value of values) {
     if (value === null || !Number.isFinite(value)) {
-      return null;
+      continue;
     }
 
+    hasValue = true;
     total += value;
   }
 
-  return total;
+  return hasValue ? total : null;
+}
+
+function maxBigIntString(value: bigint) {
+  return value > 0n ? value.toString() : "0";
 }
 
 function formatUsd(value: number | null) {

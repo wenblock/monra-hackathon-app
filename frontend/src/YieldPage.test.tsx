@@ -125,7 +125,7 @@ describe("YieldPage", () => {
             decimals: 6,
             jlTokenMintAddress: "jl-eurc",
             rewardsRateRaw: "8000000000",
-            supplyRateRaw: "2600000000",
+            supplyRateRaw: "26",
             totalAssetsRaw: "13300000000000",
             totalSupplyRaw: "13300000000000",
             underlyingAddress: "eurc-mint",
@@ -139,7 +139,7 @@ describe("YieldPage", () => {
             decimals: 6,
             jlTokenMintAddress: "jl-usdc",
             rewardsRateRaw: "5000000000",
-            supplyRateRaw: "33500000000",
+            supplyRateRaw: "335",
             totalAssetsRaw: "524000000000000",
             totalSupplyRaw: "522000000000000",
             underlyingAddress: "usdc-mint",
@@ -168,6 +168,7 @@ describe("YieldPage", () => {
     expect(screen.getByText("0.26%")).toBeInTheDocument();
     expect(screen.getByText("524M USDC")).toBeInTheDocument();
     expect(screen.getByText("13.3M EURC")).toBeInTheDocument();
+    expect(screen.getByAltText("USDC token icon")).toHaveAttribute("src", "/jlusdc.webp");
 
     const vaultRowButton = screen
       .getAllByRole("button")
@@ -214,5 +215,29 @@ describe("YieldPage", () => {
 
     expect(screen.getByText("Yield market data unavailable")).toBeInTheDocument();
     expect(screen.getByText("Buffer is not defined")).toBeInTheDocument();
+  });
+
+  it("shows the untracked state for existing positions with no recorded principal", () => {
+    yieldLedgerSummaryMock.useYieldLedgerSummary.mockReturnValue({
+      data: {
+        ledgerSummary: {
+          eurc: {
+            formatted: "0",
+            raw: "0",
+          },
+          usdc: {
+            formatted: "0",
+            raw: "0",
+          },
+        },
+      },
+      error: null,
+    });
+
+    renderWithQueryClient(<YieldPage />);
+
+    expect(screen.getByText("Untracked position")).toBeInTheDocument();
+    expect(screen.getAllByText("Untracked").length).toBeGreaterThan(1);
+    expect(screen.getByText("$0.00")).toBeInTheDocument();
   });
 });

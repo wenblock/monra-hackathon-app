@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AppUser } from "../types.js";
+import type { TokenBalanceAmount, TransactionStreamResponse, YieldAsset } from "../types.js";
 
 process.env.ALLOWED_ORIGINS = "http://localhost:3000";
 process.env.DATABASE_URL = "postgres://postgres:postgres@localhost:5432/monra";
@@ -19,16 +20,18 @@ const { ServiceError } = await import("./errors.js");
 
 const JUPITER_LEND_EARN_PROGRAM_ID = "jup3YeL8QhtSx1e253b2FDvsMNC87fDrgQZivbrndc9";
 const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+const JL_USDC_MINT = "9BEcn9aPEmhSPbPQeFGjidRiEKki46fVQDyPpSQXPA2D";
 const USER_WALLET_ADDRESS = "Wallet1111111111111111111111111111111111111";
 const USER_TOKEN_ACCOUNT = "UserToken1111111111111111111111111111111111";
 const VAULT_TOKEN_ACCOUNT = "VaultToken111111111111111111111111111111111";
+const USER_JL_TOKEN_ACCOUNT = "UserJlToken1111111111111111111111111111111";
 const VAULT_WALLET_ADDRESS = "VaultWallet1111111111111111111111111111111";
 
 test("getYieldLedgerSummaryForUser delegates to the repository", async () => {
   const summary = await getYieldLedgerSummaryForUser(
     7,
     {
-      async getYieldLedgerSummaryByUserId(userId) {
+      async getYieldLedgerSummaryByUserId(userId: number) {
         assert.equal(userId, 7);
         return {
           eurc: { formatted: "0", raw: "0" },
@@ -42,7 +45,13 @@ test("getYieldLedgerSummaryForUser delegates to the repository", async () => {
 });
 
 test("confirmYieldTransactionForUser validates the transfer and records the confirmed deposit", async () => {
-  let storedInput: Record<string, unknown> | null = null;
+  let storedInput: {
+    action: "deposit" | "withdraw";
+    amountRaw: string;
+    asset: YieldAsset;
+    counterpartyWalletAddress?: string | null;
+    fromWalletAddress: string;
+  } | null = null;
   let broadcastedUserId: number | null = null;
 
   const result = await confirmYieldTransactionForUser(
@@ -54,12 +63,22 @@ test("confirmYieldTransactionForUser validates the transfer and records the conf
       user: createUserFixture(),
     },
     {
-      async broadcastLatestTransactionSnapshot(userId, balances) {
+      async broadcastLatestTransactionSnapshot(
+        userId: number,
+        balances: Record<"sol" | "usdc" | "eurc", TokenBalanceAmount> | undefined,
+      ) {
         broadcastedUserId = userId;
         assert.equal((balances as any).usdc.raw, "0");
+        return {} as TransactionStreamResponse;
       },
-      async createConfirmedYieldTransaction(input) {
-        storedInput = input as unknown as Record<string, unknown>;
+      async createConfirmedYieldTransaction(input: {
+        action: "deposit" | "withdraw";
+        amountRaw: string;
+        asset: YieldAsset;
+        counterpartyWalletAddress?: string | null;
+        fromWalletAddress: string;
+      }) {
+        storedInput = input;
         return {
           balances: {
             eurc: { formatted: "0", raw: "0" },
@@ -179,11 +198,25 @@ function createParsedYieldDepositTransactionFixture(
           accountIndex: 0,
           mint: USDC_MINT,
           owner: USER_WALLET_ADDRESS,
+          uiTokenAmount: {
+            amount: "1000000",
+          },
         },
         {
           accountIndex: 1,
           mint: USDC_MINT,
           owner: VAULT_WALLET_ADDRESS,
+          uiTokenAmount: {
+            amount: "1000000",
+          },
+        },
+        {
+          accountIndex: 2,
+          mint: JL_USDC_MINT,
+          owner: USER_WALLET_ADDRESS,
+          uiTokenAmount: {
+            amount: "1000000",
+          },
         },
       ],
       preTokenBalances: [
@@ -191,11 +224,17 @@ function createParsedYieldDepositTransactionFixture(
           accountIndex: 0,
           mint: USDC_MINT,
           owner: USER_WALLET_ADDRESS,
+          uiTokenAmount: {
+            amount: "2000000",
+          },
         },
         {
           accountIndex: 1,
           mint: USDC_MINT,
           owner: VAULT_WALLET_ADDRESS,
+          uiTokenAmount: {
+            amount: "0",
+          },
         },
       ],
     },
@@ -204,6 +243,7 @@ function createParsedYieldDepositTransactionFixture(
         accountKeys: [
           USER_TOKEN_ACCOUNT,
           VAULT_TOKEN_ACCOUNT,
+          USER_JL_TOKEN_ACCOUNT,
           {
             pubkey: USER_WALLET_ADDRESS,
             signer: true,

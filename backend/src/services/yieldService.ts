@@ -4,11 +4,10 @@ import { getTransferAssetLabel } from "../lib/assets.js";
 import { normalizeSwapAmount } from "../lib/amounts.js";
 import { normalizeAlchemyTransaction } from "../lib/alchemyWebhook.js";
 import { broadcastLatestTransactionSnapshot } from "../lib/transactionStream.js";
+import { includesJupiterLendEarnInstruction } from "../lib/yield.js";
 import type { AlchemyParsedTransactionResult } from "../lib/alchemy.js";
 import type { AppUser, YieldAction, YieldAsset } from "../types.js";
 import { ServiceError } from "./errors.js";
-
-const JUPITER_LEND_EARN_PROGRAM_ID = "jup3YeL8QhtSx1e253b2FDvsMNC87fDrgQZivbrndc9";
 
 interface YieldServiceDependencies {
   broadcastLatestTransactionSnapshot: typeof broadcastLatestTransactionSnapshot;
@@ -139,33 +138,11 @@ function findMatchingYieldTransfer(input: {
   return (
     normalizedEntries.find(
       entry =>
-        entry.entryType === "transfer" &&
+        entry.entryType === (input.action === "deposit" ? "yield_deposit" : "yield_withdraw") &&
         entry.direction === expectedDirection &&
         entry.asset === input.asset &&
         entry.amountRaw === input.amountRaw &&
         entry.trackedWalletAddress === userWalletAddress,
     ) ?? null
   );
-}
-
-function includesJupiterLendEarnInstruction(parsedTransaction: AlchemyParsedTransactionResult) {
-  return flattenParsedInstructions(parsedTransaction).some(
-    instruction => instruction.programId === JUPITER_LEND_EARN_PROGRAM_ID,
-  );
-}
-
-function flattenParsedInstructions(parsedTransaction: AlchemyParsedTransactionResult) {
-  const instructions = [
-    ...(parsedTransaction.transaction?.message?.instructions ?? []),
-    ...((parsedTransaction.meta?.innerInstructions ?? []).flatMap(inner =>
-      Array.isArray(inner.instructions) ? inner.instructions : [],
-    )),
-  ];
-
-  return instructions.map(instruction => ({
-    programId:
-      typeof instruction.programId === "string" && instruction.programId.trim().length > 0
-        ? instruction.programId
-        : null,
-  }));
 }

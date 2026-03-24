@@ -475,12 +475,15 @@ export async function getYieldLedgerSummaryByUserId(userId: number): Promise<Yie
       SELECT
         asset,
         COALESCE(
-          SUM(
-            CASE
-              WHEN entry_type = 'yield_deposit' THEN amount_raw::NUMERIC
-              WHEN entry_type = 'yield_withdraw' THEN -amount_raw::NUMERIC
-              ELSE 0
-            END
+          GREATEST(
+            SUM(
+              CASE
+                WHEN entry_type = 'yield_deposit' THEN amount_raw::NUMERIC
+                WHEN entry_type = 'yield_withdraw' THEN -amount_raw::NUMERIC
+                ELSE 0
+              END
+            ),
+            0
           )::TEXT,
           '0'
         ) AS principal_raw

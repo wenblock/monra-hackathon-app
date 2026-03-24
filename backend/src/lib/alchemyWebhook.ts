@@ -1,6 +1,12 @@
 import type { AppUser, TransactionDirection, TransactionEntryType, TransferAsset } from "../types.js";
 import { formatTokenAmount, type AlchemyParsedTransactionResult } from "./alchemy.js";
-import { getSplTokenAssetByMintAddress, getTransferAssetDecimals } from "./assets.js";
+import { getSplTokenAssetByMintAddress, getTransferAssetDecimals, isYieldAsset } from "./assets.js";
+import {
+  getYieldAssetByJlTokenMintAddress,
+  getYieldJlTokenMintAddress,
+  getYieldVaultCounterpartyName,
+  includesJupiterLendEarnInstruction,
+} from "./yield.js";
 
 interface AlchemyWebhookTransactionItem {
   signature?: string;
@@ -234,6 +240,12 @@ export function normalizeAlchemyTransaction(input: {
     }
   }
 
+  reclassifyYieldEntries({
+    normalizedEntries,
+    parsedTransaction: input.parsedTransaction,
+    signature: input.signature,
+  });
+
   const payer = getFeePayerAddress(input.parsedTransaction, accountKeys);
   const fee = Number.isFinite(input.parsedTransaction.meta?.fee)
     ? BigInt(input.parsedTransaction.meta?.fee ?? 0)
@@ -259,6 +271,52 @@ export function normalizeAlchemyTransaction(input: {
   }
 
   return normalizedEntries;
+}
+
+function reclassifyYieldEntries(input: {
+  normalizedEntries: NormalizedLedgerEntryCandidate[];
+  parsedTransaction: AlchemyParsedTransactionResult;
+  signature: string;
+}) {
+  if (!includesJupiterLendEarnInstruction(input.parsedTransaction)) {
+    return;
+  }
+
+  const ownerMintDeltas = createOwnerMintDeltas(input.parsedTransaction);
+
+  for (const entry of input.normalizedEntries) {
+    if (entry.entryType !== "transfer" || !isYieldAsset(entry.asset)) {
+      continue;
+    }
+
+    const shareDelta =
+      ownerMintDeltas.get(`${entry.trackedWalletAddress}:${getYieldJlTokenMintAddress(entry.asset)}`) ?? 0n;
+
+    if (entry.direction === "outbound" && shareDelta > 0n) {
+      entry.entryType = "yield_deposit";
+      entry.counterpartyName = getYieldVaultCounterpartyName(entry.asset);
+      entry.normalizationKey = buildNormalizationKey(
+        input.signature,
+        `yield:${entry.asset}`,
+        entry.trackedWalletAddress,
+        entry.entryType,
+        entry.direction,
+      );
+      continue;
+    }
+
+    if (entry.direction === "inbound" && shareDelta < 0n) {
+      entry.entryType = "yield_withdraw";
+      entry.counterpartyName = getYieldVaultCounterpartyName(entry.asset);
+      entry.normalizationKey = buildNormalizationKey(
+        input.signature,
+        `yield:${entry.asset}`,
+        entry.trackedWalletAddress,
+        entry.entryType,
+        entry.direction,
+      );
+    }
+  }
 }
 
 export function extractCandidateWalletAddresses(parsedTransaction: AlchemyParsedTransactionResult) {
@@ -374,6 +432,49 @@ function createTokenOwnersByAccount(
   }
 
   return ownersByAccount;
+}
+
+function createOwnerMintDeltas(parsedTransaction: AlchemyParsedTransactionResult) {
+  const balancesByOwnerMint = new Map<string, { post: bigint; pre: bigint }>();
+
+  for (const tokenBalance of parsedTransaction.meta?.preTokenBalances ?? []) {
+    const owner = typeof tokenBalance.owner === "string" ? tokenBalance.owner : null;
+    const mint = resolveYieldRelevantMint(tokenBalance.mint);
+    const amount = readBigInt(tokenBalance.uiTokenAmount?.amount);
+
+    if (!owner || !mint || amount === null) {
+      continue;
+    }
+
+    const key = `${owner}:${mint}`;
+    const current = balancesByOwnerMint.get(key) ?? { post: 0n, pre: 0n };
+    current.pre += amount;
+    balancesByOwnerMint.set(key, current);
+  }
+
+  for (const tokenBalance of parsedTransaction.meta?.postTokenBalances ?? []) {
+    const owner = typeof tokenBalance.owner === "string" ? tokenBalance.owner : null;
+    const mint = resolveYieldRelevantMint(tokenBalance.mint);
+    const amount = readBigInt(tokenBalance.uiTokenAmount?.amount);
+
+    if (!owner || !mint || amount === null) {
+      continue;
+    }
+
+    const key = `${owner}:${mint}`;
+    const current = balancesByOwnerMint.get(key) ?? { post: 0n, pre: 0n };
+    current.post += amount;
+    balancesByOwnerMint.set(key, current);
+  }
+
+  return new Map(
+    Array.from(balancesByOwnerMint.entries()).map(([key, amounts]) => [key, amounts.post - amounts.pre]),
+  );
+}
+
+function resolveYieldRelevantMint(value: string | null | undefined) {
+  const shareAsset = getYieldAssetByJlTokenMintAddress(value);
+  return shareAsset ? getYieldJlTokenMintAddress(shareAsset) : null;
 }
 
 function getFeePayerAddress(parsedTransaction: AlchemyParsedTransactionResult, accountKeys: string[]) {

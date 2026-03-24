@@ -167,7 +167,7 @@ async function buildAlchemyEffectsForSignature(input: {
   const effects: AlchemyWebhookEffect[] = [];
 
   for (const entry of normalizedEntries) {
-    if (entry.entryType === "transfer" && managedActionUserIdSet.has(entry.userId)) {
+    if (entry.entryType !== "network_fee" && managedActionUserIdSet.has(entry.userId)) {
       continue;
     }
 

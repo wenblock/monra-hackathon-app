@@ -1,13 +1,11 @@
 import { PublicKey, TransactionMessage, VersionedTransaction } from "@solana/web3.js";
 
-import {
-  getTransferAssetDecimals,
-  getTransferAssetLabel,
-  getTransferAssetMintAddress,
-} from "@/assets";
+import { getTransferAssetDecimals } from "@/assets";
 import { getInstalledBuffer, installBrowserPolyfills } from "@/lib/browser-polyfills";
 import { solanaConnection } from "@/lib/solana-connection";
 import type { YieldAction, YieldAsset } from "@/types";
+
+import { getYieldAssetLabel, getYieldAssetUnderlyingMintAddress } from "./metadata";
 
 const YIELD_ASSETS = ["usdc", "eurc"] as const satisfies YieldAsset[];
 
@@ -38,14 +36,14 @@ export async function fetchYieldOnchainSnapshot(walletAddress: string): Promise<
   const [details, positions] = await Promise.all([
     Promise.all(
       YIELD_ASSETS.map(async asset => {
-        const mint = new PublicKey(getTransferAssetMintAddress(asset));
+        const mint = new PublicKey(getYieldAssetUnderlyingMintAddress(asset));
 
         return [asset, await client.lending.getJlTokenDetails(mint)] as const;
       }),
     ),
     Promise.all(
       YIELD_ASSETS.map(async asset => {
-        const mint = new PublicKey(getTransferAssetMintAddress(asset));
+        const mint = new PublicKey(getYieldAssetUnderlyingMintAddress(asset));
 
         return [asset, await client.lending.getUserPosition(mint, user)] as const;
       }),
@@ -61,7 +59,7 @@ export async function fetchYieldOnchainSnapshot(walletAddress: string): Promise<
         const position = positionsByAsset.get(asset);
 
         if (!detail) {
-          throw new Error(`Yield vault data is unavailable for ${getTransferAssetLabel(asset)}.`);
+          throw new Error(`Yield vault data is unavailable for ${getYieldAssetLabel(asset)}.`);
         }
 
         return [
@@ -96,7 +94,7 @@ export async function buildYieldTransaction(input: {
   const [lendModule, bnModule] = await Promise.all([import("@jup-ag/lend/earn"), import("bn.js")]);
   const BN = (bnModule.default ?? bnModule) as typeof import("bn.js");
   const Buffer = getInstalledBuffer();
-  const assetPublicKey = new PublicKey(getTransferAssetMintAddress(input.asset));
+  const assetPublicKey = new PublicKey(getYieldAssetUnderlyingMintAddress(input.asset));
   const signerPublicKey = new PublicKey(input.walletAddress);
   const amount = new BN(input.amountRaw);
   const { blockhash, lastValidBlockHeight } = await solanaConnection.getLatestBlockhash("confirmed");
@@ -167,7 +165,7 @@ export function parseYieldAmount(value: string, asset: YieldAsset) {
 
   if (!amountPattern.test(trimmed)) {
     return {
-      error: `Enter a valid ${getTransferAssetLabel(asset)} amount with up to ${decimals} decimal places.`,
+      error: `Enter a valid ${getYieldAssetLabel(asset)} amount with up to ${decimals} decimal places.`,
       normalizedDecimal: null,
       rawAmount: null,
     };

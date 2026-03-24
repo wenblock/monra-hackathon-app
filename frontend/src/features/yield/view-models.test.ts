@@ -48,7 +48,7 @@ describe("buildYieldOverviewViewModel", () => {
     expect(overview.vaults[0]?.tvlUsd).toBe("$524M");
   });
 
-  it("shows a warning when Monra has no principal recorded for an existing on-chain position", () => {
+  it("marks existing untracked positions instead of treating them as earnings", () => {
     const overview = buildYieldOverviewViewModel({
       ledgerSummary: {
         eurc: {
@@ -64,8 +64,14 @@ describe("buildYieldOverviewViewModel", () => {
       valuation,
     });
 
+    expect(overview.totalDepositsUsd).toBe("$0.00");
+    expect(overview.totalEarningsUsd).toBe("$0.00");
+    expect(overview.projectedAnnualYieldUsd).toBe("$0.00");
+    expect(overview.vaults[0]?.depositedDisplay).toBe("Untracked");
+    expect(overview.vaults[0]?.earningsDisplay).toBe("Untracked");
+    expect(overview.vaults[0]?.trackingBadge).toBe("Untracked position");
     expect(overview.vaults[0]?.warning).toBe(
-      "This USDC position exists on-chain, but Monra has no recorded Yield principal for it yet.",
+      "This USDC position predates Monra Yield tracking. New Monra Yield activity will be tracked, but this existing position remains untracked.",
     );
   });
 });
@@ -79,7 +85,7 @@ function createOnchainSnapshot(): YieldOnchainSnapshot {
         decimals: 6,
         jlTokenMintAddress: "jl-eurc",
         rewardsRateRaw: "8000000000",
-        supplyRateRaw: "2600000000",
+        supplyRateRaw: "26",
         totalAssetsRaw: "13300000000000",
         totalSupplyRaw: "13300000000000",
         underlyingAddress: "eurc-mint",
@@ -93,7 +99,7 @@ function createOnchainSnapshot(): YieldOnchainSnapshot {
         decimals: 6,
         jlTokenMintAddress: "jl-usdc",
         rewardsRateRaw: "50000000000",
-        supplyRateRaw: "33500000000",
+        supplyRateRaw: "335",
         totalAssetsRaw: "524000000000000",
         totalSupplyRaw: "522000000000000",
         underlyingAddress: "usdc-mint",
