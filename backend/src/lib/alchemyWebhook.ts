@@ -2,6 +2,7 @@ import type { AppUser, TransactionDirection, TransactionEntryType, TransferAsset
 import { formatTokenAmount, type AlchemyParsedTransactionResult } from "./alchemy.js";
 import { getSplTokenAssetByMintAddress, getTransferAssetDecimals, isYieldAsset } from "./assets.js";
 import {
+  buildYieldNormalizationKey,
   getYieldAssetByJlTokenMintAddress,
   getYieldJlTokenMintAddress,
   getYieldVaultCounterpartyName,
@@ -295,26 +296,24 @@ function reclassifyYieldEntries(input: {
     if (entry.direction === "outbound" && shareDelta > 0n) {
       entry.entryType = "yield_deposit";
       entry.counterpartyName = getYieldVaultCounterpartyName(entry.asset);
-      entry.normalizationKey = buildNormalizationKey(
-        input.signature,
-        `yield:${entry.asset}`,
-        entry.trackedWalletAddress,
-        entry.entryType,
-        entry.direction,
-      );
+      entry.normalizationKey = buildYieldNormalizationKey({
+        asset: entry.asset,
+        entryType: entry.entryType,
+        signature: input.signature,
+        trackedWalletAddress: entry.trackedWalletAddress,
+      });
       continue;
     }
 
     if (entry.direction === "inbound" && shareDelta < 0n) {
       entry.entryType = "yield_withdraw";
       entry.counterpartyName = getYieldVaultCounterpartyName(entry.asset);
-      entry.normalizationKey = buildNormalizationKey(
-        input.signature,
-        `yield:${entry.asset}`,
-        entry.trackedWalletAddress,
-        entry.entryType,
-        entry.direction,
-      );
+      entry.normalizationKey = buildYieldNormalizationKey({
+        asset: entry.asset,
+        entryType: entry.entryType,
+        signature: input.signature,
+        trackedWalletAddress: entry.trackedWalletAddress,
+      });
     }
   }
 }

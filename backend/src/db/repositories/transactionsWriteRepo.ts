@@ -2,6 +2,11 @@ import type { PoolClient } from "pg";
 
 import { TRANSFER_ASSETS, getTransferAssetDecimals, getTransferAssetLabel } from "../../lib/assets.js";
 import { formatAssetAmount, parseDecimalAmountToRaw } from "../../lib/amounts.js";
+import {
+  buildYieldNormalizationKey,
+  getYieldLedgerDirection,
+  getYieldLedgerEntryType,
+} from "../../lib/yield.js";
 import type {
   BridgeSourceDepositInstructions,
   BridgeTransferState,
@@ -80,10 +85,6 @@ function buildOfframpNormalizationKey(bridgeTransferId: string) {
 
 function buildSwapNormalizationKey(transactionSignature: string, trackedWalletAddress: string) {
   return `swap:${transactionSignature}:${trackedWalletAddress}`;
-}
-
-function buildYieldNormalizationKey(transactionSignature: string, trackedWalletAddress: string) {
-  return `yield:${transactionSignature}:${trackedWalletAddress}`;
 }
 
 export function addBalanceDelta(
@@ -364,9 +365,14 @@ export async function createConfirmedSwapTransaction(input: CreateConfirmedSwapT
 }
 
 export async function createConfirmedYieldTransaction(input: CreateConfirmedYieldTransactionInput) {
-  const normalizationKey = buildYieldNormalizationKey(input.transactionSignature, input.walletAddress);
-  const direction = input.action === "deposit" ? "outbound" : "inbound";
-  const entryType = input.action === "deposit" ? "yield_deposit" : "yield_withdraw";
+  const entryType = getYieldLedgerEntryType(input.action);
+  const normalizationKey = buildYieldNormalizationKey({
+    asset: input.asset,
+    entryType,
+    signature: input.transactionSignature,
+    trackedWalletAddress: input.walletAddress,
+  });
+  const direction = getYieldLedgerDirection(input.action);
   const counterpartyName = `Jupiter ${getTransferAssetLabel(input.asset)} Earn Vault`;
 
   return withTransaction(async client => {

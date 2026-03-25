@@ -19,6 +19,7 @@ process.env.BRIDGE_WEBHOOK_PUBLIC_KEY = publicKeyPem;
 process.env.BRIDGE_WEBHOOK_MAX_AGE_MS = "600000";
 
 const { normalizeAlchemyTransaction } = await import("./alchemyWebhook.js");
+const { buildYieldNormalizationKey } = await import("./yield.js");
 
 test("normalizeAlchemyTransaction creates EURC inbound and outbound ledger entries", () => {
   const sourceWallet = "SourceWallet111111111111111111111111111111";
@@ -217,6 +218,15 @@ test("normalizeAlchemyTransaction classifies Jupiter Lend deposits as yield entr
     ["yield_deposit"],
   );
   assert.equal(normalizedEntries[0]?.counterpartyName, "Jupiter USDC Earn Vault");
+  assert.equal(
+    normalizedEntries[0]?.normalizationKey,
+    buildYieldNormalizationKey({
+      asset: "usdc",
+      entryType: "yield_deposit",
+      signature: "yield-deposit-signature",
+      trackedWalletAddress: userWallet,
+    }),
+  );
 });
 
 test("normalizeAlchemyTransaction classifies Jupiter Lend withdrawals as yield entries", () => {
@@ -318,4 +328,13 @@ test("normalizeAlchemyTransaction classifies Jupiter Lend withdrawals as yield e
   assert.equal(normalizedEntries.length, 1);
   assert.equal(normalizedEntries[0]?.entryType, "yield_withdraw");
   assert.equal(normalizedEntries[0]?.asset, "usdc");
+  assert.equal(
+    normalizedEntries[0]?.normalizationKey,
+    buildYieldNormalizationKey({
+      asset: "usdc",
+      entryType: "yield_withdraw",
+      signature: "yield-withdraw-signature",
+      trackedWalletAddress: userWallet,
+    }),
+  );
 });

@@ -116,6 +116,89 @@ test("confirmYieldTransactionForUser validates the transfer and records the conf
   assert.equal((result as any).transaction.id, 99);
 });
 
+test("confirmYieldTransactionForUser reuses an existing stored yield transaction without reinserting", async () => {
+  let createConfirmedYieldTransactionCalls = 0;
+  let broadcastCalls = 0;
+
+  const result = await confirmYieldTransactionForUser(
+    {
+      action: "deposit",
+      amount: "1",
+      asset: "usdc",
+      transactionSignature: "yield-signature-existing",
+      user: createUserFixture(),
+    },
+    {
+      async broadcastLatestTransactionSnapshot() {
+        broadcastCalls += 1;
+        return {} as TransactionStreamResponse;
+      },
+      async createConfirmedYieldTransaction() {
+        createConfirmedYieldTransactionCalls += 1;
+        throw new Error("should not be called");
+      },
+      async fetchSolanaParsedTransaction() {
+        throw new Error("should not be called");
+      },
+      async getUserBalancesByUserId() {
+        return {
+          eurc: { formatted: "0", raw: "0" },
+          sol: { formatted: "0", raw: "0" },
+          usdc: { formatted: "4", raw: "4000000" },
+        };
+      },
+      async getYieldPositionByUserId() {
+        return createYieldTrackedPositionFixture("4000000");
+      },
+      async getYieldTransactionByUserIdAndSignature() {
+        return {
+          amountDecimal: "1",
+          amountDisplay: "1 USDC",
+          amountRaw: "1000000",
+          asset: "usdc",
+          bridgeDestinationTxHash: null,
+          bridgeReceiptUrl: null,
+          bridgeSourceAmount: null,
+          bridgeSourceCurrency: null,
+          bridgeSourceDepositInstructions: null,
+          bridgeTransferId: null,
+          bridgeTransferStatus: null,
+          confirmedAt: "2026-03-25T00:00:00.000Z",
+          counterpartyName: "Jupiter USDC Earn Vault",
+          counterpartyWalletAddress: "VaultWallet1111111111111111111111111111111",
+          createdAt: "2026-03-25T00:00:00.000Z",
+          direction: "outbound",
+          entryType: "yield_deposit",
+          failedAt: null,
+          failureReason: null,
+          fromWalletAddress: USER_WALLET_ADDRESS,
+          id: 44,
+          network: "solana-mainnet",
+          networkFeeDisplay: null,
+          networkFeeRaw: null,
+          outputAmountDecimal: null,
+          outputAmountDisplay: null,
+          outputAmountRaw: null,
+          outputAsset: null,
+          publicId: "00000000-0000-4000-8000-000000000044",
+          recipientId: null,
+          status: "confirmed",
+          trackedWalletAddress: USER_WALLET_ADDRESS,
+          transactionSignature: "yield-signature-existing",
+          updatedAt: "2026-03-25T00:00:00.000Z",
+          userId: 7,
+        };
+      },
+    },
+  );
+
+  assert.equal(createConfirmedYieldTransactionCalls, 0);
+  assert.equal(broadcastCalls, 0);
+  assert.equal(result.status, "confirmed");
+  assert.equal((result as any).transaction.id, 44);
+  assert.equal((result as any).position.principal.raw, "4000000");
+});
+
 test("confirmYieldTransactionForUser returns pending when Alchemy has not indexed the signature yet", async () => {
   const response = await confirmYieldTransactionForUser(
     {

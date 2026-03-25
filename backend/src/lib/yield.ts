@@ -1,4 +1,9 @@
-import type { YieldAsset } from "../types.js";
+import type {
+  TransactionDirection,
+  TransactionEntryType,
+  YieldAction,
+  YieldAsset,
+} from "../types.js";
 import type { AlchemyParsedTransactionResult } from "./alchemy.js";
 
 export const JUPITER_LEND_EARN_PROGRAM_ID = "jup3YeL8QhtSx1e253b2FDvsMNC87fDrgQZivbrndc9";
@@ -31,6 +36,29 @@ export function getYieldJlTokenMintAddress(asset: YieldAsset) {
 
 export function getYieldVaultCounterpartyName(asset: YieldAsset) {
   return YIELD_VAULT_METADATA[asset].label;
+}
+
+export type YieldLedgerEntryType = Extract<TransactionEntryType, "yield_deposit" | "yield_withdraw">;
+
+export function getYieldLedgerEntryType(action: YieldAction): YieldLedgerEntryType {
+  return action === "deposit" ? "yield_deposit" : "yield_withdraw";
+}
+
+export function getYieldLedgerDirection(action: YieldAction): TransactionDirection {
+  return action === "deposit" ? "outbound" : "inbound";
+}
+
+export function getYieldLedgerDirectionForEntryType(entryType: YieldLedgerEntryType): TransactionDirection {
+  return entryType === "yield_deposit" ? "outbound" : "inbound";
+}
+
+export function buildYieldNormalizationKey(input: {
+  asset: YieldAsset;
+  entryType: YieldLedgerEntryType;
+  signature: string;
+  trackedWalletAddress: string;
+}) {
+  return `${input.signature}:yield:${input.asset}:${input.trackedWalletAddress}:${input.entryType}:${getYieldLedgerDirectionForEntryType(input.entryType)}`;
 }
 
 export function includesJupiterLendEarnInstruction(parsedTransaction: AlchemyParsedTransactionResult) {
