@@ -14,6 +14,8 @@
   },
   "dependencies": {
     "@coinbase/cdp-sdk": "^1.37.0",
+    "@jup-ag/lend-read": "^0.0.11",
+    "@solana/web3.js": "^1.98.4",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
     "express": "^5.1.0",

@@ -214,7 +214,7 @@ test("normalizeAlchemyTransaction classifies Jupiter Lend deposits as yield entr
   assert.equal(normalizedEntries.filter(entry => entry.entryType === "transfer").length, 0);
   assert.deepEqual(
     normalizedEntries.map(entry => entry.entryType),
-    ["yield_deposit", "network_fee"],
+    ["yield_deposit"],
   );
   assert.equal(normalizedEntries[0]?.counterpartyName, "Jupiter USDC Earn Vault");
 });
@@ -241,19 +241,19 @@ test("normalizeAlchemyTransaction classifies Jupiter Lend withdrawals as yield e
         postTokenBalances: [
           {
             accountIndex: 0,
-            mint: "GcV9tEj62VncGithz4o4N9x6HWXARxuRgEAYk9zahNA8",
+            mint: "9BEcn9aPEmhSPbPQeFGjidRiEKki46fVQDyPpSQXPA2D",
             owner: userWallet,
             uiTokenAmount: { amount: "0" },
           },
           {
             accountIndex: 1,
-            mint: "HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr",
+            mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
             owner: userWallet,
             uiTokenAmount: { amount: "1000000" },
           },
           {
             accountIndex: 2,
-            mint: "HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr",
+            mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
             owner: vaultWallet,
             uiTokenAmount: { amount: "0" },
           },
@@ -261,19 +261,19 @@ test("normalizeAlchemyTransaction classifies Jupiter Lend withdrawals as yield e
         preTokenBalances: [
           {
             accountIndex: 0,
-            mint: "GcV9tEj62VncGithz4o4N9x6HWXARxuRgEAYk9zahNA8",
+            mint: "9BEcn9aPEmhSPbPQeFGjidRiEKki46fVQDyPpSQXPA2D",
             owner: userWallet,
             uiTokenAmount: { amount: "1000000" },
           },
           {
             accountIndex: 1,
-            mint: "HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr",
+            mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
             owner: userWallet,
             uiTokenAmount: { amount: "0" },
           },
           {
             accountIndex: 2,
-            mint: "HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr",
+            mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
             owner: vaultWallet,
             uiTokenAmount: { amount: "1000000" },
           },
@@ -282,9 +282,9 @@ test("normalizeAlchemyTransaction classifies Jupiter Lend withdrawals as yield e
       transaction: {
         message: {
           accountKeys: [
-            "UserJlEurcAccount11111111111111111111111111111",
-            "UserEurcAccount111111111111111111111111111111",
-            "VaultEurcAccount1111111111111111111111111111",
+            "UserJlUsdcAccount11111111111111111111111111111",
+            "UserUsdcAccount111111111111111111111111111111",
+            "VaultUsdcAccount1111111111111111111111111111",
             userWallet,
             vaultWallet,
           ],
@@ -300,8 +300,8 @@ test("normalizeAlchemyTransaction classifies Jupiter Lend withdrawals as yield e
               parsed: {
                 info: {
                   amount: "1000000",
-                  destination: "UserEurcAccount111111111111111111111111111111",
-                  source: "VaultEurcAccount1111111111111111111111111111",
+                  destination: "UserUsdcAccount111111111111111111111111111111",
+                  source: "VaultUsdcAccount1111111111111111111111111111",
                 },
                 type: "transferChecked",
               },
@@ -317,5 +317,5 @@ test("normalizeAlchemyTransaction classifies Jupiter Lend withdrawals as yield e
 
   assert.equal(normalizedEntries.length, 1);
   assert.equal(normalizedEntries[0]?.entryType, "yield_withdraw");
-  assert.equal(normalizedEntries[0]?.asset, "eurc");
+  assert.equal(normalizedEntries[0]?.asset, "usdc");
 });

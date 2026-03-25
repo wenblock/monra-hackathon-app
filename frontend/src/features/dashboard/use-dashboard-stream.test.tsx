@@ -45,6 +45,7 @@ class MockEventSource {
 interface DashboardSnapshot {
   balances: SolanaBalancesResponse["balances"];
   valuation: TreasuryValuation;
+  yield: SolanaBalancesResponse["yield"];
   transactions: TransactionStreamResponse["transactions"];
 }
 
@@ -85,6 +86,8 @@ describe("useDashboardStream", () => {
       },
       valuation: {
         treasuryValueUsd: "215.80",
+        liquidTreasuryValueUsd: "200.80",
+        yieldInvestedValueUsd: "15.00",
         assetValuesUsd: {
           sol: "180.00",
           usdc: "25.00",
@@ -98,6 +101,16 @@ describe("useDashboardStream", () => {
         lastUpdatedAt: "2026-03-20T09:00:02.000Z",
         isStale: false,
         unavailableAssets: [],
+      },
+      yield: {
+        positions: {
+          usdc: {
+            currentPosition: { formatted: "15.00", raw: "15000000" },
+            earnings: { formatted: "1.25", raw: "1250000" },
+            status: "tracked",
+            valueUsd: "15.00",
+          },
+        },
       },
       transactions: [],
     };
@@ -119,6 +132,8 @@ describe("useDashboardStream", () => {
       },
       valuation: {
         treasuryValueUsd: "175.40",
+        liquidTreasuryValueUsd: "165.40",
+        yieldInvestedValueUsd: "10.00",
         assetValuesUsd: {
           sol: "150.00",
           usdc: "20.00",
@@ -133,11 +148,22 @@ describe("useDashboardStream", () => {
         isStale: false,
         unavailableAssets: [],
       },
+      yield: {
+        positions: {
+          usdc: {
+            currentPosition: { formatted: "10.00", raw: "10000000" },
+            earnings: { formatted: "0.50", raw: "500000" },
+            status: "tracked",
+            valueUsd: "10.00",
+          },
+        },
+      },
       transactions: [],
     });
 
     expect(nextSnapshot?.balances).toEqual(payload.balances);
     expect(nextSnapshot?.valuation).toEqual(payload.valuation);
+    expect(nextSnapshot?.yield).toEqual(payload.yield);
     expect(nextSnapshot?.transactions).toEqual(payload.transactions);
   });
 });

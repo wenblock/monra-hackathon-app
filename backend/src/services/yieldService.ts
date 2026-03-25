@@ -1,4 +1,5 @@
-import { getYieldLedgerSummaryByUserId, createConfirmedYieldTransaction } from "../db/repositories/transactionsWriteRepo.js";
+import { createConfirmedYieldTransaction } from "../db/repositories/transactionsWriteRepo.js";
+import { getYieldPositionByUserId } from "../db/repositories/yieldPositionsRepo.js";
 import { fetchSolanaParsedTransaction, isAlchemyApiError, isSolanaTransactionSuccessful } from "../lib/alchemy.js";
 import { getTransferAssetLabel } from "../lib/assets.js";
 import { normalizeSwapAmount } from "../lib/amounts.js";
@@ -13,21 +14,21 @@ interface YieldServiceDependencies {
   broadcastLatestTransactionSnapshot: typeof broadcastLatestTransactionSnapshot;
   createConfirmedYieldTransaction: typeof createConfirmedYieldTransaction;
   fetchSolanaParsedTransaction: typeof fetchSolanaParsedTransaction;
-  getYieldLedgerSummaryByUserId: typeof getYieldLedgerSummaryByUserId;
+  getYieldPositionByUserId: typeof getYieldPositionByUserId;
 }
 
 const defaultDependencies: YieldServiceDependencies = {
   broadcastLatestTransactionSnapshot,
   createConfirmedYieldTransaction,
   fetchSolanaParsedTransaction,
-  getYieldLedgerSummaryByUserId,
+  getYieldPositionByUserId,
 };
 
-export async function getYieldLedgerSummaryForUser(
+export async function getYieldPositionForUser(
   userId: number,
   dependencies: YieldServiceDependencies = defaultDependencies,
 ) {
-  return dependencies.getYieldLedgerSummaryByUserId(userId);
+  return dependencies.getYieldPositionByUserId(userId);
 }
 
 export async function confirmYieldTransactionForUser(
@@ -82,7 +83,6 @@ export async function confirmYieldTransactionForUser(
       userId: input.user.id,
       walletAddress: input.user.solanaAddress,
     });
-    const ledgerSummary = await dependencies.getYieldLedgerSummaryByUserId(input.user.id);
 
     await dependencies.broadcastLatestTransactionSnapshot(
       input.user.id,
@@ -91,7 +91,6 @@ export async function confirmYieldTransactionForUser(
 
     return {
       ...createdYieldTransaction,
-      ledgerSummary,
     };
   } catch (error) {
     if (error instanceof ServiceError) {

@@ -52,6 +52,7 @@ describe("Dashboard hardening", () => {
       <Dashboard
         balances={buildBalances()}
         valuation={buildValuation()}
+        yield={buildYield()}
         bridge={buildBridgeState({ showTosAlert: true })}
         onCreateOfframp={vi.fn()}
         onCreateOnramp={vi.fn()}
@@ -86,6 +87,7 @@ describe("Dashboard hardening", () => {
       <Dashboard
         balances={buildBalances()}
         valuation={buildValuation()}
+        yield={buildYield()}
         bridge={buildBridgeState({ showKycAlert: true, showTosAlert: false })}
         onCreateOfframp={vi.fn()}
         onCreateOnramp={vi.fn()}
@@ -116,6 +118,7 @@ describe("Dashboard hardening", () => {
       <Dashboard
         balances={buildBalances()}
         valuation={buildValuation()}
+        yield={buildYield()}
         bridge={buildBridgeState()}
         onCreateOfframp={vi.fn()}
         onCreateOnramp={vi.fn()}
@@ -152,6 +155,7 @@ describe("Dashboard hardening", () => {
       <Dashboard
         balances={buildBalances()}
         valuation={buildValuation()}
+        yield={buildYield()}
         bridge={buildBridgeState()}
         onCreateOfframp={vi.fn()}
         onCreateOnramp={vi.fn()}
@@ -187,6 +191,7 @@ describe("Dashboard hardening", () => {
       <Dashboard
         balances={buildBalances()}
         valuation={buildValuation()}
+        yield={buildYield()}
         bridge={buildBridgeState()}
         onCreateOfframp={vi.fn()}
         onCreateOnramp={vi.fn()}
@@ -217,6 +222,7 @@ describe("Dashboard hardening", () => {
       <Dashboard
         balances={buildBalances()}
         valuation={buildValuation()}
+        yield={buildYield()}
         bridge={buildBridgeState()}
         onCreateOfframp={vi.fn()}
         onCreateOnramp={vi.fn()}
@@ -252,6 +258,8 @@ function buildValuation(
 ): SolanaBalancesResponse["valuation"] {
   return {
     treasuryValueUsd: "186.80",
+    liquidTreasuryValueUsd: "176.80",
+    yieldInvestedValueUsd: "10.00",
     assetValuesUsd: {
       sol: "150.00",
       usdc: "25.00",
@@ -266,6 +274,19 @@ function buildValuation(
     isStale: false,
     unavailableAssets: [],
     ...overrides,
+  };
+}
+
+function buildYield(): SolanaBalancesResponse["yield"] {
+  return {
+    positions: {
+      usdc: {
+        currentPosition: { formatted: "10.00", raw: "10000000" },
+        earnings: { formatted: "1.00", raw: "1000000" },
+        status: "tracked",
+        valueUsd: "10.00",
+      },
+    },
   };
 }
 

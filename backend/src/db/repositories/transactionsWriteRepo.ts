@@ -1,6 +1,6 @@
 import type { PoolClient } from "pg";
 
-import { TRANSFER_ASSETS, YIELD_ASSETS, getTransferAssetDecimals, getTransferAssetLabel } from "../../lib/assets.js";
+import { TRANSFER_ASSETS, getTransferAssetDecimals, getTransferAssetLabel } from "../../lib/assets.js";
 import { formatAssetAmount, parseDecimalAmountToRaw } from "../../lib/amounts.js";
 import type {
   BridgeSourceDepositInstructions,
@@ -11,13 +11,13 @@ import type {
   TransferAsset,
   YieldAction,
   YieldAsset,
-  YieldLedgerSummary,
 } from "../../types.js";
 import { createEmptyBalance, mapBalances, mapCollapsedTransaction, mapLedgerTransaction } from "../mappers.js";
 import { pool } from "../pool.js";
 import { transactionSelection, type TransactionRow } from "../rows.js";
 import { withTransaction } from "../tx.js";
 import { ensureUserBalanceRecord, getUserBalanceRow } from "./usersRepo.js";
+import { applyYieldPositionAction, getYieldPositionByUserIdWithClient } from "./yieldPositionsRepo.js";
 
 export interface CreatePendingOnrampTransactionInput {
   asset: OnrampDestinationAsset;
@@ -370,6 +370,7 @@ export async function createConfirmedYieldTransaction(input: CreateConfirmedYiel
   const counterpartyName = `Jupiter ${getTransferAssetLabel(input.asset)} Earn Vault`;
 
   return withTransaction(async client => {
+    let position = await getYieldPositionByUserIdWithClient(client, input.userId);
     const inserted = await client.query<TransactionRow>(
       `
         INSERT INTO transactions (
@@ -454,6 +455,15 @@ export async function createConfirmedYieldTransaction(input: CreateConfirmedYiel
         input.action === "deposit" ? BigInt(input.amountRaw) * -1n : BigInt(input.amountRaw),
       );
       await applyBalanceDeltas(client, balanceDeltas);
+      position = await applyYieldPositionAction(client, {
+        action: input.action,
+        amountRaw: input.amountRaw,
+        asset: input.asset,
+        currentPosition: position,
+        transactionSignature: input.transactionSignature,
+        updatedAt: input.confirmedAt,
+        userId: input.userId,
+      });
     }
 
     const balanceRow = await getUserBalanceRow(client, input.userId);
@@ -464,54 +474,8 @@ export async function createConfirmedYieldTransaction(input: CreateConfirmedYiel
         : (Object.fromEntries(
             TRANSFER_ASSETS.map(asset => [asset, createEmptyBalance(getTransferAssetDecimals(asset))]),
           ) as SolanaBalancesResponse["balances"]),
+      position,
       transaction: mapCollapsedTransaction(mapLedgerTransaction(row), null),
     };
   });
-}
-
-export async function getYieldLedgerSummaryByUserId(userId: number): Promise<YieldLedgerSummary> {
-  const result = await pool.query<{ asset: YieldAsset; principal_raw: string }>(
-    `
-      SELECT
-        asset,
-        COALESCE(
-          GREATEST(
-            SUM(
-              CASE
-                WHEN entry_type = 'yield_deposit' THEN amount_raw::NUMERIC
-                WHEN entry_type = 'yield_withdraw' THEN -amount_raw::NUMERIC
-                ELSE 0
-              END
-            ),
-            0
-          )::TEXT,
-          '0'
-        ) AS principal_raw
-      FROM transactions
-      WHERE user_id = $1::bigint
-        AND status = 'confirmed'
-        AND entry_type IN ('yield_deposit', 'yield_withdraw')
-      GROUP BY asset
-    `,
-    [userId],
-  );
-
-  const rawByAsset = Object.fromEntries(
-    YIELD_ASSETS.map(asset => [asset, "0"]),
-  ) as Record<YieldAsset, string>;
-
-  for (const row of result.rows) {
-    rawByAsset[row.asset] = row.principal_raw;
-  }
-
-  return {
-    eurc: {
-      formatted: formatAssetAmount(rawByAsset.eurc, "eurc"),
-      raw: rawByAsset.eurc,
-    },
-    usdc: {
-      formatted: formatAssetAmount(rawByAsset.usdc, "usdc"),
-      raw: rawByAsset.usdc,
-    },
-  };
 }

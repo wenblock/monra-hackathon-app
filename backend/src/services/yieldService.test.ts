@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AppUser } from "../types.js";
-import type { TokenBalanceAmount, TransactionStreamResponse, YieldAsset } from "../types.js";
+import type { TokenBalanceAmount, TransactionStreamResponse, YieldAsset, YieldTrackedPosition } from "../types.js";
 
 process.env.ALLOWED_ORIGINS = "http://localhost:3000";
 process.env.DATABASE_URL = "postgres://postgres:postgres@localhost:5432/monra";
@@ -15,7 +15,7 @@ process.env.BRIDGE_API_KEY = "bridge-api-key";
 process.env.BRIDGE_WEBHOOK_PUBLIC_KEY = "test-public-key";
 process.env.BRIDGE_WEBHOOK_MAX_AGE_MS = "600000";
 
-const { confirmYieldTransactionForUser, getYieldLedgerSummaryForUser } = await import("./yieldService.js");
+const { confirmYieldTransactionForUser, getYieldPositionForUser } = await import("./yieldService.js");
 const { ServiceError } = await import("./errors.js");
 
 const JUPITER_LEND_EARN_PROGRAM_ID = "jup3YeL8QhtSx1e253b2FDvsMNC87fDrgQZivbrndc9";
@@ -27,21 +27,18 @@ const VAULT_TOKEN_ACCOUNT = "VaultToken111111111111111111111111111111111";
 const USER_JL_TOKEN_ACCOUNT = "UserJlToken1111111111111111111111111111111";
 const VAULT_WALLET_ADDRESS = "VaultWallet1111111111111111111111111111111";
 
-test("getYieldLedgerSummaryForUser delegates to the repository", async () => {
-  const summary = await getYieldLedgerSummaryForUser(
+test("getYieldPositionForUser delegates to the repository", async () => {
+  const position = await getYieldPositionForUser(
     7,
     {
-      async getYieldLedgerSummaryByUserId(userId: number) {
+      async getYieldPositionByUserId(userId: number) {
         assert.equal(userId, 7);
-        return {
-          eurc: { formatted: "0", raw: "0" },
-          usdc: { formatted: "1", raw: "1000000" },
-        };
+        return createYieldTrackedPositionFixture("1000000");
       },
     } as any,
   );
 
-  assert.equal(summary.usdc.raw, "1000000");
+  assert.equal(position.principal.raw, "1000000");
 });
 
 test("confirmYieldTransactionForUser validates the transfer and records the confirmed deposit", async () => {
@@ -85,17 +82,15 @@ test("confirmYieldTransactionForUser validates the transfer and records the conf
             sol: { formatted: "0", raw: "0" },
             usdc: { formatted: "0", raw: "0" },
           },
+          position: createYieldTrackedPositionFixture("1000000"),
           transaction: { id: 99 },
         } as any;
       },
       async fetchSolanaParsedTransaction() {
         return createParsedYieldDepositTransactionFixture();
       },
-      async getYieldLedgerSummaryByUserId() {
-        return {
-          eurc: { formatted: "0", raw: "0" },
-          usdc: { formatted: "1", raw: "1000000" },
-        };
+      async getYieldPositionByUserId() {
+        return createYieldTrackedPositionFixture("1000000");
       },
     },
   );
@@ -106,6 +101,7 @@ test("confirmYieldTransactionForUser validates the transfer and records the conf
   assert.equal(storedInput?.asset, "usdc");
   assert.equal(storedInput?.counterpartyWalletAddress, VAULT_WALLET_ADDRESS);
   assert.equal(storedInput?.fromWalletAddress, USER_WALLET_ADDRESS);
+  assert.equal((result as any).position.principal.raw, "1000000");
   assert.equal((result as any).transaction.id, 99);
 });
 
@@ -148,7 +144,7 @@ test("confirmYieldTransactionForUser rejects transactions without a Jupiter Lend
             },
           });
         },
-        async getYieldLedgerSummaryByUserId() {
+        async getYieldPositionByUserId() {
           throw new Error("should not be called");
         },
       },
@@ -159,6 +155,24 @@ test("confirmYieldTransactionForUser rejects transactions without a Jupiter Lend
       /Jupiter Lend Earn instruction/i.test(error.message),
   );
 });
+
+function createYieldTrackedPositionFixture(principalRaw: string): YieldTrackedPosition {
+  return {
+    grossWithdrawn: {
+      formatted: "0",
+      raw: "0",
+    },
+    principal: {
+      formatted: "1",
+      raw: principalRaw,
+    },
+    totalDeposited: {
+      formatted: "1",
+      raw: principalRaw,
+    },
+    updatedAt: "2026-03-25T00:00:00.000Z",
+  };
+}
 
 function createUserFixture(overrides: Partial<AppUser> = {}): AppUser {
   return {

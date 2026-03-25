@@ -18,7 +18,7 @@ import type {
   StreamTokenResponse,
   TransactionListResponse,
   YieldConfirmResponse,
-  YieldLedgerSummaryResponse,
+  YieldTrackedPositionsResponse,
 } from "@/types";
 
 const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
@@ -190,8 +190,8 @@ export function createApiClient(getAccessToken: AccessTokenProvider) {
         signal,
       });
     },
-    fetchYieldLedgerSummary(signal?: AbortSignal) {
-      return request<YieldLedgerSummaryResponse>("/api/yield/ledger-summary", {
+    fetchYieldPositions(signal?: AbortSignal) {
+      return request<YieldTrackedPositionsResponse>("/api/yield/positions", {
         method: "GET",
         signal,
       });

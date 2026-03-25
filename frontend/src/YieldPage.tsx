@@ -1,12 +1,7 @@
 import { useSendSolanaTransaction } from "@coinbase/cdp-hooks";
 import { Link } from "@tanstack/react-router";
-import {
-  ArrowUpRight,
-  ChevronRight,
-  PiggyBank,
-  Wallet,
-} from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { ArrowUpRight, ChevronRight, PiggyBank, Wallet } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import AppShell from "@/AppShell";
 import { Button } from "@/components/ui/button";
@@ -24,8 +19,8 @@ import { usePersistedSolanaAddress } from "@/features/session/use-persisted-sola
 import { useSession } from "@/features/session/use-session";
 import { buildYieldOverviewViewModel } from "@/features/yield/view-models";
 import { useYieldConfirmMutation } from "@/features/yield/use-yield-confirm-mutation";
-import { useYieldLedgerSummary } from "@/features/yield/use-yield-ledger-summary";
 import { useYieldOnchainQuery } from "@/features/yield/use-yield-onchain-query";
+import { useYieldPositions } from "@/features/yield/use-yield-positions";
 import {
   buildYieldTransaction,
   confirmYieldSignature,
@@ -39,12 +34,14 @@ import { readErrorMessage } from "@/lib/read-error-message";
 import { cn } from "@/lib/utils";
 import type { YieldAction, YieldAsset } from "@/types";
 
+const YIELD_ASSET: YieldAsset = "usdc";
+
 function YieldPage() {
   const { user } = useSession();
   const { sendSolanaTransaction } = useSendSolanaTransaction();
   const { showToast } = useToast();
   const snapshotQuery = useDashboardSnapshot(user.cdpUserId);
-  const ledgerSummaryQuery = useYieldLedgerSummary(user.cdpUserId);
+  const positionsQuery = useYieldPositions(user.cdpUserId);
   const { effectiveSolanaAddress, isPersistingSolanaAddress, persistenceError, storedSolanaAddress } =
     usePersistedSolanaAddress(user.cdpUserId, user.solanaAddress);
   const onchainQuery = useYieldOnchainQuery(effectiveSolanaAddress);
@@ -53,62 +50,54 @@ function YieldPage() {
     walletAddress: effectiveSolanaAddress,
   });
 
-  const [selectedAsset, setSelectedAsset] = useState<YieldAsset | null>(null);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [activeAction, setActiveAction] = useState<YieldAction>("deposit");
   const [amount, setAmount] = useState("");
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const overview = useMemo(() => {
-    if (!ledgerSummaryQuery.data || !onchainQuery.data) {
+    if (!positionsQuery.data || !onchainQuery.data) {
       return null;
     }
 
     return buildYieldOverviewViewModel({
-      ledgerSummary: ledgerSummaryQuery.data.ledgerSummary,
       onchainSnapshot: onchainQuery.data,
+      positions: positionsQuery.data,
       valuation: snapshotQuery.data?.valuation,
     });
-  }, [ledgerSummaryQuery.data, onchainQuery.data, snapshotQuery.data?.valuation]);
-  const selectedVault =
-    selectedAsset && overview ? overview.vaults.find(vault => vault.asset === selectedAsset) ?? null : null;
+  }, [onchainQuery.data, positionsQuery.data, snapshotQuery.data?.valuation]);
+
+  const selectedVault = overview?.vaults[0] ?? null;
   const availableRawAmount = selectedVault
     ? activeAction === "deposit"
       ? selectedVault.walletBalanceRaw
       : selectedVault.currentPositionRaw
     : "0";
-  const amountValidation = selectedAsset ? parseYieldAmount(amount, selectedAsset) : null;
+  const amountValidation = parseYieldAmount(amount, YIELD_ASSET);
   const amountLimitError =
-    amountValidation?.rawAmount && BigInt(amountValidation.rawAmount) > BigInt(availableRawAmount)
+    amountValidation.rawAmount && BigInt(amountValidation.rawAmount) > BigInt(availableRawAmount)
       ? activeAction === "deposit"
-        ? `Insufficient ${selectedVault?.label ?? "asset"} balance for this deposit.`
-        : `Amount exceeds the current ${selectedVault?.label ?? "asset"} position.`
+        ? `Insufficient ${selectedVault?.label ?? "USDC"} balance for this deposit.`
+        : `Amount exceeds the current ${selectedVault?.label ?? "USDC"} position.`
       : null;
   const previewAmountDisplay = useMemo(() => {
-    if (!selectedVault || !selectedAsset || !amountValidation?.rawAmount) {
+    if (!selectedVault || !amountValidation.rawAmount || amountValidation.error || amountLimitError) {
       return null;
     }
 
-    if (amountValidation.error || amountLimitError) {
-      return null;
-    }
+    return formatYieldRawAmount(
+      estimateYieldPreviewSharesRaw({
+        amountRaw: amountValidation.rawAmount,
+        asset: YIELD_ASSET,
+        conversionRateToSharesRaw: selectedVault.conversionRateToSharesRaw,
+      }),
+      YIELD_ASSET,
+    );
+  }, [amountLimitError, amountValidation.error, amountValidation.rawAmount, selectedVault]);
 
-    const previewRawAmount = estimateYieldPreviewSharesRaw({
-      amountRaw: amountValidation.rawAmount,
-      asset: selectedAsset,
-      conversionRateToSharesRaw: selectedVault.conversionRateToSharesRaw,
-    });
-
-    return formatYieldRawAmount(previewRawAmount, selectedAsset);
-  }, [
-    amountLimitError,
-    amountValidation?.error,
-    amountValidation?.rawAmount,
-    selectedAsset,
-    selectedVault,
-  ]);
-  const ledgerSummaryErrorMessage = ledgerSummaryQuery.error
-    ? readErrorMessage(ledgerSummaryQuery.error, "Unable to load the yield ledger summary.")
+  const positionsErrorMessage = positionsQuery.error
+    ? readErrorMessage(positionsQuery.error, "Unable to load tracked Yield positions.")
     : null;
   const onchainErrorMessage = onchainQuery.error
     ? readErrorMessage(onchainQuery.error, "Unable to load yield market data.")
@@ -116,10 +105,10 @@ function YieldPage() {
 
   useEffect(() => {
     setSubmitError(null);
-  }, [activeAction, amount, selectedAsset]);
+  }, [activeAction, amount, isDialogOpen]);
 
   async function handleSubmit() {
-    if (!selectedAsset || !selectedVault) {
+    if (!selectedVault) {
       return;
     }
 
@@ -137,8 +126,8 @@ function YieldPage() {
       return;
     }
 
-    if (!amountValidation || amountValidation.error) {
-      setSubmitError(amountValidation?.error ?? "Enter an amount to continue.");
+    if (amountValidation.error || !amountValidation.normalizedDecimal || !amountValidation.rawAmount) {
+      setSubmitError(amountValidation.error ?? "Enter an amount to continue.");
       return;
     }
 
@@ -153,8 +142,8 @@ function YieldPage() {
     try {
       const preparedTransaction = await buildYieldTransaction({
         action: activeAction,
-        amountRaw: amountValidation.rawAmount!,
-        asset: selectedAsset,
+        amountRaw: amountValidation.rawAmount,
+        asset: YIELD_ASSET,
         walletAddress: effectiveSolanaAddress,
       });
       const submitted = await sendSolanaTransaction({
@@ -171,8 +160,8 @@ function YieldPage() {
 
       await confirmYieldMutation.mutateAsync({
         action: activeAction,
-        amount: amountValidation.normalizedDecimal!,
-        asset: selectedAsset,
+        amount: amountValidation.normalizedDecimal,
+        asset: YIELD_ASSET,
         transactionSignature: submitted.transactionSignature,
       });
 
@@ -185,7 +174,7 @@ function YieldPage() {
       });
 
       setAmount("");
-      setSelectedAsset(null);
+      setIsDialogOpen(false);
     } catch (error) {
       logRuntimeError("Unable to complete the yield action.", error);
       setSubmitError(readErrorMessage(error, "Unable to complete the yield action."));
@@ -196,22 +185,20 @@ function YieldPage() {
 
   return (
     <AppShell>
-      <div className="rounded-[2rem] border border-[#182234] bg-[#060a11] text-white shadow-[0_42px_120px_-72px_rgba(2,6,23,0.95)]">
-        <div className="relative overflow-hidden rounded-[2rem]">
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(105,132,255,0.24),_transparent_28%),radial-gradient(circle_at_bottom_left,_rgba(103,255,196,0.10),_transparent_24%),linear-gradient(180deg,_rgba(255,255,255,0.02),_rgba(255,255,255,0))]" />
-
-          <div className="relative space-y-8 px-5 py-6 sm:px-7 sm:py-8 lg:px-10 lg:py-10">
-            <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+      <div className="space-y-6">
+        <section className="grid gap-4 xl:grid-cols-[1.35fr_0.85fr]">
+          <PanelCard className="space-y-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div className="space-y-3">
-                <p className="font-mono text-xs uppercase tracking-[0.28em] text-[#8ea0c6]">
+                <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted-foreground">
                   Jupiter Lend Earn
                 </p>
                 <div className="space-y-2">
-                  <h1 className="text-4xl font-semibold tracking-tight text-white sm:text-5xl">
-                    Earn interest on your stablecoins
+                  <h1 className="text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">
+                    Earn interest on your USDC
                   </h1>
-                  <p className="max-w-3xl text-base text-[#97a5c3] sm:text-lg">
-                    Passively get yield using Jupiter Lend&apos;s earning vaults for USDC and EURC.
+                  <p className="max-w-2xl text-base text-muted-foreground sm:text-lg">
+                    Deposit treasury USDC into Jupiter&apos;s Earn vault while keeping tracked principal in Monra.
                   </p>
                 </div>
               </div>
@@ -219,7 +206,7 @@ function YieldPage() {
               <Link
                 to="/transactions"
                 preload="intent"
-                className="inline-flex items-center gap-2 self-start rounded-full border border-[#23304a] bg-white/4 px-4 py-2 text-sm font-medium text-[#d4def7] transition-colors hover:bg-white/7"
+                className="inline-flex items-center gap-2 self-start rounded-full border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
               >
                 Open transactions
                 <ArrowUpRight className="size-4" />
@@ -227,98 +214,108 @@ function YieldPage() {
             </div>
 
             <div className="grid gap-4 lg:grid-cols-3">
-              <SummaryCard
-                label="Your Deposits"
-                value={overview?.totalDepositsUsd ?? "$0.00"}
-                accentClass="text-white"
-              />
+              <SummaryCard label="Your Deposits" value={overview?.totalDepositsUsd ?? "$0.00"} />
               <SummaryCard
                 label="Your Earnings"
                 value={overview?.totalEarningsUsd ?? "$0.00"}
-                accentClass="text-[#d6ff7b]"
+                tone="positive"
               />
               <SummaryCard
                 label="Projected Annual Yield"
                 value={overview?.projectedAnnualYieldUsd ?? "$0.00"}
-                accentClass="text-[#9bc4ff]"
+                tone="muted"
               />
             </div>
+          </PanelCard>
 
-            {persistenceError ? (
-              <InlineNotice title="Wallet sync pending" variant="warning">
-                {persistenceError}
-              </InlineNotice>
-            ) : null}
-
-            {!storedSolanaAddress && !persistenceError ? (
-              <InlineNotice title="Preparing wallet" variant="info">
-                {isPersistingSolanaAddress
-                  ? "Syncing your Solana wallet with the backend before Yield actions are enabled."
-                  : "Your Solana wallet must be available before Yield actions can be recorded."}
-              </InlineNotice>
-            ) : null}
-
-            {ledgerSummaryErrorMessage ? (
-              <InlineNotice title="Yield ledger unavailable" variant="warning">
-                {ledgerSummaryErrorMessage}
-              </InlineNotice>
-            ) : null}
-
-            {onchainErrorMessage ? (
-              <InlineNotice title="Yield market data unavailable" variant="warning">
-                {onchainErrorMessage}
-              </InlineNotice>
-            ) : null}
-
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="inline-flex items-center rounded-full border border-[#1c2638] bg-[#121a27] p-1">
-                <span className="rounded-full bg-[#1e2817] px-5 py-2 text-sm font-semibold text-[#d6ff7b]">
-                  Earn
-                </span>
-                <Link
-                  to="/transactions"
-                  preload="intent"
-                  className="px-5 py-2 text-sm font-medium text-[#8ea0c6] transition-colors hover:text-white"
-                >
-                  Transactions
-                </Link>
+          <PanelCard className="flex items-center justify-center">
+            <div className="max-w-sm space-y-4 text-center xl:text-left">
+              <div className="mx-auto flex size-16 items-center justify-center rounded-3xl bg-primary/10 text-primary xl:mx-0">
+                <PiggyBank className="size-7" />
               </div>
-
-              <div className="inline-flex items-center gap-2 rounded-full border border-[#1c2638] bg-white/4 px-4 py-2 text-sm text-[#8ea0c6]">
-                <PiggyBank className="size-4 text-[#d6ff7b]" />
-                Stablecoin vaults only
+              <div className="space-y-2">
+                <h2 className="text-2xl font-semibold tracking-tight text-foreground">USDC-only vault</h2>
+                <p className="text-sm leading-6 text-muted-foreground">
+                  EURC Yield is no longer available in the active product flow. Existing EURC Yield activity stays in
+                  the transaction ledger as history.
+                </p>
               </div>
             </div>
+          </PanelCard>
+        </section>
 
-            <div className="rounded-[1.75rem] border border-[#182235] bg-[#09101a]/90">
-              <div className="hidden grid-cols-[minmax(0,1.2fr)_0.7fr_0.95fr_0.95fr_0.95fr_auto] gap-6 border-b border-white/6 px-6 py-4 text-sm text-[#8ea0c6] md:grid">
-                <span>Vault</span>
-                <span>APY</span>
-                <span>Deposited</span>
-                <span>Earnings</span>
-                <span>TVL</span>
-                <span />
-              </div>
+        {persistenceError ? (
+          <InlineNotice title="Wallet sync pending" variant="warning">
+            {persistenceError}
+          </InlineNotice>
+        ) : null}
 
-              <div className="divide-y divide-white/6">
-                {overview?.vaults.map(vault => (
-                  <VaultRow key={vault.asset} vault={vault} onOpen={() => setSelectedAsset(vault.asset)} />
-                )) ?? (
-                  <div className="space-y-4 px-6 py-8">
-                    <LoadingRow />
-                    <LoadingRow />
-                  </div>
-                )}
-              </div>
-            </div>
+        {!storedSolanaAddress && !persistenceError ? (
+          <InlineNotice title="Preparing wallet" variant="info">
+            {isPersistingSolanaAddress
+              ? "Syncing your Solana wallet with the backend before Yield actions are enabled."
+              : "Your Solana wallet must be available before Yield actions can be recorded."}
+          </InlineNotice>
+        ) : null}
+
+        {positionsErrorMessage ? (
+          <InlineNotice title="Yield positions unavailable" variant="warning">
+            {positionsErrorMessage}
+          </InlineNotice>
+        ) : null}
+
+        {onchainErrorMessage ? (
+          <InlineNotice title="Yield market data unavailable" variant="warning">
+            {onchainErrorMessage}
+          </InlineNotice>
+        ) : null}
+
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-2 py-2">
+            <span className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground">
+              Earn
+            </span>
+            <Link
+              to="/transactions"
+              preload="intent"
+              className="px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Transactions
+            </Link>
+          </div>
+
+          <div className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm text-muted-foreground">
+            <PiggyBank className="size-4 text-primary" />
+            USDC vault only
           </div>
         </div>
+
+        <PanelCard className="overflow-hidden p-0">
+          <div className="hidden grid-cols-[minmax(0,1.4fr)_0.7fr_0.9fr_0.9fr_0.9fr_auto] gap-6 border-b border-border px-6 py-4 text-sm text-muted-foreground md:grid">
+            <span>Vault</span>
+            <span>APY</span>
+            <span>Deposited</span>
+            <span>Earnings</span>
+            <span>TVL</span>
+            <span />
+          </div>
+
+          <div className="divide-y divide-border">
+            {selectedVault ? (
+              <VaultRow vault={selectedVault} onOpen={() => setIsDialogOpen(true)} />
+            ) : (
+              <div className="space-y-4 px-6 py-6">
+                <LoadingRow />
+              </div>
+            )}
+          </div>
+        </PanelCard>
       </div>
 
       <YieldVaultDialog
         amount={amount}
         amountError={amountLimitError}
-        amountValidationError={amountValidation?.error ?? null}
+        amountValidationError={amountValidation.error}
         availableRawAmount={availableRawAmount}
         isPersistingSolanaAddress={isPersistingSolanaAddress}
         isSubmitting={isSubmitting || confirmYieldMutation.isPending}
@@ -326,26 +323,24 @@ function YieldPage() {
         onAmountChange={setAmount}
         onClose={() => {
           setAmount("");
-          setSelectedAsset(null);
+          setIsDialogOpen(false);
         }}
         onSelectAction={setActiveAction}
         onSelectPreset={divisor => {
-          if (!selectedAsset) {
+          if (!selectedVault) {
             return;
           }
 
           setAmount(
             divisor === 1n
-              ? selectedVault
-                ? activeAction === "deposit"
-                  ? selectedVault.walletBalanceDisplay.replace(` ${selectedVault.label}`, "")
-                  : selectedVault.currentPositionDisplay.replace(` ${selectedVault.label}`, "")
-                : ""
-              : derivePresetYieldAmount(availableRawAmount, selectedAsset, divisor),
+              ? activeAction === "deposit"
+                ? selectedVault.walletBalanceDisplay.replace(` ${selectedVault.label}`, "")
+                : selectedVault.currentPositionDisplay.replace(` ${selectedVault.label}`, "")
+              : derivePresetYieldAmount(availableRawAmount, YIELD_ASSET, divisor),
           );
         }}
         onSubmit={() => void handleSubmit()}
-        open={selectedVault !== null}
+        open={isDialogOpen && Boolean(selectedVault)}
         previewAmountDisplay={previewAmountDisplay}
         selectedAction={activeAction}
         submitError={submitError}
@@ -382,59 +377,63 @@ function YieldVaultDialog(input: {
 
   return (
     <Dialog open={input.open} onOpenChange={isOpen => !isOpen && input.onClose()}>
-      <DialogContent className="w-[min(96vw,52rem)] gap-0 overflow-hidden border-[#202b3d] bg-[#0d131d] p-0 text-white">
+      <DialogContent className="max-h-[min(90vh,46rem)] overflow-y-auto border-border bg-card p-0 text-foreground sm:max-w-2xl">
         {input.vault ? (
           <>
-            <DialogHeader className="border-b border-white/6 px-6 py-5">
-              <div className="flex items-start gap-4">
+            <DialogHeader className="border-b border-border px-5 py-4 sm:px-6">
+              <div className="flex items-start gap-3">
                 <img
                   src={input.vault.iconPath}
                   alt={`${input.vault.label} token icon`}
-                  className="size-14 rounded-full bg-white/8 p-1"
+                  className="size-12 rounded-full bg-background p-1"
                 />
-                <div className="min-w-0 space-y-2">
-                  <DialogTitle className="text-4xl font-semibold tracking-tight text-white">
-                    {input.vault.label}
+                <div className="space-y-1">
+                  <DialogTitle className="text-2xl font-semibold tracking-tight text-foreground">
+                    {input.vault.label} Yield
                   </DialogTitle>
-                  <DialogDescription className="text-sm text-[#8ea0c6]">
-                    Manage your Jupiter Earn position and record it in the Monra ledger.
+                  <DialogDescription className="text-sm text-muted-foreground">
+                    Deposit into the Jupiter Earn vault and keep the tracked principal in Monra.
                   </DialogDescription>
                 </div>
               </div>
             </DialogHeader>
 
-            <div className="space-y-5 px-6 py-6">
-              <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-4 px-5 py-5 sm:px-6">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <SummaryCard
+                  compact
                   label="Your Earnings"
-                  value={input.vault.earningsDisplay}
                   note={
                     input.vault.isUntrackedPosition
                       ? `Current position: ${input.vault.currentPositionDisplay}`
                       : (input.vault.earningsUsd ?? "$0.00")
                   }
-                  accentClass="text-[#d6ff7b]"
-                  compact
+                  tone="positive"
+                  value={input.vault.earningsDisplay}
                 />
                 <SummaryCard
+                  compact
                   label="Deposited"
-                  value={input.vault.depositedDisplay}
                   note={
                     input.vault.isUntrackedPosition
                       ? "Future Monra Yield actions will start tracked principal."
                       : (input.vault.depositedUsd ?? "$0.00")
                   }
-                  accentClass="text-white"
-                  compact
+                  value={input.vault.depositedDisplay}
                 />
               </div>
 
-              <div className="rounded-[1.5rem] border border-[#1d2740] bg-[#111824] px-5 py-4">
-                <MetricLine label="APY" value={input.vault.apyDisplay} valueClassName="text-[#72f0b8]" />
-                <MetricLine label="Vault TVL" value={input.vault.tvlDisplay} subvalue={input.vault.tvlUsd} />
-              </div>
+              <PanelCard className="space-y-0 p-0">
+                <MetricLine label="APY" value={input.vault.apyDisplay} valueClassName="text-primary" />
+                <MetricLine
+                  isLast
+                  label="Vault TVL"
+                  subvalue={input.vault.tvlUsd}
+                  value={input.vault.tvlDisplay}
+                />
+              </PanelCard>
 
-              <div className="inline-flex w-full items-center rounded-full border border-[#182235] bg-[#081018] p-1">
+              <div className="inline-flex w-full items-center rounded-full border border-border bg-secondary p-1">
                 <ActionToggle
                   active={input.selectedAction === "deposit"}
                   label="Deposit"
@@ -471,11 +470,11 @@ function YieldVaultDialog(input: {
                 </InlineNotice>
               ) : null}
 
-              <div className="rounded-[1.5rem] border border-[#202b3d] bg-[#1a2230] p-5">
+              <PanelCard className="space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <p className="text-2xl font-semibold text-white">{actionLabel}</p>
-                  <div className="flex flex-wrap items-center gap-2 text-sm text-[#8ea0c6]">
-                    <span className="inline-flex items-center gap-2 rounded-full border border-[#2a3548] px-3 py-1.5">
+                  <p className="text-xl font-semibold text-foreground">{actionLabel}</p>
+                  <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                    <span className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5">
                       <Wallet className="size-4" />
                       {availabilityLabel}
                     </span>
@@ -484,46 +483,40 @@ function YieldVaultDialog(input: {
                   </div>
                 </div>
 
-                <div className="mt-5 flex flex-col gap-4 rounded-[1.25rem] border border-white/6 bg-[#141b28] p-4 md:flex-row md:items-end md:justify-between">
-                  <div className="inline-flex items-center gap-3 rounded-[1rem] bg-[#192231] px-4 py-3">
-                    <img
-                      src={input.vault.iconPath}
-                      alt=""
-                      className="size-9 rounded-full bg-white/10 p-1"
-                    />
-                    <span className="text-2xl font-semibold text-white">{input.vault.label}</span>
+                <div className="grid gap-4 rounded-[1.4rem] border border-border bg-background p-4 md:grid-cols-[auto_minmax(0,1fr)] md:items-end">
+                  <div className="inline-flex items-center gap-3 rounded-[1rem] border border-border bg-card px-4 py-3">
+                    <img src={input.vault.iconPath} alt="" className="size-8 rounded-full bg-background p-1" />
+                    <span className="text-xl font-semibold text-foreground">{input.vault.label}</span>
                   </div>
 
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0">
                     <input
                       value={input.amount}
                       inputMode="decimal"
                       placeholder="0.00"
-                      className="h-20 w-full bg-transparent text-right text-[clamp(2.4rem,8vw,4.5rem)] font-semibold tracking-tight text-[#dbe7ff] outline-none placeholder:text-[#485368]"
+                      className="h-16 w-full bg-transparent text-right text-[clamp(2.2rem,7vw,3.75rem)] font-semibold tracking-tight text-foreground outline-none placeholder:text-muted-foreground/55"
                       onChange={event => input.onAmountChange(event.target.value)}
                     />
                   </div>
                 </div>
 
-                <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm text-[#8ea0c6]">
+                <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground">
                   <span>
-                    Available {input.selectedAction === "deposit" ? "wallet balance" : "vault position"}:
-                    {" "}
+                    Available {input.selectedAction === "deposit" ? "wallet balance" : "vault position"}:{" "}
                     {availabilityLabel}
                   </span>
                   {input.previewAmountDisplay ? (
                     <span>
-                      Estimated {input.selectedAction === "deposit" ? "shares minted" : "shares burned"}:
-                      {" "}
+                      Estimated {input.selectedAction === "deposit" ? "shares minted" : "shares burned"}:{" "}
                       {input.previewAmountDisplay}
                     </span>
                   ) : null}
                 </div>
-              </div>
+              </PanelCard>
 
               <Button
                 type="button"
-                className="h-16 w-full rounded-[1.2rem] bg-[#849c5b] text-lg text-[#0b1016] hover:bg-[#93ae64]"
+                className="h-12 w-full rounded-xl"
                 disabled={!input.isWalletReady || input.isPersistingSolanaAddress || input.isSubmitting}
                 onClick={input.onSubmit}
               >
@@ -538,22 +531,41 @@ function YieldVaultDialog(input: {
 }
 
 function SummaryCard(input: {
-  accentClass: string;
   compact?: boolean;
   label: string;
   note?: string;
+  tone?: "default" | "muted" | "positive";
   value: string;
 }) {
   return (
     <div
       className={cn(
-        "rounded-[1.6rem] border border-[#1b2840] bg-[#0d131d]/88 px-5 py-5",
-        input.compact ? "min-h-[9rem]" : "min-h-[10.5rem]",
+        "rounded-[1.4rem] border border-border bg-card px-5 py-5",
+        input.compact ? "min-h-[8.5rem]" : "min-h-[9.75rem]",
       )}
     >
-      <p className={cn("text-lg", input.accentClass)}>{input.label}</p>
-      <p className="mt-3 text-4xl font-semibold tracking-tight text-white">{input.value}</p>
-      {input.note ? <p className="mt-2 text-lg text-[#8ea0c6]">{input.note}</p> : null}
+      <p
+        className={cn(
+          "text-sm font-medium uppercase tracking-[0.12em]",
+          input.tone === "positive"
+            ? "text-primary"
+            : input.tone === "muted"
+              ? "text-muted-foreground"
+              : "text-foreground",
+        )}
+      >
+        {input.label}
+      </p>
+      <p className="mt-3 text-4xl font-semibold tracking-tight text-foreground">{input.value}</p>
+      {input.note ? <p className="mt-2 text-sm leading-6 text-muted-foreground">{input.note}</p> : null}
+    </div>
+  );
+}
+
+function PanelCard(input: { children: ReactNode; className?: string }) {
+  return (
+    <div className={cn("rounded-[1.75rem] border border-border bg-card p-6 shadow-sm", input.className)}>
+      {input.children}
     </div>
   );
 }
@@ -565,25 +577,27 @@ function VaultRow(input: {
   return (
     <button
       type="button"
-      className="grid w-full gap-4 px-6 py-5 text-left transition-colors hover:bg-white/[0.025] md:grid-cols-[minmax(0,1.2fr)_0.7fr_0.95fr_0.95fr_0.95fr_auto] md:items-center"
+      className="grid w-full gap-4 px-6 py-5 text-left transition-colors hover:bg-secondary/45 md:grid-cols-[minmax(0,1.4fr)_0.7fr_0.9fr_0.9fr_0.9fr_auto] md:items-center"
       onClick={input.onOpen}
     >
       <div className="flex items-center gap-4">
         <img
           src={input.vault.iconPath}
           alt={`${input.vault.label} token icon`}
-          className="size-12 rounded-full bg-white/8 p-1"
+          className="size-12 rounded-full bg-background p-1"
         />
         <div>
-          <p className="text-2xl font-semibold text-white">{input.vault.label}</p>
-          <p className="mt-1 text-sm text-[#8ea0c6]">Jupiter Earn vault</p>
+          <p className="text-2xl font-semibold text-foreground">{input.vault.label}</p>
+          <p className="mt-1 text-sm text-muted-foreground">Jupiter Earn vault</p>
           {input.vault.trackingBadge ? (
-            <p className="mt-1 text-sm text-[#d6c071]">{input.vault.trackingBadge}</p>
+            <p className="mt-1 text-sm text-[color:color-mix(in_srgb,var(--warning)_80%,black)]">
+              {input.vault.trackingBadge}
+            </p>
           ) : null}
         </div>
       </div>
 
-      <DataCell label="APY" value={input.vault.apyDisplay} valueClassName="text-[#72f0b8]" />
+      <DataCell label="APY" value={input.vault.apyDisplay} valueClassName="text-primary" />
       <DataCell
         label="Deposited"
         value={input.vault.depositedDisplay}
@@ -594,13 +608,9 @@ function VaultRow(input: {
         value={input.vault.earningsDisplay}
         secondaryValue={input.vault.earningsUsd ?? "$0.00"}
       />
-      <DataCell
-        label="TVL"
-        value={input.vault.tvlDisplay}
-        secondaryValue={input.vault.tvlUsd ?? "$0.00"}
-      />
+      <DataCell label="TVL" value={input.vault.tvlDisplay} secondaryValue={input.vault.tvlUsd ?? "$0.00"} />
 
-      <span className="hidden justify-self-end rounded-full border border-[#25324b] p-4 text-[#b9c8e6] md:inline-flex">
+      <span className="hidden justify-self-end rounded-full border border-border bg-background p-4 text-muted-foreground md:inline-flex">
         <ChevronRight className="size-5" />
       </span>
     </button>
@@ -615,9 +625,9 @@ function DataCell(input: {
 }) {
   return (
     <div className="space-y-1">
-      <p className="text-sm uppercase tracking-[0.18em] text-[#6f80a2] md:hidden">{input.label}</p>
-      <p className={cn("text-2xl font-semibold text-white", input.valueClassName)}>{input.value}</p>
-      {input.secondaryValue ? <p className="text-lg text-[#8ea0c6]">{input.secondaryValue}</p> : null}
+      <p className="text-sm uppercase tracking-[0.18em] text-muted-foreground md:hidden">{input.label}</p>
+      <p className={cn("text-2xl font-semibold text-foreground", input.valueClassName)}>{input.value}</p>
+      {input.secondaryValue ? <p className="text-base text-muted-foreground">{input.secondaryValue}</p> : null}
     </div>
   );
 }
@@ -630,12 +640,12 @@ function MetricLine(input: {
   valueClassName?: string;
 }) {
   return (
-    <div className={cn("flex items-start justify-between gap-4 py-3", !input.isLast && "border-b border-white/6")}>
+    <div className={cn("flex items-start justify-between gap-4 px-5 py-4", !input.isLast && "border-b border-border")}>
       <div className="space-y-1">
-        <p className="text-sm uppercase tracking-[0.18em] text-[#8ea0c6]">{input.label}</p>
-        {input.subvalue ? <p className="text-sm text-[#6f80a2]">{input.subvalue}</p> : null}
+        <p className="text-sm uppercase tracking-[0.18em] text-muted-foreground">{input.label}</p>
+        {input.subvalue ? <p className="text-sm text-muted-foreground">{input.subvalue}</p> : null}
       </div>
-      <p className={cn("text-3xl font-semibold text-white", input.valueClassName)}>{input.value}</p>
+      <p className={cn("text-2xl font-semibold text-foreground", input.valueClassName)}>{input.value}</p>
     </div>
   );
 }
@@ -645,8 +655,8 @@ function ActionToggle(input: { active: boolean; label: string; onClick: () => vo
     <button
       type="button"
       className={cn(
-        "flex-1 rounded-full px-5 py-3 text-lg font-semibold transition-colors",
-        input.active ? "bg-[#202915] text-[#d6ff7b]" : "text-[#8ea0c6] hover:text-white",
+        "flex-1 rounded-full px-4 py-2.5 text-base font-semibold transition-colors",
+        input.active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
       )}
       onClick={input.onClick}
     >
@@ -659,7 +669,7 @@ function PresetButton(input: { label: string; onClick: () => void }) {
   return (
     <button
       type="button"
-      className="rounded-xl border border-[#2a3548] bg-[#202938] px-3 py-1.5 font-semibold text-[#dbe7ff] transition-colors hover:bg-[#293447]"
+      className="rounded-xl border border-border bg-card px-3 py-1.5 font-semibold text-foreground transition-colors hover:bg-secondary"
       onClick={input.onClick}
     >
       {input.label}
@@ -668,7 +678,7 @@ function PresetButton(input: { label: string; onClick: () => void }) {
 }
 
 function LoadingRow() {
-  return <div className="h-28 rounded-[1.35rem] bg-white/[0.03]" />;
+  return <div className="h-28 rounded-[1.35rem] bg-secondary/60" />;
 }
 
 export default YieldPage;

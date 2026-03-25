@@ -1,6 +1,6 @@
 import type { PoolClient } from "pg";
 
-import { isOfframpSourceAsset, isOnrampDestinationAsset } from "../../lib/assets.js";
+import { isOfframpSourceAsset, isOnrampDestinationAsset, isYieldAsset } from "../../lib/assets.js";
 import { parseDecimalAmountToRaw } from "../../lib/amounts.js";
 import type {
   BridgeTransferState,
@@ -24,6 +24,7 @@ import {
   applyBalanceDeltas,
   applyRecipientLastPayments,
 } from "./transactionsWriteRepo.js";
+import { applyYieldPositionAction, getYieldPositionByUserIdWithClient } from "./yieldPositionsRepo.js";
 
 export interface WebhookLedgerEntryInput {
   userId: number;
@@ -577,6 +578,11 @@ export async function applyAlchemyWebhookEffects(input: {
 
     for (const effect of input.effects) {
       if (effect.type === "ledger") {
+        const currentYieldPosition =
+          (effect.entry.entryType === "yield_deposit" || effect.entry.entryType === "yield_withdraw") &&
+          isYieldAsset(effect.entry.asset)
+            ? await getYieldPositionByUserIdWithClient(client, effect.entry.userId)
+            : null;
         const inserted = await insertConfirmedLedgerEntry(client, effect.entry);
         if (!inserted) {
           continue;
@@ -589,6 +595,21 @@ export async function applyAlchemyWebhookEffects(input: {
           inserted.asset,
           inserted.direction === "inbound" ? BigInt(inserted.amount_raw) : BigInt(inserted.amount_raw) * -1n,
         );
+
+        if (
+          (inserted.entry_type === "yield_deposit" || inserted.entry_type === "yield_withdraw") &&
+          isYieldAsset(inserted.asset)
+        ) {
+          await applyYieldPositionAction(client, {
+            action: inserted.entry_type === "yield_deposit" ? "deposit" : "withdraw",
+            amountRaw: inserted.amount_raw,
+            asset: inserted.asset,
+            currentPosition: currentYieldPosition!,
+            transactionSignature: inserted.transaction_signature,
+            updatedAt: inserted.confirmed_at ?? effect.entry.confirmedAt,
+            userId: Number(inserted.user_id),
+          });
+        }
 
         if (
           inserted.recipient_id !== null &&

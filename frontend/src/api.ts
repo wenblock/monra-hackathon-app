@@ -9,6 +9,7 @@ import type {
 export interface DashboardSnapshot {
   balances: SolanaBalancesResponse["balances"];
   valuation: SolanaBalancesResponse["valuation"];
+  yield: SolanaBalancesResponse["yield"];
   transactions: AppTransaction[];
 }
 
@@ -24,6 +25,7 @@ export async function fetchDashboardSnapshot(
   return {
     balances: balancesResponse.balances,
     valuation: balancesResponse.valuation,
+    yield: balancesResponse.yield,
     transactions: transactionsResponse.transactions,
   };
 }

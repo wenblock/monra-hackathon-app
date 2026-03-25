@@ -5,8 +5,9 @@ export type TransferAsset = "sol" | "usdc" | "eurc";
 export type StablecoinAsset = Exclude<TransferAsset, "sol">;
 export type OnrampDestinationAsset = StablecoinAsset;
 export type OfframpSourceAsset = StablecoinAsset;
-export type YieldAsset = StablecoinAsset;
+export type YieldAsset = "usdc";
 export type YieldAction = "deposit" | "withdraw";
+export type YieldPositionStatus = "tracked" | "untracked" | "none";
 export type TransactionStatus = "pending" | "confirmed" | "failed";
 export type TransactionDirection = "inbound" | "outbound";
 export type TransactionEntryType =
@@ -101,12 +102,40 @@ export interface TokenBalanceAmount {
 }
 
 export interface TreasuryValuation {
+  liquidTreasuryValueUsd: string | null;
+  yieldInvestedValueUsd: string | null;
   treasuryValueUsd: string | null;
   assetValuesUsd: Record<TransferAsset, string | null>;
   isStale: boolean;
   pricesUsd: Record<TransferAsset, string | null>;
   lastUpdatedAt: string | null;
   unavailableAssets: TransferAsset[];
+}
+
+export interface YieldTrackedPosition {
+  principal: TokenBalanceAmount;
+  totalDeposited: TokenBalanceAmount;
+  grossWithdrawn: TokenBalanceAmount;
+  updatedAt: string | null;
+}
+
+export interface YieldTrackedPositionsResponse {
+  positions: {
+    usdc: YieldTrackedPosition;
+  };
+}
+
+export interface YieldPortfolioPosition {
+  currentPosition: TokenBalanceAmount;
+  earnings: TokenBalanceAmount;
+  valueUsd: string | null;
+  status: YieldPositionStatus;
+}
+
+export interface YieldPortfolioSnapshot {
+  positions: {
+    usdc: YieldPortfolioPosition;
+  };
 }
 
 export interface SolanaBalancesResponse {
@@ -117,6 +146,7 @@ export interface SolanaBalancesResponse {
     eurc: TokenBalanceAmount;
   };
   valuation: TreasuryValuation;
+  yield: YieldPortfolioSnapshot;
 }
 
 export interface SolanaTransactionContextResponse {
@@ -301,23 +331,15 @@ export interface SwapExecuteResponse {
   transaction: AppTransaction;
 }
 
-export interface YieldLedgerSummary {
-  eurc: TokenBalanceAmount;
-  usdc: TokenBalanceAmount;
-}
-
-export interface YieldLedgerSummaryResponse {
-  ledgerSummary: YieldLedgerSummary;
-}
-
 export interface YieldConfirmResponse {
   balances: SolanaBalancesResponse["balances"];
   transaction: AppTransaction;
-  ledgerSummary: YieldLedgerSummary;
+  position: YieldTrackedPosition;
 }
 
 export interface TransactionStreamResponse {
   balances: SolanaBalancesResponse["balances"];
   valuation: TreasuryValuation;
+  yield: YieldPortfolioSnapshot;
   transactions: AppTransaction[];
 }

@@ -189,6 +189,8 @@ export function createUnavailableTreasuryValuation(
   unavailableAssets: TransferAsset[] = [...TRANSFER_ASSETS],
 ): TreasuryValuation {
   return {
+    liquidTreasuryValueUsd: null,
+    yieldInvestedValueUsd: null,
     treasuryValueUsd: null,
     assetValuesUsd: {
       sol: null,
@@ -399,6 +401,16 @@ export async function fetchSolanaBalances(address: string): Promise<SolanaBalanc
     },
     network: "solana-mainnet",
     valuation: createUnavailableTreasuryValuation(),
+    yield: {
+      positions: {
+        usdc: {
+          currentPosition: { formatted: "0", raw: "0" },
+          earnings: { formatted: "0", raw: "0" },
+          status: "none",
+          valueUsd: "0.00",
+        },
+      },
+    },
   };
 }
 
@@ -481,12 +493,22 @@ export function resetTreasuryPriceCacheForTests() {
 export function buildTreasuryValuation(
   balances: SolanaBalancesResponse["balances"],
   treasuryPrices: TreasuryPriceSnapshot | null,
-  now = Date.now(),
+  optionsOrNow:
+    | {
+        yieldInvestedValueUsd?: string | null;
+      }
+    | number = {},
+  nowOverride = Date.now(),
 ): TreasuryValuation {
   if (!treasuryPrices) {
     return createUnavailableTreasuryValuation();
   }
 
+  const options =
+    typeof optionsOrNow === "number"
+      ? {}
+      : optionsOrNow;
+  const now = typeof optionsOrNow === "number" ? optionsOrNow : nowOverride;
   const valuation = createUnavailableTreasuryValuation([]);
   let treasuryTotalUsd = 0;
 
@@ -507,8 +529,21 @@ export function buildTreasuryValuation(
 
   valuation.lastUpdatedAt = treasuryPrices.lastUpdatedAt;
   valuation.isStale = now > treasuryPrices.expiresAt;
-  valuation.treasuryValueUsd =
+  valuation.liquidTreasuryValueUsd =
     valuation.unavailableAssets.length === 0 ? formatUsdAmount(treasuryTotalUsd) : null;
+  valuation.yieldInvestedValueUsd = normalizeUsdString(options.yieldInvestedValueUsd ?? "0");
+
+  const parsedLiquidTreasuryValue = valuation.liquidTreasuryValueUsd
+    ? Number.parseFloat(valuation.liquidTreasuryValueUsd)
+    : Number.NaN;
+  const parsedYieldInvestedValue = valuation.yieldInvestedValueUsd
+    ? Number.parseFloat(valuation.yieldInvestedValueUsd)
+    : Number.NaN;
+
+  valuation.treasuryValueUsd =
+    Number.isFinite(parsedLiquidTreasuryValue) && Number.isFinite(parsedYieldInvestedValue)
+      ? formatUsdAmount(parsedLiquidTreasuryValue + parsedYieldInvestedValue)
+      : null;
 
   return valuation;
 }
@@ -643,6 +678,15 @@ export function isSupportedSplTokenMintAddress(value: string | null | undefined)
 
 function formatUsdAmount(value: number) {
   return value.toFixed(2);
+}
+
+function normalizeUsdString(value: string | null) {
+  if (value === null) {
+    return null;
+  }
+
+  const parsedValue = Number.parseFloat(value);
+  return Number.isFinite(parsedValue) ? formatUsdAmount(parsedValue) : null;
 }
 
 function getMostRecentTimestamp(current: string | null, next: string) {

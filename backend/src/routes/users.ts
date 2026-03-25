@@ -5,10 +5,7 @@ import { readAppUser, requireAppUser } from "../auth/requestAuth.js";
 import { isUniqueViolation } from "../db/errors.js";
 import { getUserBalancesByUserId, updateUserSolanaAddress } from "../db/repositories/usersRepo.js";
 import {
-  buildTreasuryValuation,
-  createUnavailableTreasuryValuation,
   fetchSolanaTransactionContext,
-  getTreasuryPrices,
   isAlchemyApiError,
   updateAlchemyWebhookAddresses,
 } from "../lib/alchemy.js";
@@ -16,6 +13,7 @@ import { sendError } from "../lib/http.js";
 import { logError } from "../lib/logger.js";
 import { isValidSolanaAddress } from "../lib/solana.js";
 import { userMutationRateLimit } from "../middleware/rateLimits.js";
+import { buildTreasurySnapshotForUser, createEmptyTreasuryValuation, createEmptyYieldPortfolioSnapshot } from "../services/treasuryService.js";
 
 const solanaAddressSchema = z.object({
   solanaAddress: z.string().trim().min(1, "Solana address is required."),
@@ -100,22 +98,23 @@ usersRouter.post("/solana-address", userMutationRateLimit, async (request, respo
 usersRouter.get("/balances", async (request, response) => {
   try {
     const user = readAppUser(request);
-
-    const balances = await getUserBalancesByUserId(user.id);
-    const valuation = await getTreasuryPrices()
-      .then(treasuryPrices => buildTreasuryValuation(balances, treasuryPrices))
-      .catch(error => {
-        logError("users.treasury_valuation_failed", error, {
-          requestId: request.requestId,
-          userId: user.id,
-        });
-        return createUnavailableTreasuryValuation();
+    const treasurySnapshot = await buildTreasurySnapshotForUser(user.id).catch(async error => {
+      logError("users.treasury_valuation_failed", error, {
+        requestId: request.requestId,
+        userId: user.id,
       });
+      return {
+        balances: await getUserBalancesByUserId(user.id),
+        valuation: createEmptyTreasuryValuation(),
+        yield: createEmptyYieldPortfolioSnapshot(),
+      };
+    });
 
     return response.json({
-      balances,
+      balances: treasurySnapshot.balances,
       network: "solana-mainnet",
-      valuation,
+      valuation: treasurySnapshot.valuation,
+      yield: treasurySnapshot.yield,
     });
   } catch (error) {
     logError("users.balances_fetch_failed", error, {

@@ -28,23 +28,32 @@ test("buildLatestTransactionSnapshot honors a provided balance override", async 
     7,
     balances,
     {
-      buildTreasuryValuation(currentBalances, prices) {
+      async buildTreasurySnapshotForUser(requestedUserId, currentBalances) {
+        assert.equal(requestedUserId, 7);
         assert.equal(currentBalances, balances);
         return {
-          assetValuesUsd: { eurc: "0", sol: "150", usdc: "2" },
-          isStale: false,
-          lastUpdatedAt: "2026-03-22T00:00:00.000Z",
-          pricesUsd: prices,
-          treasuryValueUsd: "152",
-          unavailableAssets: [],
-        };
-      },
-      async getTreasuryPrices() {
-        return { eurc: "1", sol: "150", usdc: "1" };
-      },
-      async getUserBalancesByUserId() {
-        balanceReadCount += 1;
-        return balances as any;
+          balances,
+          valuation: {
+            assetValuesUsd: { eurc: "0", sol: "150", usdc: "2" },
+            isStale: false,
+            lastUpdatedAt: "2026-03-22T00:00:00.000Z",
+            liquidTreasuryValueUsd: "152",
+            pricesUsd: { eurc: "1", sol: "150", usdc: "1" },
+            treasuryValueUsd: "157",
+            unavailableAssets: [],
+            yieldInvestedValueUsd: "5",
+          },
+          yield: {
+            positions: {
+              usdc: {
+                currentPosition: { formatted: "5", raw: "5000000" },
+                earnings: { formatted: "1", raw: "1000000" },
+                status: "tracked",
+                valueUsd: "5",
+              },
+            },
+          },
+        } as any;
       },
       async listTransactionsByUserIdPaginated() {
         return {
@@ -57,5 +66,6 @@ test("buildLatestTransactionSnapshot honors a provided balance override", async 
 
   assert.equal(balanceReadCount, 0);
   assert.equal(snapshot.transactions.length, 2);
-  assert.equal(snapshot.valuation.treasuryValueUsd, "152");
+  assert.equal(snapshot.valuation.treasuryValueUsd, "157");
+  assert.equal(snapshot.yield.positions.usdc.valueUsd, "5");
 });

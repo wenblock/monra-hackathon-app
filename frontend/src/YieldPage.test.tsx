@@ -22,8 +22,8 @@ const persistedSolanaAddressMock = vi.hoisted(() => ({
   usePersistedSolanaAddress: vi.fn(),
 }));
 
-const yieldLedgerSummaryMock = vi.hoisted(() => ({
-  useYieldLedgerSummary: vi.fn(),
+const yieldPositionsMock = vi.hoisted(() => ({
+  useYieldPositions: vi.fn(),
 }));
 
 const yieldOnchainQueryMock = vi.hoisted(() => ({
@@ -54,7 +54,7 @@ vi.mock("@tanstack/react-router", () => ({
 vi.mock("@/features/session/use-session", () => sessionMock);
 vi.mock("@/features/dashboard/use-dashboard-snapshot", () => dashboardSnapshotMock);
 vi.mock("@/features/session/use-persisted-solana-address", () => persistedSolanaAddressMock);
-vi.mock("@/features/yield/use-yield-ledger-summary", () => yieldLedgerSummaryMock);
+vi.mock("@/features/yield/use-yield-positions", () => yieldPositionsMock);
 vi.mock("@/features/yield/use-yield-onchain-query", () => yieldOnchainQueryMock);
 vi.mock("@/features/yield/use-yield-confirm-mutation", () => yieldConfirmMutationMock);
 
@@ -77,21 +77,44 @@ describe("YieldPage", () => {
     });
     dashboardSnapshotMock.useDashboardSnapshot.mockReturnValue({
       data: {
+        balances: {
+          eurc: { formatted: "10.00", raw: "10000000" },
+          sol: { formatted: "1.00", raw: "1000000000" },
+          usdc: { formatted: "4.46", raw: "4467116" },
+        },
         valuation: {
           assetValuesUsd: {
-            eurc: "0.55",
+            eurc: "10.80",
             sol: "150.00",
-            usdc: "1.75",
+            usdc: "4.46",
           },
           isStale: false,
           lastUpdatedAt: "2026-03-23T10:00:00.000Z",
+          liquidTreasuryValueUsd: "165.26",
           pricesUsd: {
-            eurc: "1.10",
+            eurc: "1.08",
             sol: "150.00",
             usdc: "1.00",
           },
-          treasuryValueUsd: "152.30",
+          treasuryValueUsd: "169.73",
           unavailableAssets: [],
+          yieldInvestedValueUsd: "4.47",
+        },
+        yield: {
+          positions: {
+            usdc: {
+              currentPosition: {
+                formatted: "4.467099",
+                raw: "4467099",
+              },
+              earnings: {
+                formatted: "2.967099",
+                raw: "2967099",
+              },
+              status: "tracked",
+              valueUsd: "4.47",
+            },
+          },
         },
       },
     });
@@ -101,16 +124,23 @@ describe("YieldPage", () => {
       persistenceError: null,
       storedSolanaAddress: "11111111111111111111111111111111",
     });
-    yieldLedgerSummaryMock.useYieldLedgerSummary.mockReturnValue({
+    yieldPositionsMock.useYieldPositions.mockReturnValue({
       data: {
-        ledgerSummary: {
-          eurc: {
-            formatted: "0.5",
-            raw: "500000",
-          },
+        positions: {
           usdc: {
-            formatted: "1.5",
-            raw: "1500000",
+            grossWithdrawn: {
+              formatted: "0",
+              raw: "0",
+            },
+            principal: {
+              formatted: "1.5",
+              raw: "1500000",
+            },
+            totalDeposited: {
+              formatted: "1.5",
+              raw: "1500000",
+            },
+            updatedAt: "2026-03-25T00:00:00.000Z",
           },
         },
       },
@@ -119,33 +149,19 @@ describe("YieldPage", () => {
     yieldOnchainQueryMock.useYieldOnchainQuery.mockReturnValue({
       data: {
         vaults: {
-          eurc: {
-            asset: "eurc",
-            conversionRateToSharesRaw: "998000",
-            decimals: 6,
-            jlTokenMintAddress: "jl-eurc",
-            rewardsRateRaw: "8000000000",
-            supplyRateRaw: "26",
-            totalAssetsRaw: "13300000000000",
-            totalSupplyRaw: "13300000000000",
-            underlyingAddress: "eurc-mint",
-            userJlTokenSharesRaw: "500000",
-            userPositionRaw: "500000",
-            walletBalanceRaw: "0",
-          },
           usdc: {
             asset: "usdc",
             conversionRateToSharesRaw: "990000",
             decimals: 6,
             jlTokenMintAddress: "jl-usdc",
-            rewardsRateRaw: "5000000000",
-            supplyRateRaw: "335",
-            totalAssetsRaw: "524000000000000",
-            totalSupplyRaw: "522000000000000",
+            rewardsRateRaw: "0",
+            supplyRateRaw: "223",
+            totalAssetsRaw: "517700000000000",
+            totalSupplyRaw: "515000000000000",
             underlyingAddress: "usdc-mint",
-            userJlTokenSharesRaw: "1750000",
-            userPositionRaw: "1750000",
-            walletBalanceRaw: "18870000",
+            userJlTokenSharesRaw: "4467099",
+            userPositionRaw: "4467099",
+            walletBalanceRaw: "4467116",
           },
         },
       },
@@ -157,17 +173,16 @@ describe("YieldPage", () => {
     });
   });
 
-  it("renders the earn overview and opens the vault dialog", () => {
+  it("renders the usdc-only overview and opens the compact vault dialog", () => {
     renderWithQueryClient(<YieldPage />);
 
-    expect(screen.getByText("Earn interest on your stablecoins")).toBeInTheDocument();
+    expect(screen.getByText("Earn interest on your USDC")).toBeInTheDocument();
+    expect(screen.getByText("USDC vault only")).toBeInTheDocument();
     expect(screen.getByText("Your Deposits")).toBeInTheDocument();
     expect(screen.getByText("Projected Annual Yield")).toBeInTheDocument();
-    expect(screen.getByText("Stablecoin vaults only")).toBeInTheDocument();
-    expect(screen.getByText("3.35%")).toBeInTheDocument();
-    expect(screen.getByText("0.26%")).toBeInTheDocument();
-    expect(screen.getByText("524M USDC")).toBeInTheDocument();
-    expect(screen.getByText("13.3M EURC")).toBeInTheDocument();
+    expect(screen.getByText("2.23%")).toBeInTheDocument();
+    expect(screen.getByText("517.7M USDC")).toBeInTheDocument();
+    expect(screen.queryByText("EURC")).not.toBeInTheDocument();
     expect(screen.getByAltText("USDC token icon")).toHaveAttribute("src", "/jlusdc.webp");
 
     const vaultRowButton = screen
@@ -178,13 +193,12 @@ describe("YieldPage", () => {
     fireEvent.click(vaultRowButton!);
 
     expect(
-      screen.getByText("Manage your Jupiter Earn position and record it in the Monra ledger."),
+      screen.getByText("Deposit into the Jupiter Earn vault and keep the tracked principal in Monra."),
     ).toBeInTheDocument();
     expect(screen.getAllByText("Deposit").length).toBeGreaterThan(0);
     expect(screen.getByText("Vault TVL")).toBeInTheDocument();
-    expect(screen.getAllByText("524M USDC").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("$524M").length).toBeGreaterThan(0);
-    expect(screen.queryByText("Total Supply")).not.toBeInTheDocument();
+    expect(screen.getAllByText("517.7M USDC").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("$517.7M").length).toBeGreaterThan(0);
   });
 
   it("computes the preview locally when the amount changes", () => {
@@ -218,26 +232,33 @@ describe("YieldPage", () => {
   });
 
   it("shows the untracked state for existing positions with no recorded principal", () => {
-    yieldLedgerSummaryMock.useYieldLedgerSummary.mockReturnValue({
+    yieldPositionsMock.useYieldPositions.mockReturnValue({
       data: {
-        ledgerSummary: {
-          eurc: {
-            formatted: "0",
-            raw: "0",
-          },
+        positions: {
           usdc: {
-            formatted: "0",
-            raw: "0",
+            grossWithdrawn: {
+              formatted: "0",
+              raw: "0",
+            },
+            principal: {
+              formatted: "0",
+              raw: "0",
+            },
+            totalDeposited: {
+              formatted: "0",
+              raw: "0",
+            },
+            updatedAt: null,
           },
         },
       },
       error: null,
     });
 
-    renderWithQueryClient(<YieldPage />);
+  renderWithQueryClient(<YieldPage />);
 
-    expect(screen.getByText("Untracked position")).toBeInTheDocument();
-    expect(screen.getAllByText("Untracked").length).toBeGreaterThan(1);
-    expect(screen.getByText("$0.00")).toBeInTheDocument();
-  });
+  expect(screen.getByText("Untracked position")).toBeInTheDocument();
+  expect(screen.getAllByText("Untracked").length).toBeGreaterThan(1);
+  expect(screen.getAllByText("$0.00").length).toBeGreaterThan(0);
+});
 });

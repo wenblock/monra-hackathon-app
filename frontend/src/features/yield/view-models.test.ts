@@ -13,54 +13,74 @@ const valuation: TreasuryValuation = {
   },
   isStale: false,
   lastUpdatedAt: "2026-03-23T10:00:00.000Z",
+  liquidTreasuryValueUsd: "151.00",
   pricesUsd: {
     eurc: "1.10",
     sol: "150.00",
     usdc: "1.00",
   },
-  treasuryValueUsd: "152.10",
+  treasuryValueUsd: "152.25",
   unavailableAssets: [],
+  yieldInvestedValueUsd: "1.25",
 };
 
 describe("buildYieldOverviewViewModel", () => {
-  it("computes deposits, earnings, and projected annual yield from ledger and on-chain data", () => {
+  it("computes deposits, earnings, and projected annual yield from tracked positions and on-chain data", () => {
     const overview = buildYieldOverviewViewModel({
-      ledgerSummary: {
-        eurc: {
-          formatted: "0",
-          raw: "0",
-        },
-        usdc: {
-          formatted: "1",
-          raw: "1000000",
+      onchainSnapshot: createOnchainSnapshot(),
+      positions: {
+        positions: {
+          usdc: {
+            grossWithdrawn: {
+              formatted: "0",
+              raw: "0",
+            },
+            principal: {
+              formatted: "1",
+              raw: "1000000",
+            },
+            totalDeposited: {
+              formatted: "1",
+              raw: "1000000",
+            },
+            updatedAt: "2026-03-25T00:00:00.000Z",
+          },
         },
       },
-      onchainSnapshot: createOnchainSnapshot(),
       valuation,
     });
 
     expect(overview.totalDepositsUsd).toBe("$1.00");
     expect(overview.totalEarningsUsd).toBe("$0.25");
-    expect(overview.projectedAnnualYieldUsd).toBe("$0.04");
-    expect(overview.vaults[0]?.apyDisplay).toBe("3.35%");
+    expect(overview.projectedAnnualYieldUsd).toBe("$0.03");
+    expect(overview.vaults[0]?.apyDisplay).toBe("2.23%");
     expect(overview.vaults[0]?.earningsDisplay).toBe("0.25 USDC");
-    expect(overview.vaults[0]?.tvlDisplay).toBe("524M USDC");
-    expect(overview.vaults[0]?.tvlUsd).toBe("$524M");
+    expect(overview.vaults[0]?.tvlDisplay).toBe("517.7M USDC");
+    expect(overview.vaults[0]?.tvlUsd).toBe("$517.7M");
   });
 
   it("marks existing untracked positions instead of treating them as earnings", () => {
     const overview = buildYieldOverviewViewModel({
-      ledgerSummary: {
-        eurc: {
-          formatted: "0",
-          raw: "0",
-        },
-        usdc: {
-          formatted: "0",
-          raw: "0",
+      onchainSnapshot: createOnchainSnapshot(),
+      positions: {
+        positions: {
+          usdc: {
+            grossWithdrawn: {
+              formatted: "0",
+              raw: "0",
+            },
+            principal: {
+              formatted: "0",
+              raw: "0",
+            },
+            totalDeposited: {
+              formatted: "0",
+              raw: "0",
+            },
+            updatedAt: null,
+          },
         },
       },
-      onchainSnapshot: createOnchainSnapshot(),
       valuation,
     });
 
@@ -79,29 +99,15 @@ describe("buildYieldOverviewViewModel", () => {
 function createOnchainSnapshot(): YieldOnchainSnapshot {
   return {
     vaults: {
-      eurc: {
-        asset: "eurc",
-        conversionRateToSharesRaw: "998000",
-        decimals: 6,
-        jlTokenMintAddress: "jl-eurc",
-        rewardsRateRaw: "8000000000",
-        supplyRateRaw: "26",
-        totalAssetsRaw: "13300000000000",
-        totalSupplyRaw: "13300000000000",
-        underlyingAddress: "eurc-mint",
-        userJlTokenSharesRaw: "0",
-        userPositionRaw: "0",
-        walletBalanceRaw: "0",
-      },
       usdc: {
         asset: "usdc",
         conversionRateToSharesRaw: "990000",
         decimals: 6,
         jlTokenMintAddress: "jl-usdc",
-        rewardsRateRaw: "50000000000",
-        supplyRateRaw: "335",
-        totalAssetsRaw: "524000000000000",
-        totalSupplyRaw: "522000000000000",
+        rewardsRateRaw: "0",
+        supplyRateRaw: "223",
+        totalAssetsRaw: "517700000000000",
+        totalSupplyRaw: "515000000000000",
         underlyingAddress: "usdc-mint",
         userJlTokenSharesRaw: "1250000",
         userPositionRaw: "1250000",

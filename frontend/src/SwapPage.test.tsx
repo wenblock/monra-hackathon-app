@@ -92,6 +92,8 @@ describe("SwapPage", () => {
         },
         valuation: {
           treasuryValueUsd: "186.80",
+          liquidTreasuryValueUsd: "176.80",
+          yieldInvestedValueUsd: "10.00",
           assetValuesUsd: {
             sol: "150.00",
             usdc: "25.00",
@@ -105,6 +107,16 @@ describe("SwapPage", () => {
           lastUpdatedAt: "2026-03-20T09:00:02.000Z",
           isStale: false,
           unavailableAssets: [],
+        },
+        yield: {
+          positions: {
+            usdc: {
+              currentPosition: { formatted: "10.00", raw: "10000000" },
+              earnings: { formatted: "1.00", raw: "1000000" },
+              status: "tracked",
+              valueUsd: "10.00",
+            },
+          },
         },
       },
       error: null,

@@ -5,3 +5,4 @@ export * from "./db/repositories/transactionsReadRepo.js";
 export * from "./db/repositories/transactionsWriteRepo.js";
 export * from "./db/repositories/usersRepo.js";
 export * from "./db/repositories/webhooksRepo.js";
+export * from "./db/repositories/yieldPositionsRepo.js";

@@ -80,6 +80,8 @@ test("buildTreasuryValuation calculates treasury USD totals from cached token pr
   assert.equal(valuation.assetValuesUsd.sol, "300.00");
   assert.equal(valuation.assetValuesUsd.usdc, "25.00");
   assert.equal(valuation.assetValuesUsd.eurc, "10.80");
+  assert.equal(valuation.liquidTreasuryValueUsd, "335.80");
+  assert.equal(valuation.yieldInvestedValueUsd, "0.00");
   assert.equal(valuation.treasuryValueUsd, "335.80");
   assert.equal(valuation.lastUpdatedAt, "2026-03-20T09:00:02.000Z");
   assert.equal(valuation.isStale, false);
@@ -106,6 +108,7 @@ test("buildTreasuryValuation marks delayed pricing when the cached snapshot is s
     16000,
   );
 
+  assert.equal(valuation.liquidTreasuryValueUsd, "335.80");
   assert.equal(valuation.treasuryValueUsd, "335.80");
   assert.equal(valuation.isStale, true);
 });
@@ -132,8 +135,39 @@ test("buildTreasuryValuation omits treasury total when any cached price is unava
   assert.equal(valuation.assetValuesUsd.sol, "300.00");
   assert.equal(valuation.assetValuesUsd.usdc, "25.00");
   assert.equal(valuation.assetValuesUsd.eurc, null);
+  assert.equal(valuation.liquidTreasuryValueUsd, null);
+  assert.equal(valuation.yieldInvestedValueUsd, "0.00");
   assert.equal(valuation.treasuryValueUsd, null);
   assert.deepEqual(valuation.unavailableAssets, ["eurc"]);
+});
+
+test("buildTreasuryValuation adds invested yield value to the treasury total without changing liquid rows", () => {
+  const valuation = buildTreasuryValuation(
+    {
+      sol: { formatted: "2", raw: "2000000000" },
+      usdc: { formatted: "25", raw: "25000000" },
+      eurc: { formatted: "10", raw: "10000000" },
+    },
+    {
+      pricesUsd: {
+        sol: "150",
+        usdc: "1",
+        eurc: "1.08",
+      },
+      lastUpdatedAt: "2026-03-20T09:00:02.000Z",
+      fetchedAt: 0,
+      expiresAt: 15000,
+    },
+    {
+      yieldInvestedValueUsd: "12.34",
+    },
+    1000,
+  );
+
+  assert.equal(valuation.assetValuesUsd.usdc, "25.00");
+  assert.equal(valuation.liquidTreasuryValueUsd, "335.80");
+  assert.equal(valuation.yieldInvestedValueUsd, "12.34");
+  assert.equal(valuation.treasuryValueUsd, "348.14");
 });
 
 test("getTreasuryPrices returns cached prices without refetching while fresh", async () => {

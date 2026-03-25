@@ -10,11 +10,6 @@ interface YieldVaultMetadata {
 }
 
 export const YIELD_VAULT_METADATA = {
-  eurc: {
-    jlTokenMintAddress: "GcV9tEj62VncGithz4o4N9x6HWXARxuRgEAYk9zahNA8",
-    label: "Jupiter EURC Earn Vault",
-    underlyingMintAddress: "HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr",
-  },
   usdc: {
     jlTokenMintAddress: "9BEcn9aPEmhSPbPQeFGjidRiEKki46fVQDyPpSQXPA2D",
     label: "Jupiter USDC Earn Vault",

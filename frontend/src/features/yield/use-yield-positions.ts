@@ -4,17 +4,18 @@ import { useApiClient } from "@/features/session/use-api-client";
 
 import { yieldKeys } from "./query-keys";
 
-function useYieldLedgerSummary(userId: string, enabled = true) {
+function useYieldPositions(userId: string, enabled = true) {
   const client = useApiClient();
 
   return useQuery({
-    queryKey: yieldKeys.ledgerSummary(userId),
-    queryFn: ({ signal }) => client.fetchYieldLedgerSummary(signal),
+    queryKey: yieldKeys.positions(userId),
+    queryFn: ({ signal }) => client.fetchYieldPositions(signal),
     enabled,
-    refetchInterval: 15000,
+    refetchInterval: 30000,
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
+    staleTime: 15000,
   });
 }
 
-export { useYieldLedgerSummary };
+export { useYieldPositions };

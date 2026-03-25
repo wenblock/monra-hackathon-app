@@ -32,7 +32,7 @@ export const SPL_TRANSFER_ASSETS = TRANSFER_ASSETS.filter(
 ) as StablecoinAsset[];
 export const ONRAMP_DESTINATION_ASSETS = SPL_TRANSFER_ASSETS;
 export const OFFRAMP_SOURCE_ASSETS = SPL_TRANSFER_ASSETS;
-export const YIELD_ASSETS = ["usdc", "eurc"] as const satisfies YieldAsset[];
+export const YIELD_ASSETS = ["usdc"] as const satisfies YieldAsset[];
 
 const splAssetMintToAsset = new Map(
   SPL_TRANSFER_ASSETS.map(asset => [TRANSFER_ASSET_METADATA[asset].mintAddress!, asset]),
@@ -73,5 +73,5 @@ export function isOfframpSourceAsset(asset: TransferAsset): asset is StablecoinA
 }
 
 export function isYieldAsset(asset: TransferAsset): asset is YieldAsset {
-  return asset === "usdc" || asset === "eurc";
+  return asset === "usdc";
 }

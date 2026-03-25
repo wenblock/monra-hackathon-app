@@ -85,18 +85,20 @@ function useDashboardStream(userId: string, enabled = true) {
             queryClient.setQueryData(
               dashboardKeys.snapshot(userId),
               current =>
-                current
-                  ? {
-                      ...current,
-                      balances: payload.balances,
-                      valuation: payload.valuation,
-                      transactions: payload.transactions,
-                    }
-                  : {
-                      balances: payload.balances,
-                      valuation: payload.valuation,
-                      transactions: payload.transactions,
-                    },
+                    current
+                      ? {
+                          ...current,
+                          balances: payload.balances,
+                          valuation: payload.valuation,
+                          yield: payload.yield,
+                          transactions: payload.transactions,
+                        }
+                      : {
+                          balances: payload.balances,
+                          valuation: payload.valuation,
+                          yield: payload.yield,
+                          transactions: payload.transactions,
+                        },
             );
             setTransactionsError(null);
           } catch (streamError) {

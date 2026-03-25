@@ -9,12 +9,6 @@ interface YieldAssetMetadata {
 }
 
 const YIELD_ASSET_METADATA = {
-  eurc: {
-    iconPath: "/jleurc.webp",
-    jlTokenMintAddress: "GcV9tEj62VncGithz4o4N9x6HWXARxuRgEAYk9zahNA8",
-    label: getTransferAssetLabel("eurc"),
-    underlyingMintAddress: getTransferAssetMintAddress("eurc"),
-  },
   usdc: {
     iconPath: "/jlusdc.webp",
     jlTokenMintAddress: "9BEcn9aPEmhSPbPQeFGjidRiEKki46fVQDyPpSQXPA2D",

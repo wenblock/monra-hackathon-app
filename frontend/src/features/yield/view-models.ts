@@ -4,14 +4,14 @@ import {
 import type {
   TreasuryValuation,
   YieldAsset,
-  YieldLedgerSummary,
+  YieldTrackedPosition,
+  YieldTrackedPositionsResponse,
 } from "@/types";
 
 import { formatYieldCompactAsset, formatYieldCompactUsd } from "./formatters";
 import { getYieldAssetIconPath } from "./metadata";
 import { formatYieldRawAmount, type YieldOnchainSnapshot } from "./runtime";
 
-const YIELD_ASSETS = ["usdc", "eurc"] as const satisfies YieldAsset[];
 const YIELD_SUPPLY_RATE_PRECISION = 100;
 
 export interface YieldVaultViewModel {
@@ -49,36 +49,41 @@ export interface YieldOverviewViewModel {
 }
 
 export function buildYieldOverviewViewModel(input: {
-  ledgerSummary: YieldLedgerSummary;
+  positions: YieldTrackedPositionsResponse;
   onchainSnapshot: YieldOnchainSnapshot;
   valuation: TreasuryValuation | null | undefined;
 }): YieldOverviewViewModel {
-  const vaults = YIELD_ASSETS.map(asset =>
+  const vaults = [
     buildYieldVaultViewModel({
-      asset,
-      depositedRaw: input.ledgerSummary[asset].raw,
+      asset: "usdc",
       onchainSnapshot: input.onchainSnapshot,
+      position: input.positions.positions.usdc,
       valuation: input.valuation,
     }),
-  );
+  ];
+
+  const totalDepositsUsd = sumPresent(vaults.map(vault => parseUsd(vault.depositedUsd))) ?? 0;
+  const totalEarningsUsd = sumPresent(vaults.map(vault => parseUsd(vault.earningsUsd))) ?? 0;
+  const projectedAnnualYieldUsd =
+    sumPresent(vaults.map(vault => parseUsd(vault.projectedAnnualYieldUsd))) ?? 0;
 
   return {
-    projectedAnnualYieldUsd: formatUsd(sumPresent(vaults.map(vault => parseUsd(vault.projectedAnnualYieldUsd)))),
-    totalDepositsUsd: formatUsd(sumPresent(vaults.map(vault => parseUsd(vault.depositedUsd)))),
-    totalEarningsUsd: formatUsd(sumPresent(vaults.map(vault => parseUsd(vault.earningsUsd)))),
+    projectedAnnualYieldUsd: formatUsd(projectedAnnualYieldUsd),
+    totalDepositsUsd: formatUsd(totalDepositsUsd),
+    totalEarningsUsd: formatUsd(totalEarningsUsd),
     vaults,
   };
 }
 
 export function buildYieldVaultViewModel(input: {
   asset: YieldAsset;
-  depositedRaw: string;
   onchainSnapshot: YieldOnchainSnapshot;
+  position: YieldTrackedPosition;
   valuation: TreasuryValuation | null | undefined;
 }): YieldVaultViewModel {
   const vault = input.onchainSnapshot.vaults[input.asset];
   const label = getTransferAssetLabel(input.asset);
-  const depositedRaw = input.depositedRaw;
+  const depositedRaw = input.position.principal.raw;
   const currentPositionRaw = vault.userPositionRaw;
   const isUntrackedPosition = BigInt(currentPositionRaw) > 0n && BigInt(depositedRaw) === 0n;
   const earningsRaw = maxBigIntString(BigInt(currentPositionRaw) - BigInt(depositedRaw));

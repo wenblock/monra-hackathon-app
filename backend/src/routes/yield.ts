@@ -7,28 +7,30 @@ import { logError } from "../lib/logger.js";
 import { normalizeSwapAmount } from "../lib/amounts.js";
 import { highCostUserActionRateLimit } from "../middleware/rateLimits.js";
 import { isServiceError } from "../services/errors.js";
-import { confirmYieldTransactionForUser, getYieldLedgerSummaryForUser } from "../services/yieldService.js";
+import { confirmYieldTransactionForUser, getYieldPositionForUser } from "../services/yieldService.js";
 import type { YieldAsset } from "../types.js";
 
 const confirmYieldSchema = z.object({
   action: z.enum(["deposit", "withdraw"]),
   amount: z.string().trim().min(1, "Amount is required."),
-  asset: z.enum(["usdc", "eurc"]),
+  asset: z.literal("usdc"),
   transactionSignature: z.string().trim().min(1, "Transaction signature is required."),
 });
 
 export const yieldRouter = Router();
 yieldRouter.use(requireAppUser);
 
-yieldRouter.get("/ledger-summary", async (request, response) => {
+yieldRouter.get("/positions", async (request, response) => {
   try {
     const existingUser = readAppUser(request);
 
     return response.json({
-      ledgerSummary: await getYieldLedgerSummaryForUser(existingUser.id),
+      positions: {
+        usdc: await getYieldPositionForUser(existingUser.id),
+      },
     });
   } catch (error) {
-    logError("yield.ledger_summary_failed", error, {
+    logError("yield.positions_failed", error, {
       requestId: request.requestId,
     });
 
@@ -36,7 +38,7 @@ yieldRouter.get("/ledger-summary", async (request, response) => {
       return sendError(response, error.status, error.message);
     }
 
-    return sendError(response, 500, "Unable to load the yield ledger summary.");
+    return sendError(response, 500, "Unable to load yield positions.");
   }
 });
 

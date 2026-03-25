@@ -1,19 +1,14 @@
 import { listTransactionsByUserIdPaginated, type ListTransactionsOptions } from "../db/repositories/transactionsReadRepo.js";
-import { getUserBalancesByUserId } from "../db/repositories/usersRepo.js";
-import { buildTreasuryValuation, getTreasuryPrices } from "../lib/alchemy.js";
+import { buildTreasurySnapshotForUser } from "./treasuryService.js";
 import type { SolanaBalancesResponse, TransactionStreamResponse } from "../types.js";
 
 interface TransactionsServiceDependencies {
-  buildTreasuryValuation: typeof buildTreasuryValuation;
-  getTreasuryPrices: typeof getTreasuryPrices;
-  getUserBalancesByUserId: typeof getUserBalancesByUserId;
+  buildTreasurySnapshotForUser: typeof buildTreasurySnapshotForUser;
   listTransactionsByUserIdPaginated: typeof listTransactionsByUserIdPaginated;
 }
 
 const defaultDependencies: TransactionsServiceDependencies = {
-  buildTreasuryValuation,
-  getTreasuryPrices,
-  getUserBalancesByUserId,
+  buildTreasurySnapshotForUser,
   listTransactionsByUserIdPaginated,
 };
 
@@ -26,15 +21,15 @@ export async function buildLatestTransactionSnapshot(
   balancesOverride?: SolanaBalancesResponse["balances"],
   dependencies: TransactionsServiceDependencies = defaultDependencies,
 ): Promise<TransactionStreamResponse> {
-  const [balances, transactionPage, treasuryPrices] = await Promise.all([
-    balancesOverride ? Promise.resolve(balancesOverride) : dependencies.getUserBalancesByUserId(userId),
+  const [treasurySnapshot, transactionPage] = await Promise.all([
+    dependencies.buildTreasurySnapshotForUser(userId, balancesOverride),
     dependencies.listTransactionsByUserIdPaginated(userId, { limit: 5 }),
-    dependencies.getTreasuryPrices(),
   ]);
 
   return {
-    balances,
-    valuation: dependencies.buildTreasuryValuation(balances, treasuryPrices),
+    balances: treasurySnapshot.balances,
+    valuation: treasurySnapshot.valuation,
+    yield: treasurySnapshot.yield,
     transactions: transactionPage.transactions,
   };
 }

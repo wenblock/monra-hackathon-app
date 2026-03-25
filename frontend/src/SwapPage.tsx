@@ -207,7 +207,7 @@ function SwapPage() {
           </div>
 
           <form className="space-y-5" onSubmit={handleSubmit}>
-            <div className="relative rounded-[2rem] border border-border/60 bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.06),_transparent_45%),linear-gradient(180deg,#111316_0%,#17191d_100%)] p-3 shadow-[0_36px_80px_-48px_rgba(18,18,18,0.85)]">
+            <div className="relative rounded-[2rem] border border-border bg-card p-3 shadow-[0_28px_60px_-42px_rgba(18,18,18,0.22)]">
               <SwapPanel
                 amount={inputAmount}
                 amountUsd={inputAmountUsd}
@@ -222,7 +222,7 @@ function SwapPage() {
               <div className="relative z-10 -my-4 flex justify-center">
                 <button
                   type="button"
-                  className="flex size-16 items-center justify-center rounded-[1.4rem] border border-white/8 bg-[#1b1d21] text-white shadow-[0_18px_40px_-24px_rgba(0,0,0,0.75)] transition-transform hover:-translate-y-0.5"
+                  className="flex size-16 items-center justify-center rounded-[1.4rem] border border-border bg-background text-foreground shadow-[0_18px_40px_-24px_rgba(18,18,18,0.2)] transition-transform hover:-translate-y-0.5"
                   onClick={handleFlip}
                 >
                   <span className="sr-only">Switch swap direction</span>
@@ -583,15 +583,15 @@ function SwapPanel({
   readOnly?: boolean;
 }) {
   return (
-    <div className="rounded-[1.7rem] border border-white/8 bg-black/18 p-6 text-white backdrop-blur-md">
+    <div className="rounded-[1.7rem] border border-border bg-background p-6 text-foreground">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-white/72">{label}</p>
+          <p className="text-sm font-medium text-muted-foreground">{label}</p>
           {readOnly ? (
             <div
               className={cn(
-                "mt-3 min-h-[4rem] text-[clamp(2rem,7vw,4rem)] font-semibold tracking-tight text-white",
-                amount === "Calculating..." && "text-3xl text-white/60",
+                "mt-3 min-h-[4rem] text-[clamp(2rem,7vw,4rem)] font-semibold tracking-tight text-foreground",
+                amount === "Calculating..." && "text-3xl text-muted-foreground",
               )}
             >
               {amount}
@@ -601,16 +601,16 @@ function SwapPanel({
               value={amount}
               inputMode="decimal"
               placeholder="0.0"
-              className="mt-3 h-16 w-full bg-transparent text-[clamp(2rem,7vw,4rem)] font-semibold tracking-tight text-white outline-none placeholder:text-white/25"
+              className="mt-3 h-16 w-full bg-transparent text-[clamp(2rem,7vw,4rem)] font-semibold tracking-tight text-foreground outline-none placeholder:text-muted-foreground/40"
               onChange={event => onAmountChange?.(event.target.value)}
             />
           )}
-          <p className="mt-2 text-sm text-white/55">{amountUsd ?? "USD value updates with the quote."}</p>
+          <p className="mt-2 text-sm text-muted-foreground">{amountUsd ?? "USD value updates with the quote."}</p>
         </div>
 
         <div className="min-w-[11rem]">
           <AssetSelect asset={asset} onAssetChange={onAssetChange} otherAsset={otherAsset} />
-          <p className="mt-4 text-right text-sm text-white/55">
+          <p className="mt-4 text-right text-sm text-muted-foreground">
             {balanceLabel ? `Balance ${balanceLabel}` : "Balance unavailable"}
           </p>
         </div>
@@ -630,7 +630,7 @@ function AssetSelect({
 }) {
   return (
     <Select value={asset} onValueChange={nextValue => onAssetChange(nextValue as TransferAsset)}>
-      <SelectTrigger className="h-14 rounded-full border-white/10 bg-white/6 px-3 text-white hover:bg-white/8 focus:ring-white/10 [&_svg]:text-white/60">
+      <SelectTrigger className="h-14 rounded-full border-border bg-card px-3 text-foreground hover:bg-secondary focus:ring-border [&_svg]:text-muted-foreground">
         <div className="flex items-center gap-3">
           <img
             src={getTransferAssetIconPath(asset)}

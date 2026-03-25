@@ -35,6 +35,17 @@ export interface UserRow {
   updated_at: Date;
 }
 
+export interface YieldPositionRow {
+  user_id: string;
+  asset: "usdc";
+  principal_raw: string;
+  total_deposited_raw: string;
+  gross_withdrawn_raw: string;
+  last_confirmed_signature: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
 export interface PendingBridgeTransactionRow {
   bridge_transfer_id: string;
   created_at: Date;
@@ -190,6 +201,11 @@ export const userSelection = `
 
 export const userBalanceSelection = `
   user_id, sol_raw, usdc_raw, eurc_raw, created_at, updated_at
+`;
+
+export const yieldPositionSelection = `
+  user_id, asset, principal_raw, total_deposited_raw, gross_withdrawn_raw,
+  last_confirmed_signature, created_at, updated_at
 `;
 
 export const recipientSelection = `

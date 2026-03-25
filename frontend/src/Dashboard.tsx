@@ -56,6 +56,7 @@ const TOS_IFRAME_SANDBOX =
 interface Props {
   balances?: SolanaBalancesResponse["balances"];
   valuation?: SolanaBalancesResponse["valuation"];
+  yield?: SolanaBalancesResponse["yield"];
   bridge: BridgeComplianceState;
   onCreateOfframp: (payload: CreateOfframpPayload) => Promise<AppTransaction>;
   onCreateOnramp: (payload: CreateOnrampPayload) => Promise<AppTransaction>;
@@ -76,6 +77,7 @@ interface Props {
 function Dashboard({
   balances,
   valuation,
+  yield: yieldSnapshot,
   bridge,
   onCreateOfframp,
   onCreateOnramp,
@@ -122,6 +124,22 @@ function Dashboard({
       secondaryValue: tokenAmount,
     };
   });
+  const yieldPosition = yieldSnapshot?.positions.usdc;
+  const treasuryRows = [
+    ...assetRows,
+    {
+      asset: "yield-usdc",
+      iconPath: "/jlusdc.webp",
+      label: "Yield invested",
+      primaryValue: yieldPosition?.valueUsd ? formatUsdCurrency(yieldPosition.valueUsd) : null,
+      secondaryValue:
+        yieldPosition?.status === "tracked"
+          ? `${yieldPosition.currentPosition.formatted} USDC vault`
+          : yieldPosition?.status === "untracked"
+            ? `${yieldPosition.currentPosition.formatted} USDC vault · Untracked`
+            : "0 USDC invested",
+    },
+  ];
 
   const refreshBridgeStatus = useCallback(async () => {
     try {
@@ -287,6 +305,11 @@ function Dashboard({
                 ) : (
                   <Skeleton className="h-16 w-72 rounded-full sm:h-20 sm:w-96" />
                 )}
+                {valuation?.yieldInvestedValueUsd && valuation.yieldInvestedValueUsd !== "0.00" ? (
+                  <p className="mt-3 text-sm text-muted-foreground">
+                    Includes {formatUsdCurrency(valuation.yieldInvestedValueUsd)} invested in Yield.
+                  </p>
+                ) : null}
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -340,7 +363,7 @@ function Dashboard({
                 </div>
 
                 <div className="space-y-3">
-                  {assetRows.map(row => (
+                  {treasuryRows.map(row => (
                     <TreasuryAssetRow
                       key={row.asset}
                       iconPath={row.iconPath}

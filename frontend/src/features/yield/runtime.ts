@@ -7,7 +7,7 @@ import type { YieldAction, YieldAsset } from "@/types";
 
 import { getYieldAssetLabel, getYieldAssetUnderlyingMintAddress } from "./metadata";
 
-const YIELD_ASSETS = ["usdc", "eurc"] as const satisfies YieldAsset[];
+const YIELD_ASSETS = ["usdc"] as const satisfies YieldAsset[];
 
 interface YieldOnchainVaultSnapshot {
   asset: YieldAsset;

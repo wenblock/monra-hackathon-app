@@ -20,8 +20,10 @@ function useYieldConfirmMutation(input: { userId: string; walletAddress: string 
     onSuccess: response => {
       mergeDashboardBalancesAndTransaction(queryClient, input.userId, response);
       mergeTransactionHistory(queryClient, input.userId, response.transaction);
-      queryClient.setQueryData(yieldKeys.ledgerSummary(input.userId), {
-        ledgerSummary: response.ledgerSummary,
+      queryClient.setQueryData(yieldKeys.positions(input.userId), {
+        positions: {
+          usdc: response.position,
+        },
       });
       void queryClient.invalidateQueries({
         queryKey: dashboardKeys.snapshot(input.userId),

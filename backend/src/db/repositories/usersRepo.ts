@@ -72,6 +72,20 @@ export async function getUserByCdpUserId(cdpUserId: string) {
   return result.rows[0] ? mapUser(result.rows[0]) : null;
 }
 
+export async function getUserById(userId: number) {
+  const result = await pool.query<UserRow>(
+    `
+      SELECT ${userSelection}
+      FROM users
+      WHERE id = $1::bigint
+      LIMIT 1
+    `,
+    [userId],
+  );
+
+  return result.rows[0] ? mapUser(result.rows[0]) : null;
+}
+
 export async function getUsersBySolanaAddresses(addresses: string[]) {
   if (addresses.length === 0) {
     return [];
