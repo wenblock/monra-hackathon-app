@@ -232,8 +232,24 @@ export interface ConfirmYieldTransactionPayload {
   transactionSignature: string;
 }
 
-export interface YieldConfirmResponse {
+export interface YieldConfirmPendingResponse {
+  status: "pending";
+  message: string | null;
+}
+
+export interface YieldConfirmFailedResponse {
+  status: "failed";
+  message: string;
+}
+
+export interface YieldConfirmConfirmedResponse {
+  status: "confirmed";
   balances: SolanaBalancesResponse["balances"];
   transaction: AppTransaction;
   position: YieldTrackedPosition;
 }
+
+export type YieldConfirmResponse =
+  | YieldConfirmPendingResponse
+  | YieldConfirmFailedResponse
+  | YieldConfirmConfirmedResponse;

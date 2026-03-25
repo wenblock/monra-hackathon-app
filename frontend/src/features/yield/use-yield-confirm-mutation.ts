@@ -18,6 +18,10 @@ function useYieldConfirmMutation(input: { userId: string; walletAddress: string 
   return useMutation<YieldConfirmResponse, Error, ConfirmYieldTransactionPayload>({
     mutationFn: payload => client.confirmYieldTransaction(payload),
     onSuccess: response => {
+      if (response.status !== "confirmed") {
+        return;
+      }
+
       mergeDashboardBalancesAndTransaction(queryClient, input.userId, response);
       mergeTransactionHistory(queryClient, input.userId, response.transaction);
       queryClient.setQueryData(yieldKeys.positions(input.userId), {

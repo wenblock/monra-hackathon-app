@@ -1,5 +1,5 @@
-import { fireEvent, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import YieldPage from "@/YieldPage";
 import { renderWithQueryClient } from "@/test-utils";
@@ -18,6 +18,10 @@ const dashboardSnapshotMock = vi.hoisted(() => ({
   useDashboardSnapshot: vi.fn(),
 }));
 
+const dashboardStreamMock = vi.hoisted(() => ({
+  useDashboardStream: vi.fn(),
+}));
+
 const persistedSolanaAddressMock = vi.hoisted(() => ({
   usePersistedSolanaAddress: vi.fn(),
 }));
@@ -32,6 +36,10 @@ const yieldOnchainQueryMock = vi.hoisted(() => ({
 
 const yieldConfirmMutationMock = vi.hoisted(() => ({
   useYieldConfirmMutation: vi.fn(),
+}));
+
+const runtimeMock = vi.hoisted(() => ({
+  buildYieldTransaction: vi.fn(),
 }));
 
 vi.mock("@coinbase/cdp-hooks", () => cdpHooksMock);
@@ -53,12 +61,25 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 vi.mock("@/features/session/use-session", () => sessionMock);
 vi.mock("@/features/dashboard/use-dashboard-snapshot", () => dashboardSnapshotMock);
+vi.mock("@/features/dashboard/use-dashboard-stream", () => dashboardStreamMock);
 vi.mock("@/features/session/use-persisted-solana-address", () => persistedSolanaAddressMock);
 vi.mock("@/features/yield/use-yield-positions", () => yieldPositionsMock);
 vi.mock("@/features/yield/use-yield-onchain-query", () => yieldOnchainQueryMock);
 vi.mock("@/features/yield/use-yield-confirm-mutation", () => yieldConfirmMutationMock);
+vi.mock("@/features/yield/runtime", async importOriginal => {
+  const actual = await importOriginal<typeof import("@/features/yield/runtime")>();
+
+  return {
+    ...actual,
+    buildYieldTransaction: runtimeMock.buildYieldTransaction,
+  };
+});
 
 describe("YieldPage", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     cdpHooksMock.useSendSolanaTransaction.mockReturnValue({
       sendSolanaTransaction: vi.fn(),
@@ -118,6 +139,9 @@ describe("YieldPage", () => {
         },
       },
     });
+    dashboardStreamMock.useDashboardStream.mockReturnValue({
+      transactionsError: null,
+    });
     persistedSolanaAddressMock.usePersistedSolanaAddress.mockReturnValue({
       effectiveSolanaAddress: "11111111111111111111111111111111",
       isPersistingSolanaAddress: false,
@@ -171,6 +195,11 @@ describe("YieldPage", () => {
       isPending: false,
       mutateAsync: vi.fn(),
     });
+    runtimeMock.buildYieldTransaction.mockResolvedValue({
+      blockhash: "blockhash-1",
+      lastValidBlockHeight: 123,
+      serializedTransaction: "serialized-yield-transaction",
+    });
   });
 
   it("renders the usdc-only overview and opens the compact vault dialog", () => {
@@ -201,6 +230,7 @@ describe("YieldPage", () => {
     expect(screen.getAllByText("517.7M USDC").length).toBeGreaterThan(0);
     expect(screen.getAllByText("$517.7M").length).toBeGreaterThan(0);
     expect(screen.queryByText("Ledger scope")).not.toBeInTheDocument();
+    expect(document.querySelector('[data-slot="dialog-content"]')?.className).toContain("overflow-x-hidden");
   });
 
   it("computes the preview locally when the amount changes", () => {
@@ -273,5 +303,47 @@ describe("YieldPage", () => {
     expect(screen.queryByText("Untracked")).not.toBeInTheDocument();
     expect(screen.getAllByText("0 USDC").length).toBeGreaterThan(3);
     expect(screen.getAllByText("$0.00").length).toBeGreaterThan(1);
+  });
+
+  it("submits a yield deposit immediately and starts background reconciliation without a false failure", async () => {
+    const sendSolanaTransaction = vi.fn().mockResolvedValue({
+      transactionSignature: "yield-signature-123",
+    });
+    const mutateAsync = vi
+      .fn()
+      .mockResolvedValueOnce({
+        message: "Transaction is not confirmed yet. Try again in a moment.",
+        status: "pending",
+      });
+
+    cdpHooksMock.useSendSolanaTransaction.mockReturnValue({
+      sendSolanaTransaction,
+    });
+    yieldConfirmMutationMock.useYieldConfirmMutation.mockReturnValue({
+      mutateAsync,
+    });
+
+    const rendered = renderWithQueryClient(<YieldPage />);
+
+    const vaultRowButton = screen
+      .getAllByRole("button")
+      .find(button => button.textContent?.includes("USDC") && button.textContent?.includes("Jupiter Earn vault"));
+
+    fireEvent.click(vaultRowButton!);
+    fireEvent.change(screen.getAllByPlaceholderText("0.00").at(-1)!, {
+      target: { value: "4" },
+    });
+    fireEvent.click(screen.getAllByRole("button", { name: "Deposit" }).at(-1)!);
+
+    await screen.findByText("Yield deposit submitted");
+    await waitFor(() => {
+      expect(sendSolanaTransaction).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(mutateAsync).toHaveBeenCalledTimes(1);
+    });
+    expect(mutateAsync).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Deposit failed")).not.toBeInTheDocument();
+    rendered.unmount();
   });
 });

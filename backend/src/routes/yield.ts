@@ -5,7 +5,7 @@ import { readAppUser, requireAppUser } from "../auth/requestAuth.js";
 import { sendError } from "../lib/http.js";
 import { logError } from "../lib/logger.js";
 import { normalizeSwapAmount } from "../lib/amounts.js";
-import { highCostUserActionRateLimit } from "../middleware/rateLimits.js";
+import { yieldConfirmReconcileRateLimit } from "../middleware/rateLimits.js";
 import { isServiceError } from "../services/errors.js";
 import { confirmYieldTransactionForUser, getYieldPositionForUser } from "../services/yieldService.js";
 import type { YieldAsset } from "../types.js";
@@ -42,7 +42,7 @@ yieldRouter.get("/positions", async (request, response) => {
   }
 });
 
-yieldRouter.post("/confirm", highCostUserActionRateLimit, async (request, response) => {
+yieldRouter.post("/confirm", yieldConfirmReconcileRateLimit, async (request, response) => {
   try {
     const parsedBody = confirmYieldSchema.safeParse(request.body);
     if (!parsedBody.success) {

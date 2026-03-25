@@ -331,11 +331,27 @@ export interface SwapExecuteResponse {
   transaction: AppTransaction;
 }
 
-export interface YieldConfirmResponse {
+export interface YieldConfirmPendingResponse {
+  message: string | null;
+  status: "pending";
+}
+
+export interface YieldConfirmFailedResponse {
+  message: string;
+  status: "failed";
+}
+
+export interface YieldConfirmConfirmedResponse {
+  status: "confirmed";
   balances: SolanaBalancesResponse["balances"];
   transaction: AppTransaction;
   position: YieldTrackedPosition;
 }
+
+export type YieldConfirmResponse =
+  | YieldConfirmPendingResponse
+  | YieldConfirmFailedResponse
+  | YieldConfirmConfirmedResponse;
 
 export interface TransactionStreamResponse {
   balances: SolanaBalancesResponse["balances"];

@@ -16,7 +16,7 @@ process.env.BRIDGE_WEBHOOK_PUBLIC_KEY = "test-public-key";
 process.env.BRIDGE_WEBHOOK_MAX_AGE_MS = "600000";
 
 const { confirmYieldTransactionForUser, getYieldPositionForUser } = await import("./yieldService.js");
-const { ServiceError } = await import("./errors.js");
+const { AlchemyApiError } = await import("../lib/alchemy.js");
 
 const JUPITER_LEND_EARN_PROGRAM_ID = "jup3YeL8QhtSx1e253b2FDvsMNC87fDrgQZivbrndc9";
 const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
@@ -89,8 +89,18 @@ test("confirmYieldTransactionForUser validates the transfer and records the conf
       async fetchSolanaParsedTransaction() {
         return createParsedYieldDepositTransactionFixture();
       },
+      async getUserBalancesByUserId() {
+        return {
+          eurc: { formatted: "0", raw: "0" },
+          sol: { formatted: "0", raw: "0" },
+          usdc: { formatted: "0", raw: "0" },
+        };
+      },
       async getYieldPositionByUserId() {
         return createYieldTrackedPositionFixture("1000000");
+      },
+      async getYieldTransactionByUserIdAndSignature() {
+        return null;
       },
     },
   );
@@ -101,59 +111,97 @@ test("confirmYieldTransactionForUser validates the transfer and records the conf
   assert.equal(storedInput?.asset, "usdc");
   assert.equal(storedInput?.counterpartyWalletAddress, VAULT_WALLET_ADDRESS);
   assert.equal(storedInput?.fromWalletAddress, USER_WALLET_ADDRESS);
+  assert.equal((result as any).status, "confirmed");
   assert.equal((result as any).position.principal.raw, "1000000");
   assert.equal((result as any).transaction.id, 99);
 });
 
-test("confirmYieldTransactionForUser rejects transactions without a Jupiter Lend instruction", async () => {
-  await assert.rejects(
-    confirmYieldTransactionForUser(
-      {
-        action: "deposit",
-        amount: "1",
-        asset: "usdc",
-        transactionSignature: "yield-signature-2",
-        user: createUserFixture(),
+test("confirmYieldTransactionForUser returns pending when Alchemy has not indexed the signature yet", async () => {
+  const response = await confirmYieldTransactionForUser(
+    {
+      action: "deposit",
+      amount: "1",
+      asset: "usdc",
+      transactionSignature: "yield-signature-pending",
+      user: createUserFixture(),
+    },
+    {
+      async broadcastLatestTransactionSnapshot() {
+        throw new Error("should not be called");
       },
-      {
-        async broadcastLatestTransactionSnapshot() {
-          throw new Error("should not be called");
-        },
-        async createConfirmedYieldTransaction() {
-          throw new Error("should not be called");
-        },
-        async fetchSolanaParsedTransaction() {
-          return createParsedYieldDepositTransactionFixture({
-            transaction: {
-              message: {
-                accountKeys: createParsedYieldDepositTransactionFixture().transaction?.message?.accountKeys ?? [],
-                instructions: [
-                  {
-                    parsed: {
-                      info: {
-                        amount: "1000000",
-                        destination: VAULT_TOKEN_ACCOUNT,
-                        source: USER_TOKEN_ACCOUNT,
-                      },
-                      type: "transferChecked",
-                    },
-                    program: "spl-token",
-                  },
-                ],
-              },
-            },
-          });
-        },
-        async getYieldPositionByUserId() {
-          throw new Error("should not be called");
-        },
+      async createConfirmedYieldTransaction() {
+        throw new Error("should not be called");
       },
-    ),
-    (error: unknown) =>
-      error instanceof ServiceError &&
-      error.status === 409 &&
-      /Jupiter Lend Earn instruction/i.test(error.message),
+      async fetchSolanaParsedTransaction() {
+        throw new AlchemyApiError("not found", 404);
+      },
+      async getUserBalancesByUserId() {
+        throw new Error("should not be called");
+      },
+      async getYieldPositionByUserId() {
+        throw new Error("should not be called");
+      },
+      async getYieldTransactionByUserIdAndSignature() {
+        return null;
+      },
+    } as any,
   );
+
+  assert.equal(response.status, "pending");
+});
+
+test("confirmYieldTransactionForUser returns failed for invalid yield transactions", async () => {
+  const response = await confirmYieldTransactionForUser(
+    {
+      action: "deposit",
+      amount: "1",
+      asset: "usdc",
+      transactionSignature: "yield-signature-2",
+      user: createUserFixture(),
+    },
+    {
+      async broadcastLatestTransactionSnapshot() {
+        throw new Error("should not be called");
+      },
+      async createConfirmedYieldTransaction() {
+        throw new Error("should not be called");
+      },
+      async fetchSolanaParsedTransaction() {
+        return createParsedYieldDepositTransactionFixture({
+          transaction: {
+            message: {
+              accountKeys: createParsedYieldDepositTransactionFixture().transaction?.message?.accountKeys ?? [],
+              instructions: [
+                {
+                  parsed: {
+                    info: {
+                      amount: "1000000",
+                      destination: VAULT_TOKEN_ACCOUNT,
+                      source: USER_TOKEN_ACCOUNT,
+                    },
+                    type: "transferChecked",
+                  },
+                  program: "spl-token",
+                },
+              ],
+            },
+          },
+        });
+      },
+      async getUserBalancesByUserId() {
+        throw new Error("should not be called");
+      },
+      async getYieldPositionByUserId() {
+        throw new Error("should not be called");
+      },
+      async getYieldTransactionByUserIdAndSignature() {
+        return null;
+      },
+    } as any,
+  );
+
+  assert.equal(response.status, "failed");
+  assert.match(response.message, /Jupiter Lend Earn instruction/i);
 });
 
 function createYieldTrackedPositionFixture(principalRaw: string): YieldTrackedPosition {

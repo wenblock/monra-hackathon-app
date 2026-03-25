@@ -24,3 +24,10 @@ export const highCostUserActionRateLimit = createRateLimit({
   name: "user.high_cost_action",
   windowMs: 60 * 1000,
 });
+
+export const yieldConfirmReconcileRateLimit = createRateLimit({
+  keyGenerator: getAuthenticatedUserRateLimitKey,
+  max: 60,
+  name: "user.yield_confirm_reconcile",
+  windowMs: 5 * 60 * 1000,
+});

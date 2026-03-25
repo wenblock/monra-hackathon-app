@@ -1,7 +1,8 @@
 import { useSendSolanaTransaction } from "@coinbase/cdp-hooks";
+import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ArrowUpRight, ChevronRight, Wallet } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import AppShell from "@/AppShell";
 import { Button } from "@/components/ui/button";
@@ -15,15 +16,16 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast-provider";
 import { useDashboardSnapshot } from "@/features/dashboard/use-dashboard-snapshot";
+import { useDashboardStream } from "@/features/dashboard/use-dashboard-stream";
 import { usePersistedSolanaAddress } from "@/features/session/use-persisted-solana-address";
 import { useSession } from "@/features/session/use-session";
 import { buildYieldOverviewViewModel } from "@/features/yield/view-models";
 import { useYieldConfirmMutation } from "@/features/yield/use-yield-confirm-mutation";
 import { useYieldOnchainQuery } from "@/features/yield/use-yield-onchain-query";
 import { useYieldPositions } from "@/features/yield/use-yield-positions";
+import { yieldKeys } from "@/features/yield/query-keys";
 import {
   buildYieldTransaction,
-  confirmYieldSignature,
   derivePresetYieldAmount,
   estimateYieldPreviewSharesRaw,
   formatYieldRawAmount,
@@ -35,17 +37,30 @@ import { cn } from "@/lib/utils";
 import type { YieldAction, YieldAsset } from "@/types";
 
 const YIELD_ASSET: YieldAsset = "usdc";
+const YIELD_CONFIRM_POLL_INTERVAL_MS = 2500;
+const YIELD_CONFIRM_TIMEOUT_MS = 90000;
+
+interface PendingYieldSubmission {
+  action: YieldAction;
+  amount: string;
+  label: string;
+  signature: string;
+  submittedAt: number;
+  timedOut: boolean;
+}
 
 function YieldPage() {
   const { user } = useSession();
   const { sendSolanaTransaction } = useSendSolanaTransaction();
   const { showToast } = useToast();
+  const queryClient = useQueryClient();
   const snapshotQuery = useDashboardSnapshot(user.cdpUserId);
+  const { transactionsError: streamTransactionsError } = useDashboardStream(user.cdpUserId);
   const positionsQuery = useYieldPositions(user.cdpUserId);
   const { effectiveSolanaAddress, isPersistingSolanaAddress, persistenceError, storedSolanaAddress } =
     usePersistedSolanaAddress(user.cdpUserId, user.solanaAddress);
   const onchainQuery = useYieldOnchainQuery(effectiveSolanaAddress);
-  const confirmYieldMutation = useYieldConfirmMutation({
+  const { mutateAsync: reconcileYieldTransaction } = useYieldConfirmMutation({
     userId: user.cdpUserId,
     walletAddress: effectiveSolanaAddress,
   });
@@ -55,6 +70,9 @@ function YieldPage() {
   const [amount, setAmount] = useState("");
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [pendingSubmission, setPendingSubmission] = useState<PendingYieldSubmission | null>(null);
+  const resolvedSignatureSetRef = useRef(new Set<string>());
+  const timeoutNotifiedSignatureSetRef = useRef(new Set<string>());
 
   const overview = useMemo(() => {
     if (!positionsQuery.data || !onchainQuery.data) {
@@ -103,12 +121,173 @@ function YieldPage() {
     ? readErrorMessage(onchainQuery.error, "Unable to load yield market data.")
     : null;
 
+  const finalizePendingSubmission = useCallback(
+    async (submission: PendingYieldSubmission) => {
+      if (resolvedSignatureSetRef.current.has(submission.signature)) {
+        return;
+      }
+
+      resolvedSignatureSetRef.current.add(submission.signature);
+      timeoutNotifiedSignatureSetRef.current.delete(submission.signature);
+      setPendingSubmission(current =>
+        current?.signature === submission.signature ? null : current,
+      );
+
+      showToast({
+        title:
+          submission.action === "deposit" ? "Yield deposit confirmed" : "Yield withdrawal confirmed",
+        description: `${submission.amount} ${submission.label} ${
+          submission.action === "deposit" ? "moved into" : "withdrawn from"
+        } the Jupiter Earn vault.`,
+        variant: "success",
+      });
+
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: yieldKeys.positions(user.cdpUserId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: yieldKeys.all,
+        }),
+        effectiveSolanaAddress
+          ? queryClient.invalidateQueries({
+              queryKey: yieldKeys.onchain(effectiveSolanaAddress),
+            })
+          : Promise.resolve(),
+      ]);
+    },
+    [effectiveSolanaAddress, queryClient, showToast, user.cdpUserId],
+  );
+
+  const failPendingSubmission = useCallback(
+    (submission: PendingYieldSubmission, message: string) => {
+      timeoutNotifiedSignatureSetRef.current.delete(submission.signature);
+      setPendingSubmission(current =>
+        current?.signature === submission.signature ? null : current,
+      );
+
+      showToast({
+        title:
+          submission.action === "deposit" ? "Yield deposit failed" : "Yield withdrawal failed",
+        description: message,
+        variant: "error",
+      });
+    },
+    [showToast],
+  );
+
   useEffect(() => {
     setSubmitError(null);
   }, [activeAction, amount, isDialogOpen]);
 
+  useEffect(() => {
+    if (!pendingSubmission) {
+      return;
+    }
+
+    const matchingTransaction = snapshotQuery.data?.transactions?.find(
+      transaction =>
+        transaction.transactionSignature === pendingSubmission.signature &&
+        (transaction.entryType === "yield_deposit" || transaction.entryType === "yield_withdraw"),
+    );
+
+    if (!matchingTransaction) {
+      return;
+    }
+
+    if (matchingTransaction.status === "failed") {
+      failPendingSubmission(
+        pendingSubmission,
+        matchingTransaction.failureReason ?? "Yield transaction failed on-chain.",
+      );
+      return;
+    }
+
+    void finalizePendingSubmission(pendingSubmission);
+  }, [failPendingSubmission, finalizePendingSubmission, pendingSubmission, snapshotQuery.data?.transactions]);
+
+  useEffect(() => {
+    if (!pendingSubmission || pendingSubmission.timedOut) {
+      return;
+    }
+
+    let cancelled = false;
+    let nextPollTimeoutId: number | null = null;
+
+    const reconcilePendingSubmission = async () => {
+      try {
+        const response = await reconcileYieldTransaction({
+          action: pendingSubmission.action,
+          amount: pendingSubmission.amount,
+          asset: YIELD_ASSET,
+          transactionSignature: pendingSubmission.signature,
+        });
+
+        if (cancelled) {
+          return;
+        }
+
+        if (response.status === "confirmed") {
+          await finalizePendingSubmission(pendingSubmission);
+          return;
+        }
+
+        if (response.status === "failed") {
+          failPendingSubmission(pendingSubmission, response.message);
+          return;
+        }
+      } catch (error) {
+        logRuntimeError("Unable to reconcile the pending yield action.", error);
+      }
+
+      if (cancelled) {
+        return;
+      }
+
+      if (Date.now() - pendingSubmission.submittedAt >= YIELD_CONFIRM_TIMEOUT_MS) {
+        if (!timeoutNotifiedSignatureSetRef.current.has(pendingSubmission.signature)) {
+          timeoutNotifiedSignatureSetRef.current.add(pendingSubmission.signature);
+          showToast({
+            title:
+              pendingSubmission.action === "deposit"
+                ? "Yield deposit submitted"
+                : "Yield withdrawal submitted",
+            description: "Still waiting for confirmation. You can follow the transaction from the Transactions page.",
+            variant: "info",
+          });
+        }
+
+        setPendingSubmission(current =>
+          current?.signature === pendingSubmission.signature
+            ? { ...current, timedOut: true }
+            : current,
+        );
+        return;
+      }
+
+      nextPollTimeoutId = window.setTimeout(() => {
+        void reconcilePendingSubmission();
+      }, YIELD_CONFIRM_POLL_INTERVAL_MS);
+    };
+
+    void reconcilePendingSubmission();
+
+    return () => {
+      cancelled = true;
+
+      if (nextPollTimeoutId !== null) {
+        window.clearTimeout(nextPollTimeoutId);
+      }
+    };
+  }, [failPendingSubmission, finalizePendingSubmission, pendingSubmission, reconcileYieldTransaction, showToast]);
+
   async function handleSubmit() {
     if (!selectedVault) {
+      return;
+    }
+
+    if (pendingSubmission) {
+      setSubmitError("A Yield transaction is still pending confirmation.");
       return;
     }
 
@@ -152,27 +331,20 @@ function YieldPage() {
         transaction: preparedTransaction.serializedTransaction,
       });
 
-      await confirmYieldSignature({
-        blockhash: preparedTransaction.blockhash,
-        lastValidBlockHeight: preparedTransaction.lastValidBlockHeight,
-        signature: submitted.transactionSignature,
-      });
-
-      await confirmYieldMutation.mutateAsync({
-        action: activeAction,
-        amount: amountValidation.normalizedDecimal,
-        asset: YIELD_ASSET,
-        transactionSignature: submitted.transactionSignature,
-      });
-
       showToast({
-        title: activeAction === "deposit" ? "Yield deposit confirmed" : "Yield withdrawal confirmed",
-        description: `${amountValidation.normalizedDecimal} ${selectedVault.label} ${
-          activeAction === "deposit" ? "moved into" : "withdrawn from"
-        } the Jupiter Earn vault.`,
+        title: activeAction === "deposit" ? "Yield deposit submitted" : "Yield withdrawal submitted",
+        description: `${amountValidation.normalizedDecimal} ${selectedVault.label} submitted. Waiting for confirmation.`,
         variant: "success",
       });
 
+      setPendingSubmission({
+        action: activeAction,
+        amount: amountValidation.normalizedDecimal,
+        label: selectedVault.label,
+        signature: submitted.transactionSignature,
+        submittedAt: Date.now(),
+        timedOut: false,
+      });
       setAmount("");
       setIsDialogOpen(false);
     } catch (error) {
@@ -248,6 +420,12 @@ function YieldPage() {
           </InlineNotice>
         ) : null}
 
+        {streamTransactionsError ? (
+          <InlineNotice title="Live yield updates unavailable" variant="warning">
+            {streamTransactionsError}
+          </InlineNotice>
+        ) : null}
+
         <div className="flex flex-wrap items-center gap-3">
           <div className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-2 py-2">
             <span className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground">
@@ -291,7 +469,7 @@ function YieldPage() {
         amountValidationError={amountValidation.error}
         availableRawAmount={availableRawAmount}
         isPersistingSolanaAddress={isPersistingSolanaAddress}
-        isSubmitting={isSubmitting || confirmYieldMutation.isPending}
+        isSubmitting={isSubmitting}
         isWalletReady={Boolean(storedSolanaAddress)}
         onAmountChange={setAmount}
         onClose={() => {
@@ -350,10 +528,10 @@ function YieldVaultDialog(input: {
 
   return (
     <Dialog open={input.open} onOpenChange={isOpen => !isOpen && input.onClose()}>
-      <DialogContent className="max-h-[min(92vh,40rem)] overflow-y-auto border-border bg-card p-0 text-foreground sm:max-w-[44rem]">
+      <DialogContent className="!w-[min(96vw,56rem)] max-h-[min(94vh,48rem)] overflow-x-hidden overflow-y-auto border-border bg-card p-0 text-foreground sm:!max-w-[56rem]">
         {input.vault ? (
           <>
-            <DialogHeader className="border-b border-border px-4 py-3 sm:px-5">
+            <DialogHeader className="border-b border-border px-4 py-3 sm:px-6">
               <div className="flex items-start gap-3">
                 <img
                   src={input.vault.iconPath}
@@ -371,8 +549,8 @@ function YieldVaultDialog(input: {
               </div>
             </DialogHeader>
 
-            <div className="space-y-3 px-4 py-4 sm:px-5">
-              <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-2.5 px-4 py-3 sm:px-6 sm:py-4">
+              <div className="grid gap-2.5 sm:grid-cols-2">
                 <SummaryCard
                   compact
                   label="Your Earnings"
@@ -424,12 +602,16 @@ function YieldVaultDialog(input: {
               ) : null}
 
               {input.submitError ? (
-                <InlineNotice title={`${actionLabel} failed`} variant="error">
+                <InlineNotice
+                  title={`${actionLabel} failed`}
+                  variant="error"
+                  className="[overflow-wrap:anywhere]"
+                >
                   {input.submitError}
                 </InlineNotice>
               ) : null}
 
-              <PanelCard className="space-y-3 p-4">
+              <PanelCard className="space-y-2.5 p-3.5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <p className="text-lg font-semibold text-foreground">{actionLabel}</p>
                   <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground sm:text-sm">
@@ -442,7 +624,7 @@ function YieldVaultDialog(input: {
                   </div>
                 </div>
 
-                <div className="grid gap-3 rounded-[1.2rem] border border-border bg-background p-3 md:grid-cols-[auto_minmax(0,1fr)] md:items-end">
+                <div className="grid gap-2.5 rounded-[1.1rem] border border-border bg-background p-3 md:grid-cols-[auto_minmax(0,1fr)] md:items-end">
                   <div className="inline-flex items-center gap-3 rounded-[1rem] border border-border bg-card px-4 py-3">
                     <img src={input.vault.iconPath} alt="" className="size-8 rounded-full bg-background p-1" />
                     <span className="text-lg font-semibold text-foreground">{input.vault.label}</span>
@@ -453,7 +635,7 @@ function YieldVaultDialog(input: {
                       value={input.amount}
                       inputMode="decimal"
                       placeholder="0.00"
-                      className="h-14 w-full bg-transparent text-right text-[clamp(2rem,6vw,3.25rem)] font-semibold tracking-tight text-foreground outline-none placeholder:text-muted-foreground/55"
+                      className="h-12 w-full bg-transparent text-right text-[clamp(1.85rem,5vw,3rem)] font-semibold tracking-tight text-foreground outline-none placeholder:text-muted-foreground/55"
                       onChange={event => input.onAmountChange(event.target.value)}
                     />
                   </div>
@@ -500,7 +682,7 @@ function SummaryCard(input: {
     <div
       className={cn(
         "rounded-[1.4rem] border border-border bg-card px-4 py-4 sm:px-5",
-        input.compact ? "min-h-[7.25rem]" : "min-h-[9.25rem]",
+        input.compact ? "min-h-[6.25rem]" : "min-h-[9.25rem]",
       )}
     >
       <p

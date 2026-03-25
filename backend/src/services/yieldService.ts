@@ -1,4 +1,6 @@
+import { getYieldTransactionByUserIdAndSignature } from "../db/repositories/transactionsReadRepo.js";
 import { createConfirmedYieldTransaction } from "../db/repositories/transactionsWriteRepo.js";
+import { getUserBalancesByUserId } from "../db/repositories/usersRepo.js";
 import { getYieldPositionByUserId } from "../db/repositories/yieldPositionsRepo.js";
 import { fetchSolanaParsedTransaction, isAlchemyApiError, isSolanaTransactionSuccessful } from "../lib/alchemy.js";
 import { getTransferAssetLabel } from "../lib/assets.js";
@@ -7,13 +9,15 @@ import { normalizeAlchemyTransaction } from "../lib/alchemyWebhook.js";
 import { broadcastLatestTransactionSnapshot } from "../lib/transactionStream.js";
 import { includesJupiterLendEarnInstruction } from "../lib/yield.js";
 import type { AlchemyParsedTransactionResult } from "../lib/alchemy.js";
-import type { AppUser, YieldAction, YieldAsset } from "../types.js";
+import type { AppUser, YieldAction, YieldAsset, YieldConfirmResponse } from "../types.js";
 import { ServiceError } from "./errors.js";
 
 interface YieldServiceDependencies {
   broadcastLatestTransactionSnapshot: typeof broadcastLatestTransactionSnapshot;
   createConfirmedYieldTransaction: typeof createConfirmedYieldTransaction;
   fetchSolanaParsedTransaction: typeof fetchSolanaParsedTransaction;
+  getUserBalancesByUserId: typeof getUserBalancesByUserId;
+  getYieldTransactionByUserIdAndSignature: typeof getYieldTransactionByUserIdAndSignature;
   getYieldPositionByUserId: typeof getYieldPositionByUserId;
 }
 
@@ -21,6 +25,8 @@ const defaultDependencies: YieldServiceDependencies = {
   broadcastLatestTransactionSnapshot,
   createConfirmedYieldTransaction,
   fetchSolanaParsedTransaction,
+  getUserBalancesByUserId,
+  getYieldTransactionByUserIdAndSignature,
   getYieldPositionByUserId,
 };
 
@@ -47,14 +53,37 @@ export async function confirmYieldTransactionForUser(
 
   try {
     const normalizedAmount = normalizeSwapAmount(input.amount, input.asset);
+    const expectedEntryType = input.action === "deposit" ? "yield_deposit" : "yield_withdraw";
+    const existingTransaction = await dependencies.getYieldTransactionByUserIdAndSignature(
+      input.user.id,
+      input.transactionSignature,
+    );
+
+    if (existingTransaction) {
+      if (existingTransaction.entryType !== expectedEntryType || existingTransaction.asset !== input.asset) {
+        return {
+          message: "Stored transaction does not match the requested yield action.",
+          status: "failed",
+        };
+      }
+
+      return buildExistingYieldConfirmResponse(input.user.id, existingTransaction, dependencies);
+    }
+
     const parsedTransaction = await dependencies.fetchSolanaParsedTransaction(input.transactionSignature);
 
     if (!isSolanaTransactionSuccessful(parsedTransaction)) {
-      throw new ServiceError("Yield transaction failed on-chain.", 409);
+      return {
+        message: "Yield transaction failed on-chain.",
+        status: "failed",
+      };
     }
 
     if (!includesJupiterLendEarnInstruction(parsedTransaction)) {
-      throw new ServiceError("Transaction does not include a Jupiter Lend Earn instruction.", 409);
+      return {
+        message: "Transaction does not include a Jupiter Lend Earn instruction.",
+        status: "failed",
+      };
     }
 
     const matchedTransfer = findMatchingYieldTransfer({
@@ -66,10 +95,10 @@ export async function confirmYieldTransactionForUser(
     });
 
     if (!matchedTransfer) {
-      throw new ServiceError(
-        `Confirmed transaction did not contain the expected ${input.action} transfer for ${getTransferAssetLabel(input.asset)}.`,
-        409,
-      );
+      return {
+        message: `Confirmed transaction did not contain the expected ${input.action} transfer for ${getTransferAssetLabel(input.asset)}.`,
+        status: "failed",
+      };
     }
 
     const createdYieldTransaction = await dependencies.createConfirmedYieldTransaction({
@@ -91,15 +120,15 @@ export async function confirmYieldTransactionForUser(
 
     return {
       ...createdYieldTransaction,
+      status: "confirmed",
     };
   } catch (error) {
-    if (error instanceof ServiceError) {
-      throw error;
-    }
-
     if (isAlchemyApiError(error)) {
       if (error.status === 404) {
-        throw new ServiceError("Transaction is not confirmed yet. Try again in a moment.", 409);
+        return {
+          message: "Transaction is not confirmed yet. Try again in a moment.",
+          status: "pending",
+        };
       }
 
       throw new ServiceError("Unable to validate the confirmed Solana transaction.", 502);
@@ -109,8 +138,39 @@ export async function confirmYieldTransactionForUser(
       throw new ServiceError(error.message, 400);
     }
 
+    if (error instanceof ServiceError) {
+      throw error;
+    }
+
     throw error;
   }
+}
+
+async function buildExistingYieldConfirmResponse(
+  userId: number,
+  existingTransaction: Awaited<ReturnType<typeof getYieldTransactionByUserIdAndSignature>>,
+  dependencies: YieldServiceDependencies,
+): Promise<YieldConfirmResponse> {
+  if (!existingTransaction) {
+    return {
+      message: "Transaction is not confirmed yet. Try again in a moment.",
+      status: "pending",
+    };
+  }
+
+  if (existingTransaction.status === "failed") {
+    return {
+      message: existingTransaction.failureReason ?? "Yield transaction failed on-chain.",
+      status: "failed",
+    };
+  }
+
+  return {
+    balances: await dependencies.getUserBalancesByUserId(userId),
+    position: await dependencies.getYieldPositionByUserId(userId),
+    status: "confirmed",
+    transaction: existingTransaction,
+  };
 }
 
 function findMatchingYieldTransfer(input: {

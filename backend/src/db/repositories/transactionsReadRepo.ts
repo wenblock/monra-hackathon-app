@@ -1,4 +1,4 @@
-import type { OfframpSourceAsset } from "../../types.js";
+import type { AppTransaction, OfframpSourceAsset } from "../../types.js";
 import {
   decodeTransactionCursor,
   encodeTransactionCursorFromRow,
@@ -16,6 +16,7 @@ import {
   type PendingBridgeTransactionRow,
   type PendingOfframpMatchRow,
   type PendingOnrampMatchRow,
+  type TransactionRow,
 } from "../rows.js";
 
 export type { ListTransactionsOptions, ListTransactionsResult } from "../mappers.js";
@@ -120,6 +121,28 @@ export async function getManagedTransferActionUserIdsBySignature(signature: stri
   );
 
   return result.rows.map(row => Number(row.user_id));
+}
+
+export async function getYieldTransactionByUserIdAndSignature(
+  userId: number,
+  signature: string,
+): Promise<AppTransaction | null> {
+  const result = await pool.query<TransactionRow>(
+    `
+      SELECT ${transactionSelection}
+      FROM transactions
+      WHERE user_id = $1::bigint
+        AND transaction_signature = $2::text
+        AND entry_type IN ('yield_deposit', 'yield_withdraw')
+      ORDER BY COALESCE(confirmed_at, created_at) DESC, id DESC
+      LIMIT 1
+    `,
+    [userId, signature],
+  );
+
+  const row = result.rows[0];
+
+  return row ? mapCollapsedTransaction(mapLedgerTransaction(row), null) : null;
 }
 
 export async function getPendingOnrampByDestinationTxHash(txHash: string) {
