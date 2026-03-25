@@ -22,7 +22,7 @@ vi.mock("@/features/session/use-api-client", () => ({
 }));
 
 describe("useDashboardSnapshot", () => {
-  it("refreshes dashboard valuation every 15 seconds and on window focus", () => {
+  it("uses a slow fallback refresh when live updates are unavailable", () => {
     useQueryMock.mockReturnValue({ data: undefined });
 
     renderHook(() => useDashboardSnapshot("user-1"));
@@ -31,9 +31,31 @@ describe("useDashboardSnapshot", () => {
       expect.objectContaining({
         enabled: true,
         queryKey: dashboardKeys.snapshot("user-1"),
-        refetchInterval: 15000,
+        refetchInterval: 60000,
         refetchIntervalInBackground: false,
         refetchOnWindowFocus: true,
+        staleTime: 15000,
+      }),
+    );
+  });
+
+  it("disables periodic polling while live updates are active", () => {
+    useQueryMock.mockReturnValue({ data: undefined });
+
+    renderHook(() =>
+      useDashboardSnapshot("user-1", {
+        liveUpdatesEnabled: true,
+      }),
+    );
+
+    expect(useQueryMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        enabled: true,
+        queryKey: dashboardKeys.snapshot("user-1"),
+        refetchInterval: false,
+        refetchIntervalInBackground: false,
+        refetchOnWindowFocus: false,
+        staleTime: 60000,
       }),
     );
   });

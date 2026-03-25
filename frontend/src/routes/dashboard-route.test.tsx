@@ -137,7 +137,10 @@ describe("DashboardRouteComponent", () => {
       error: null,
       isPending: false,
     });
-    dashboardStreamMock.useDashboardStream.mockReturnValue({ transactionsError: null });
+    dashboardStreamMock.useDashboardStream.mockReturnValue({
+      isLive: false,
+      transactionsError: null,
+    });
     recipientsQueryMock.useRecipientsQuery.mockReturnValue({
       data: { recipients: [] },
     });

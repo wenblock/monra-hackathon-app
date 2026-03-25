@@ -13,7 +13,7 @@ import {
   sendTransactionSnapshot,
 } from "../lib/transactionStream.js";
 import { sendError } from "../lib/http.js";
-import { logError } from "../lib/logger.js";
+import { logError, logInfo } from "../lib/logger.js";
 import { highCostUserActionRateLimit } from "../middleware/rateLimits.js";
 import { listTransactionsPage } from "../services/transactionsService.js";
 
@@ -74,7 +74,12 @@ transactionsRouter.get("/stream", async (request, response) => {
       return sendError(response, 404, "Monra user not found.");
     }
 
+    const snapshotStartedAt = Date.now();
     const initialSnapshot = await buildLatestTransactionSnapshot(user.id);
+    logInfo("transactions.stream_initial_snapshot_built", {
+      durationMs: Date.now() - snapshotStartedAt,
+      userId: user.id,
+    });
 
     response.status(200);
     response.setHeader("Content-Type", "text/event-stream");

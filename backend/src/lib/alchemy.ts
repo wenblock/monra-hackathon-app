@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 import { config } from "../config.js";
 import { fetchWithRetry } from "./outboundHttp.js";
+import type { FetchWithRetryOptions } from "./outboundHttp.js";
 import { logError, logWarn } from "./logger.js";
 import {
   TRANSFER_ASSETS,
@@ -312,7 +313,11 @@ async function fetchAlchemyTokenPricesBySymbol(symbols: string[]) {
   return readAlchemyJson<AlchemyTokenPricesPayload>(response);
 }
 
-async function fetchAlchemyRpc<T>(method: string, params: unknown[]) {
+async function fetchAlchemyRpc<T>(
+  method: string,
+  params: unknown[],
+  requestOptions?: FetchWithRetryOptions,
+) {
   const response = await fetchWithRetry(
     ALCHEMY_SOLANA_RPC_URL,
     {
@@ -328,8 +333,9 @@ async function fetchAlchemyRpc<T>(method: string, params: unknown[]) {
       }),
     },
     {
-      retries: config.outboundRequestRetries,
-      timeoutMs: config.outboundRequestTimeoutMs,
+      retries: requestOptions?.retries ?? config.outboundRequestRetries,
+      retryableStatusCodes: requestOptions?.retryableStatusCodes,
+      timeoutMs: requestOptions?.timeoutMs ?? config.outboundRequestTimeoutMs,
     },
   );
 
@@ -598,7 +604,10 @@ export async function fetchSolanaTransactionContext(input: {
   };
 }
 
-export async function fetchSolanaParsedTransaction(signature: string) {
+export async function fetchSolanaParsedTransaction(
+  signature: string,
+  requestOptions?: FetchWithRetryOptions,
+) {
   const payload = await fetchAlchemyRpc<AlchemyParsedTransactionPayload>("getTransaction", [
     signature,
     {
@@ -606,7 +615,7 @@ export async function fetchSolanaParsedTransaction(signature: string) {
       encoding: "jsonParsed",
       maxSupportedTransactionVersion: 0,
     },
-  ]);
+  ], requestOptions);
 
   if (!payload.result) {
     throw new AlchemyApiError(`Alchemy RPC getTransaction returned no transaction for ${signature}.`, 404);

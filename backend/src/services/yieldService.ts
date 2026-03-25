@@ -6,11 +6,19 @@ import { fetchSolanaParsedTransaction, isAlchemyApiError, isSolanaTransactionSuc
 import { getTransferAssetLabel } from "../lib/assets.js";
 import { normalizeSwapAmount } from "../lib/amounts.js";
 import { normalizeAlchemyTransaction } from "../lib/alchemyWebhook.js";
+import { logInfo } from "../lib/logger.js";
 import { broadcastLatestTransactionSnapshot } from "../lib/transactionStream.js";
 import { includesJupiterLendEarnInstruction } from "../lib/yield.js";
 import type { AlchemyParsedTransactionResult } from "../lib/alchemy.js";
 import type { AppUser, YieldAction, YieldAsset, YieldConfirmResponse } from "../types.js";
 import { ServiceError } from "./errors.js";
+
+const YIELD_CONFIRM_PENDING_TTL_MS = 5_000;
+const YIELD_CONFIRM_RPC_TIMEOUT_MS = 2_500;
+const YIELD_CONFIRM_RPC_RETRIES = 0;
+
+const inFlightYieldConfirms = new Map<string, Promise<YieldConfirmResponse>>();
+const recentPendingYieldConfirms = new Map<string, number>();
 
 interface YieldServiceDependencies {
   broadcastLatestTransactionSnapshot: typeof broadcastLatestTransactionSnapshot;
@@ -51,6 +59,9 @@ export async function confirmYieldTransactionForUser(
     throw new ServiceError("Your Solana wallet is still syncing. Try again in a moment.", 409);
   }
 
+  const startedAt = Date.now();
+  const cacheKey = buildYieldConfirmCacheKey(input.user.id, input.transactionSignature);
+
   try {
     const normalizedAmount = normalizeSwapAmount(input.amount, input.asset);
     const expectedEntryType = input.action === "deposit" ? "yield_deposit" : "yield_withdraw";
@@ -67,12 +78,101 @@ export async function confirmYieldTransactionForUser(
         };
       }
 
+      recentPendingYieldConfirms.delete(cacheKey);
       return buildExistingYieldConfirmResponse(input.user.id, existingTransaction, dependencies);
     }
 
-    const parsedTransaction = await dependencies.fetchSolanaParsedTransaction(input.transactionSignature);
+    const pendingCacheExpiry = recentPendingYieldConfirms.get(cacheKey);
+    if (pendingCacheExpiry && pendingCacheExpiry > Date.now()) {
+      logInfo("yield.confirm_pending_cache_hit", {
+        action: input.action,
+        asset: input.asset,
+        transactionSignature: input.transactionSignature,
+        userId: input.user.id,
+      });
+      return {
+        message: "Transaction is not confirmed yet. Try again in a moment.",
+        status: "pending",
+      };
+    }
+
+    recentPendingYieldConfirms.delete(cacheKey);
+
+    const existingInFlightConfirm = inFlightYieldConfirms.get(cacheKey);
+    if (existingInFlightConfirm) {
+      logInfo("yield.confirm_inflight_reused", {
+        action: input.action,
+        asset: input.asset,
+        transactionSignature: input.transactionSignature,
+        userId: input.user.id,
+      });
+      return existingInFlightConfirm;
+    }
+
+    const confirmationPromise = reconcileYieldTransactionForUser(
+      {
+        action: input.action,
+        asset: input.asset,
+        normalizedAmountRaw: normalizedAmount.raw,
+        transactionSignature: input.transactionSignature,
+        user: input.user,
+      },
+      dependencies,
+      cacheKey,
+    ).finally(() => {
+      inFlightYieldConfirms.delete(cacheKey);
+    });
+
+    inFlightYieldConfirms.set(cacheKey, confirmationPromise);
+    return await confirmationPromise;
+  } catch (error) {
+    if (error instanceof Error && /amount/i.test(error.message)) {
+      throw new ServiceError(error.message, 400);
+    }
+
+    if (error instanceof ServiceError) {
+      throw error;
+    }
+
+    throw error;
+  } finally {
+    logInfo("yield.confirm_reconcile_completed", {
+      action: input.action,
+      asset: input.asset,
+      durationMs: Date.now() - startedAt,
+      transactionSignature: input.transactionSignature,
+      userId: input.user.id,
+    });
+  }
+}
+
+export function resetYieldConfirmRuntimeStateForTests() {
+  inFlightYieldConfirms.clear();
+  recentPendingYieldConfirms.clear();
+}
+
+async function reconcileYieldTransactionForUser(
+  input: {
+    action: YieldAction;
+    asset: YieldAsset;
+    normalizedAmountRaw: string;
+    transactionSignature: string;
+    user: AppUser;
+  },
+  dependencies: YieldServiceDependencies,
+  cacheKey: string,
+): Promise<YieldConfirmResponse> {
+  try {
+    const parsedTransaction = await dependencies.fetchSolanaParsedTransaction(
+      input.transactionSignature,
+      {
+        retries: YIELD_CONFIRM_RPC_RETRIES,
+        timeoutMs: YIELD_CONFIRM_RPC_TIMEOUT_MS,
+      },
+    );
 
     if (!isSolanaTransactionSuccessful(parsedTransaction)) {
+      recentPendingYieldConfirms.delete(cacheKey);
       return {
         message: "Yield transaction failed on-chain.",
         status: "failed",
@@ -80,6 +180,7 @@ export async function confirmYieldTransactionForUser(
     }
 
     if (!includesJupiterLendEarnInstruction(parsedTransaction)) {
+      recentPendingYieldConfirms.delete(cacheKey);
       return {
         message: "Transaction does not include a Jupiter Lend Earn instruction.",
         status: "failed",
@@ -88,13 +189,14 @@ export async function confirmYieldTransactionForUser(
 
     const matchedTransfer = findMatchingYieldTransfer({
       action: input.action,
-      amountRaw: normalizedAmount.raw,
+      amountRaw: input.normalizedAmountRaw,
       asset: input.asset,
       parsedTransaction,
       user: input.user,
     });
 
     if (!matchedTransfer) {
+      recentPendingYieldConfirms.delete(cacheKey);
       return {
         message: `Confirmed transaction did not contain the expected ${input.action} transfer for ${getTransferAssetLabel(input.asset)}.`,
         status: "failed",
@@ -103,20 +205,21 @@ export async function confirmYieldTransactionForUser(
 
     const createdYieldTransaction = await dependencies.createConfirmedYieldTransaction({
       action: input.action,
-      amountRaw: normalizedAmount.raw,
+      amountRaw: input.normalizedAmountRaw,
       asset: input.asset,
       confirmedAt: matchedTransfer.confirmedAt,
       counterpartyWalletAddress: matchedTransfer.counterpartyWalletAddress ?? null,
       fromWalletAddress: matchedTransfer.fromWalletAddress,
       transactionSignature: input.transactionSignature,
       userId: input.user.id,
-      walletAddress: input.user.solanaAddress,
+      walletAddress: input.user.solanaAddress!,
     });
 
     await dependencies.broadcastLatestTransactionSnapshot(
       input.user.id,
       createdYieldTransaction.balances,
     );
+    recentPendingYieldConfirms.delete(cacheKey);
 
     return {
       ...createdYieldTransaction,
@@ -125,6 +228,7 @@ export async function confirmYieldTransactionForUser(
   } catch (error) {
     if (isAlchemyApiError(error)) {
       if (error.status === 404) {
+        recentPendingYieldConfirms.set(cacheKey, Date.now() + YIELD_CONFIRM_PENDING_TTL_MS);
         return {
           message: "Transaction is not confirmed yet. Try again in a moment.",
           status: "pending",
@@ -132,14 +236,6 @@ export async function confirmYieldTransactionForUser(
       }
 
       throw new ServiceError("Unable to validate the confirmed Solana transaction.", 502);
-    }
-
-    if (error instanceof Error && /amount/i.test(error.message)) {
-      throw new ServiceError(error.message, 400);
-    }
-
-    if (error instanceof ServiceError) {
-      throw error;
     }
 
     throw error;
@@ -171,6 +267,10 @@ async function buildExistingYieldConfirmResponse(
     status: "confirmed",
     transaction: existingTransaction,
   };
+}
+
+function buildYieldConfirmCacheKey(userId: number, transactionSignature: string) {
+  return `${userId}:${transactionSignature}`;
 }
 
 function findMatchingYieldTransfer(input: {

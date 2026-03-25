@@ -1,17 +1,15 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import { dashboardKeys } from "@/features/dashboard/query-keys";
 import {
   mergeDashboardBalancesAndTransaction,
   mergeTransactionHistory,
 } from "@/features/dashboard/cache";
 import { useApiClient } from "@/features/session/use-api-client";
-import { transactionsKeys } from "@/features/transactions/query-keys";
 import type { ConfirmYieldTransactionPayload, YieldConfirmResponse } from "@/types";
 
 import { yieldKeys } from "./query-keys";
 
-function useYieldConfirmMutation(input: { userId: string; walletAddress: string | null }) {
+function useYieldConfirmMutation(input: { userId: string }) {
   const client = useApiClient();
   const queryClient = useQueryClient();
 
@@ -29,20 +27,6 @@ function useYieldConfirmMutation(input: { userId: string; walletAddress: string 
           usdc: response.position,
         },
       });
-      void queryClient.invalidateQueries({
-        queryKey: dashboardKeys.snapshot(input.userId),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: transactionsKeys.all,
-      });
-      void queryClient.invalidateQueries({
-        queryKey: yieldKeys.all,
-      });
-      if (input.walletAddress) {
-        void queryClient.invalidateQueries({
-          queryKey: yieldKeys.onchain(input.walletAddress),
-        });
-      }
     },
   });
 }

@@ -15,7 +15,11 @@ process.env.BRIDGE_API_KEY = "bridge-api-key";
 process.env.BRIDGE_WEBHOOK_PUBLIC_KEY = "test-public-key";
 process.env.BRIDGE_WEBHOOK_MAX_AGE_MS = "600000";
 
-const { confirmYieldTransactionForUser, getYieldPositionForUser } = await import("./yieldService.js");
+const {
+  confirmYieldTransactionForUser,
+  getYieldPositionForUser,
+  resetYieldConfirmRuntimeStateForTests,
+} = await import("./yieldService.js");
 const { AlchemyApiError } = await import("../lib/alchemy.js");
 
 const JUPITER_LEND_EARN_PROGRAM_ID = "jup3YeL8QhtSx1e253b2FDvsMNC87fDrgQZivbrndc9";
@@ -28,6 +32,7 @@ const USER_JL_TOKEN_ACCOUNT = "UserJlToken1111111111111111111111111111111";
 const VAULT_WALLET_ADDRESS = "VaultWallet1111111111111111111111111111111";
 
 test("getYieldPositionForUser delegates to the repository", async () => {
+  resetYieldConfirmRuntimeStateForTests();
   const position = await getYieldPositionForUser(
     7,
     {
@@ -42,6 +47,7 @@ test("getYieldPositionForUser delegates to the repository", async () => {
 });
 
 test("confirmYieldTransactionForUser validates the transfer and records the confirmed deposit", async () => {
+  resetYieldConfirmRuntimeStateForTests();
   let storedInput: {
     action: "deposit" | "withdraw";
     amountRaw: string;
@@ -117,6 +123,7 @@ test("confirmYieldTransactionForUser validates the transfer and records the conf
 });
 
 test("confirmYieldTransactionForUser reuses an existing stored yield transaction without reinserting", async () => {
+  resetYieldConfirmRuntimeStateForTests();
   let createConfirmedYieldTransactionCalls = 0;
   let broadcastCalls = 0;
 
@@ -200,6 +207,7 @@ test("confirmYieldTransactionForUser reuses an existing stored yield transaction
 });
 
 test("confirmYieldTransactionForUser returns pending when Alchemy has not indexed the signature yet", async () => {
+  resetYieldConfirmRuntimeStateForTests();
   const response = await confirmYieldTransactionForUser(
     {
       action: "deposit",
@@ -234,6 +242,7 @@ test("confirmYieldTransactionForUser returns pending when Alchemy has not indexe
 });
 
 test("confirmYieldTransactionForUser returns failed for invalid yield transactions", async () => {
+  resetYieldConfirmRuntimeStateForTests();
   const response = await confirmYieldTransactionForUser(
     {
       action: "deposit",
@@ -285,6 +294,122 @@ test("confirmYieldTransactionForUser returns failed for invalid yield transactio
 
   assert.equal(response.status, "failed");
   assert.match(response.message, /Jupiter Lend Earn instruction/i);
+});
+
+test("confirmYieldTransactionForUser dedupes concurrent reconcile requests for the same signature", async () => {
+  resetYieldConfirmRuntimeStateForTests();
+  let fetchCalls = 0;
+  let resolveFetch: ((error: Error) => void) | null = null;
+
+  const fetchPromise = new Promise<never>((_, reject) => {
+    resolveFetch = reject;
+  });
+
+  const dependencies = {
+    async broadcastLatestTransactionSnapshot() {
+      throw new Error("should not be called");
+    },
+    async createConfirmedYieldTransaction() {
+      throw new Error("should not be called");
+    },
+    async fetchSolanaParsedTransaction() {
+      fetchCalls += 1;
+      return fetchPromise;
+    },
+    async getUserBalancesByUserId() {
+      throw new Error("should not be called");
+    },
+    async getYieldPositionByUserId() {
+      throw new Error("should not be called");
+    },
+    async getYieldTransactionByUserIdAndSignature() {
+      return null;
+    },
+  } as const;
+
+  const firstResponsePromise = confirmYieldTransactionForUser(
+    {
+      action: "deposit",
+      amount: "1",
+      asset: "usdc",
+      transactionSignature: "yield-signature-concurrent",
+      user: createUserFixture(),
+    },
+    dependencies as any,
+  );
+  const secondResponsePromise = confirmYieldTransactionForUser(
+    {
+      action: "deposit",
+      amount: "1",
+      asset: "usdc",
+      transactionSignature: "yield-signature-concurrent",
+      user: createUserFixture(),
+    },
+    dependencies as any,
+  );
+
+  resolveFetch?.(new AlchemyApiError("not found", 404));
+
+  const [firstResponse, secondResponse] = await Promise.all([
+    firstResponsePromise,
+    secondResponsePromise,
+  ]);
+
+  assert.equal(fetchCalls, 1);
+  assert.equal(firstResponse.status, "pending");
+  assert.equal(secondResponse.status, "pending");
+});
+
+test("confirmYieldTransactionForUser short-circuits recent pending signatures", async () => {
+  resetYieldConfirmRuntimeStateForTests();
+  let fetchCalls = 0;
+
+  const dependencies = {
+    async broadcastLatestTransactionSnapshot() {
+      throw new Error("should not be called");
+    },
+    async createConfirmedYieldTransaction() {
+      throw new Error("should not be called");
+    },
+    async fetchSolanaParsedTransaction() {
+      fetchCalls += 1;
+      throw new AlchemyApiError("not found", 404);
+    },
+    async getUserBalancesByUserId() {
+      throw new Error("should not be called");
+    },
+    async getYieldPositionByUserId() {
+      throw new Error("should not be called");
+    },
+    async getYieldTransactionByUserIdAndSignature() {
+      return null;
+    },
+  } as const;
+
+  const firstResponse = await confirmYieldTransactionForUser(
+    {
+      action: "deposit",
+      amount: "1",
+      asset: "usdc",
+      transactionSignature: "yield-signature-pending-cache",
+      user: createUserFixture(),
+    },
+    dependencies as any,
+  );
+  const secondResponse = await confirmYieldTransactionForUser(
+    {
+      action: "deposit",
+      amount: "1",
+      asset: "usdc",
+      transactionSignature: "yield-signature-pending-cache",
+      user: createUserFixture(),
+    },
+    dependencies as any,
+  );
+
+  assert.equal(fetchCalls, 1);
+  assert.equal(firstResponse.status, "pending");
+  assert.equal(secondResponse.status, "pending");
 });
 
 function createYieldTrackedPositionFixture(principalRaw: string): YieldTrackedPosition {

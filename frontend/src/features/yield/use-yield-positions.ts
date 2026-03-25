@@ -11,10 +11,8 @@ function useYieldPositions(userId: string, enabled = true) {
     queryKey: yieldKeys.positions(userId),
     queryFn: ({ signal }) => client.fetchYieldPositions(signal),
     enabled,
-    refetchInterval: 30000,
-    refetchIntervalInBackground: false,
-    refetchOnWindowFocus: true,
-    staleTime: 15000,
+    refetchOnWindowFocus: false,
+    staleTime: 30000,
   });
 }
 

@@ -140,6 +140,7 @@ describe("YieldPage", () => {
       },
     });
     dashboardStreamMock.useDashboardStream.mockReturnValue({
+      isLive: false,
       transactionsError: null,
     });
     persistedSolanaAddressMock.usePersistedSolanaAddress.mockReturnValue({

@@ -25,6 +25,7 @@ import {
   applyRecipientLastPayments,
 } from "./transactionsWriteRepo.js";
 import { applyYieldPositionAction, getYieldPositionByUserIdWithClient } from "./yieldPositionsRepo.js";
+import { markUsdcYieldCurrentPositionCacheStale } from "../../lib/yieldPortfolioCache.js";
 
 export interface WebhookLedgerEntryInput {
   userId: number;
@@ -609,6 +610,7 @@ export async function applyAlchemyWebhookEffects(input: {
             updatedAt: inserted.confirmed_at ?? effect.entry.confirmedAt,
             userId: Number(inserted.user_id),
           });
+          markUsdcYieldCurrentPositionCacheStale(inserted.tracked_wallet_address);
         }
 
         if (

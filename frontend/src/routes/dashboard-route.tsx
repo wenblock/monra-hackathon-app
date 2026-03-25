@@ -15,9 +15,12 @@ import { useSyncBridgeStatusMutation } from "@/features/session/use-session-muta
 function DashboardRouteComponent() {
   const { bridge, user } = useSession();
   const userId = user.cdpUserId;
-  const dashboardSnapshotQuery = useDashboardSnapshot(userId);
+  const { isLive: isDashboardStreamLive, transactionsError: streamTransactionsError } =
+    useDashboardStream(userId);
+  const dashboardSnapshotQuery = useDashboardSnapshot(userId, {
+    liveUpdatesEnabled: isDashboardStreamLive,
+  });
   const recipientsQuery = useRecipientsQuery(userId);
-  const { transactionsError: streamTransactionsError } = useDashboardStream(userId);
   const createRecipientMutation = useCreateRecipientMutation(userId);
   const createOnrampMutation = useCreateOnrampMutation(userId);
   const createOfframpMutation = useCreateOfframpMutation(userId);

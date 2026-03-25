@@ -54,15 +54,17 @@ function YieldPage() {
   const { sendSolanaTransaction } = useSendSolanaTransaction();
   const { showToast } = useToast();
   const queryClient = useQueryClient();
-  const snapshotQuery = useDashboardSnapshot(user.cdpUserId);
-  const { transactionsError: streamTransactionsError } = useDashboardStream(user.cdpUserId);
+  const { isLive: isDashboardStreamLive, transactionsError: streamTransactionsError } =
+    useDashboardStream(user.cdpUserId);
+  const snapshotQuery = useDashboardSnapshot(user.cdpUserId, {
+    liveUpdatesEnabled: isDashboardStreamLive,
+  });
   const positionsQuery = useYieldPositions(user.cdpUserId);
   const { effectiveSolanaAddress, isPersistingSolanaAddress, persistenceError, storedSolanaAddress } =
     usePersistedSolanaAddress(user.cdpUserId, user.solanaAddress);
   const onchainQuery = useYieldOnchainQuery(effectiveSolanaAddress);
   const { mutateAsync: reconcileYieldTransaction } = useYieldConfirmMutation({
     userId: user.cdpUserId,
-    walletAddress: effectiveSolanaAddress,
   });
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -145,9 +147,6 @@ function YieldPage() {
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: yieldKeys.positions(user.cdpUserId),
-        }),
-        queryClient.invalidateQueries({
-          queryKey: yieldKeys.all,
         }),
         effectiveSolanaAddress
           ? queryClient.invalidateQueries({

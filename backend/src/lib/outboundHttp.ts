@@ -1,6 +1,6 @@
 const DEFAULT_RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
 
-interface FetchWithRetryOptions {
+export interface FetchWithRetryOptions {
   retries?: number;
   retryableStatusCodes?: Set<number>;
   timeoutMs?: number;

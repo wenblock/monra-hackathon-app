@@ -2,8 +2,9 @@ import { getYieldPositionByUserId } from "../db/repositories/yieldPositionsRepo.
 import { getUserById, getUserBalancesByUserId } from "../db/repositories/usersRepo.js";
 import { buildTreasuryValuation, getTreasuryPrices } from "../lib/alchemy.js";
 import { formatAssetAmount } from "../lib/amounts.js";
-import { logError } from "../lib/logger.js";
+import { logError, logInfo } from "../lib/logger.js";
 import { fetchUsdcYieldCurrentPositionRaw } from "../lib/yieldRead.js";
+import { readCachedUsdcYieldCurrentPositionRaw } from "../lib/yieldPortfolioCache.js";
 import type {
   SolanaBalancesResponse,
   TreasuryValuation,
@@ -18,6 +19,7 @@ interface TreasurySnapshotDependencies {
   getUserBalancesByUserId: typeof getUserBalancesByUserId;
   getUserById: typeof getUserById;
   getYieldPositionByUserId: typeof getYieldPositionByUserId;
+  readCachedUsdcYieldCurrentPositionRaw: typeof readCachedUsdcYieldCurrentPositionRaw;
 }
 
 const defaultDependencies: TreasurySnapshotDependencies = {
@@ -27,6 +29,7 @@ const defaultDependencies: TreasurySnapshotDependencies = {
   getUserBalancesByUserId,
   getUserById,
   getYieldPositionByUserId,
+  readCachedUsdcYieldCurrentPositionRaw,
 };
 
 export async function buildTreasurySnapshotForUser(
@@ -34,47 +37,59 @@ export async function buildTreasurySnapshotForUser(
   balancesOverride?: SolanaBalancesResponse["balances"],
   dependencies: TreasurySnapshotDependencies = defaultDependencies,
 ) {
-  const [user, balances, treasuryPrices, trackedPosition] = await Promise.all([
-    dependencies.getUserById(userId),
-    balancesOverride ? Promise.resolve(balancesOverride) : dependencies.getUserBalancesByUserId(userId),
-    dependencies.getTreasuryPrices(),
-    dependencies.getYieldPositionByUserId(userId),
-  ]);
+  const startedAt = Date.now();
+  try {
+    const [user, balances, treasuryPrices, trackedPosition] = await Promise.all([
+      dependencies.getUserById(userId),
+      balancesOverride ? Promise.resolve(balancesOverride) : dependencies.getUserBalancesByUserId(userId),
+      dependencies.getTreasuryPrices(),
+      dependencies.getYieldPositionByUserId(userId),
+    ]);
 
-  if (!user) {
-    throw new Error(`Unable to build treasury snapshot for unknown user ${userId}.`);
-  }
+    if (!user) {
+      throw new Error(`Unable to build treasury snapshot for unknown user ${userId}.`);
+    }
 
-  const currentYieldPositionRaw = user.solanaAddress
-    ? await dependencies
-        .fetchUsdcYieldCurrentPositionRaw(user.solanaAddress)
-        .catch(error => {
-          logError("treasury.usdc_yield_position_read_failed", error, {
-            userId,
+    const currentYieldPositionRaw = user.solanaAddress
+      ? await dependencies
+          .readCachedUsdcYieldCurrentPositionRaw({
+            fetcher: dependencies.fetchUsdcYieldCurrentPositionRaw,
             walletAddress: user.solanaAddress,
-          });
-          return trackedPosition.principal.raw;
-        })
-    : "0";
-  const usdcPriceUsd = treasuryPrices?.pricesUsd.usdc ?? null;
-  const yieldSnapshot = buildYieldPortfolioSnapshot({
-    currentPositionRaw: currentYieldPositionRaw,
-    trackedPosition,
-    usdcPriceUsd,
-  });
-  const valuation = dependencies.buildTreasuryValuation(
-    balances,
-    treasuryPrices,
-    {
-      yieldInvestedValueUsd: yieldSnapshot.positions.usdc.valueUsd,
-    },
-  );
+          })
+          .catch(error => {
+            logError("treasury.usdc_yield_position_read_failed", error, {
+              userId,
+              walletAddress: user.solanaAddress,
+            });
+            return trackedPosition.principal.raw;
+          })
+      : "0";
+    const usdcPriceUsd = treasuryPrices?.pricesUsd.usdc ?? null;
+    const yieldSnapshot = buildYieldPortfolioSnapshot({
+      currentPositionRaw: currentYieldPositionRaw,
+      trackedPosition,
+      usdcPriceUsd,
+    });
+    const valuation = dependencies.buildTreasuryValuation(
+      balances,
+      treasuryPrices,
+      {
+        yieldInvestedValueUsd: yieldSnapshot.positions.usdc.valueUsd,
+      },
+    );
 
-  return {
-    balances,
-    valuation,
-    yield: yieldSnapshot,
-  };
+    return {
+      balances,
+      valuation,
+      yield: yieldSnapshot,
+    };
+  } finally {
+    logInfo("treasury.snapshot_built", {
+      durationMs: Date.now() - startedAt,
+      hasBalancesOverride: Boolean(balancesOverride),
+      userId,
+    });
+  }
 }
 
 export function buildYieldPortfolioSnapshot(input: {

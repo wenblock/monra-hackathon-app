@@ -11,6 +11,7 @@ function useDashboardStream(userId: string, enabled = true) {
   const client = useApiClient();
   const queryClient = useQueryClient();
   const [transactionsError, setTransactionsError] = useState<string | null>(null);
+  const [isLive, setIsLive] = useState(false);
   const streamReconnectAttempts = useRef(0);
   const streamOutageStartedAt = useRef<number | null>(null);
   const hasOpenedTransactionStream = useRef(false);
@@ -18,6 +19,7 @@ function useDashboardStream(userId: string, enabled = true) {
   useEffect(() => {
     if (!enabled) {
       setTransactionsError(null);
+      setIsLive(false);
       return;
     }
 
@@ -29,6 +31,7 @@ function useDashboardStream(userId: string, enabled = true) {
     streamOutageStartedAt.current = null;
     hasOpenedTransactionStream.current = false;
     setTransactionsError(null);
+    setIsLive(false);
 
     const scheduleReconnect = () => {
       if (cancelled) {
@@ -70,6 +73,7 @@ function useDashboardStream(userId: string, enabled = true) {
           streamReconnectAttempts.current = 0;
           streamOutageStartedAt.current = null;
           setTransactionsError(null);
+          setIsLive(true);
 
           if (shouldRefreshSnapshot) {
             void queryClient.invalidateQueries({
@@ -120,6 +124,7 @@ function useDashboardStream(userId: string, enabled = true) {
 
           streamReconnectAttempts.current += 1;
           streamOutageStartedAt.current ??= Date.now();
+          setIsLive(false);
           scheduleReconnect();
         };
       } catch (streamError) {
@@ -131,6 +136,7 @@ function useDashboardStream(userId: string, enabled = true) {
 
         streamReconnectAttempts.current += 1;
         streamOutageStartedAt.current ??= Date.now();
+        setIsLive(false);
         scheduleReconnect();
       }
     };
@@ -149,6 +155,7 @@ function useDashboardStream(userId: string, enabled = true) {
   }, [client, enabled, queryClient, userId]);
 
   return {
+    isLive,
     transactionsError,
   };
 }

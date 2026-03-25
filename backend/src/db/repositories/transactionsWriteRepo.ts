@@ -7,6 +7,7 @@ import {
   getYieldLedgerDirection,
   getYieldLedgerEntryType,
 } from "../../lib/yield.js";
+import { markUsdcYieldCurrentPositionCacheStale } from "../../lib/yieldPortfolioCache.js";
 import type {
   BridgeSourceDepositInstructions,
   BridgeTransferState,
@@ -470,6 +471,7 @@ export async function createConfirmedYieldTransaction(input: CreateConfirmedYiel
         updatedAt: input.confirmedAt,
         userId: input.userId,
       });
+      markUsdcYieldCurrentPositionCacheStale(input.walletAddress);
     }
 
     const balanceRow = await getUserBalanceRow(client, input.userId);
