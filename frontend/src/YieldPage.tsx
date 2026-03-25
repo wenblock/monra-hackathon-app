@@ -1,6 +1,6 @@
 import { useSendSolanaTransaction } from "@coinbase/cdp-hooks";
 import { Link } from "@tanstack/react-router";
-import { ArrowUpRight, ChevronRight, PiggyBank, Wallet } from "lucide-react";
+import { ArrowUpRight, ChevronRight, Wallet } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import AppShell from "@/AppShell";
@@ -186,63 +186,41 @@ function YieldPage() {
   return (
     <AppShell>
       <div className="space-y-6">
-        <section className="grid gap-4 xl:grid-cols-[1.35fr_0.85fr]">
-          <PanelCard className="space-y-6">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-              <div className="space-y-3">
-                <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted-foreground">
-                  Jupiter Lend Earn
-                </p>
-                <div className="space-y-2">
-                  <h1 className="text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">
-                    Earn interest on your USDC
-                  </h1>
-                  <p className="max-w-2xl text-base text-muted-foreground sm:text-lg">
-                    Deposit treasury USDC into Jupiter&apos;s Earn vault while keeping tracked principal in Monra.
-                  </p>
-                </div>
-              </div>
-
-              <Link
-                to="/transactions"
-                preload="intent"
-                className="inline-flex items-center gap-2 self-start rounded-full border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
-              >
-                Open transactions
-                <ArrowUpRight className="size-4" />
-              </Link>
+        <PanelCard className="space-y-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="space-y-2">
+              <h1 className="text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">
+                Earn interest on your USDC
+              </h1>
+              <p className="max-w-2xl text-base text-muted-foreground sm:text-lg">
+                Deposit treasury USDC into Jupiter&apos;s Earn vault.
+              </p>
             </div>
 
-            <div className="grid gap-4 lg:grid-cols-3">
-              <SummaryCard label="Your Deposits" value={overview?.totalDepositsUsd ?? "$0.00"} />
-              <SummaryCard
-                label="Your Earnings"
-                value={overview?.totalEarningsUsd ?? "$0.00"}
-                tone="positive"
-              />
-              <SummaryCard
-                label="Projected Annual Yield"
-                value={overview?.projectedAnnualYieldUsd ?? "$0.00"}
-                tone="muted"
-              />
-            </div>
-          </PanelCard>
+            <Link
+              to="/transactions"
+              preload="intent"
+              className="inline-flex items-center gap-2 self-start rounded-full border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
+            >
+              Open transactions
+              <ArrowUpRight className="size-4" />
+            </Link>
+          </div>
 
-          <PanelCard className="flex items-center justify-center">
-            <div className="max-w-sm space-y-4 text-center xl:text-left">
-              <div className="mx-auto flex size-16 items-center justify-center rounded-3xl bg-primary/10 text-primary xl:mx-0">
-                <PiggyBank className="size-7" />
-              </div>
-              <div className="space-y-2">
-                <h2 className="text-2xl font-semibold tracking-tight text-foreground">USDC-only vault</h2>
-                <p className="text-sm leading-6 text-muted-foreground">
-                  EURC Yield is no longer available in the active product flow. Existing EURC Yield activity stays in
-                  the transaction ledger as history.
-                </p>
-              </div>
-            </div>
-          </PanelCard>
-        </section>
+          <div className="grid gap-4 lg:grid-cols-3">
+            <SummaryCard label="Your Deposits" value={overview?.totalDepositsUsd ?? "$0.00"} />
+            <SummaryCard
+              label="Your Earnings"
+              value={overview?.totalEarningsUsd ?? "$0.00"}
+              tone="positive"
+            />
+            <SummaryCard
+              label="Projected Annual Yield"
+              value={overview?.projectedAnnualYieldUsd ?? "$0.00"}
+              tone="muted"
+            />
+          </div>
+        </PanelCard>
 
         {persistenceError ? (
           <InlineNotice title="Wallet sync pending" variant="warning">
@@ -270,7 +248,7 @@ function YieldPage() {
           </InlineNotice>
         ) : null}
 
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <div className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-2 py-2">
             <span className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground">
               Earn
@@ -282,11 +260,6 @@ function YieldPage() {
             >
               Transactions
             </Link>
-          </div>
-
-          <div className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm text-muted-foreground">
-            <PiggyBank className="size-4 text-primary" />
-            USDC vault only
           </div>
         </div>
 
@@ -377,48 +350,40 @@ function YieldVaultDialog(input: {
 
   return (
     <Dialog open={input.open} onOpenChange={isOpen => !isOpen && input.onClose()}>
-      <DialogContent className="max-h-[min(90vh,46rem)] overflow-y-auto border-border bg-card p-0 text-foreground sm:max-w-2xl">
+      <DialogContent className="max-h-[min(92vh,40rem)] overflow-y-auto border-border bg-card p-0 text-foreground sm:max-w-[44rem]">
         {input.vault ? (
           <>
-            <DialogHeader className="border-b border-border px-5 py-4 sm:px-6">
+            <DialogHeader className="border-b border-border px-4 py-3 sm:px-5">
               <div className="flex items-start gap-3">
                 <img
                   src={input.vault.iconPath}
                   alt={`${input.vault.label} token icon`}
-                  className="size-12 rounded-full bg-background p-1"
+                  className="size-11 rounded-full bg-background p-1"
                 />
                 <div className="space-y-1">
-                  <DialogTitle className="text-2xl font-semibold tracking-tight text-foreground">
+                  <DialogTitle className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
                     {input.vault.label} Yield
                   </DialogTitle>
                   <DialogDescription className="text-sm text-muted-foreground">
-                    Deposit into the Jupiter Earn vault and keep the tracked principal in Monra.
+                    Deposit into the Jupiter Earn vault.
                   </DialogDescription>
                 </div>
               </div>
             </DialogHeader>
 
-            <div className="space-y-4 px-5 py-5 sm:px-6">
+            <div className="space-y-3 px-4 py-4 sm:px-5">
               <div className="grid gap-3 sm:grid-cols-2">
                 <SummaryCard
                   compact
                   label="Your Earnings"
-                  note={
-                    input.vault.isUntrackedPosition
-                      ? `Current position: ${input.vault.currentPositionDisplay}`
-                      : (input.vault.earningsUsd ?? "$0.00")
-                  }
+                  note={input.vault.earningsUsd ?? "$0.00"}
                   tone="positive"
                   value={input.vault.earningsDisplay}
                 />
                 <SummaryCard
                   compact
                   label="Deposited"
-                  note={
-                    input.vault.isUntrackedPosition
-                      ? "Future Monra Yield actions will start tracked principal."
-                      : (input.vault.depositedUsd ?? "$0.00")
-                  }
+                  note={input.vault.depositedUsd ?? "$0.00"}
                   value={input.vault.depositedDisplay}
                 />
               </div>
@@ -446,12 +411,6 @@ function YieldVaultDialog(input: {
                 />
               </div>
 
-              {input.vault.warning ? (
-                <InlineNotice title="Ledger scope" variant="warning">
-                  {input.vault.warning}
-                </InlineNotice>
-              ) : null}
-
               {input.amountValidationError ? (
                 <InlineNotice title={`Check the ${input.selectedAction} amount`} variant="warning">
                   {input.amountValidationError}
@@ -470,10 +429,10 @@ function YieldVaultDialog(input: {
                 </InlineNotice>
               ) : null}
 
-              <PanelCard className="space-y-4">
+              <PanelCard className="space-y-3 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <p className="text-xl font-semibold text-foreground">{actionLabel}</p>
-                  <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                  <p className="text-lg font-semibold text-foreground">{actionLabel}</p>
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground sm:text-sm">
                     <span className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5">
                       <Wallet className="size-4" />
                       {availabilityLabel}
@@ -483,10 +442,10 @@ function YieldVaultDialog(input: {
                   </div>
                 </div>
 
-                <div className="grid gap-4 rounded-[1.4rem] border border-border bg-background p-4 md:grid-cols-[auto_minmax(0,1fr)] md:items-end">
+                <div className="grid gap-3 rounded-[1.2rem] border border-border bg-background p-3 md:grid-cols-[auto_minmax(0,1fr)] md:items-end">
                   <div className="inline-flex items-center gap-3 rounded-[1rem] border border-border bg-card px-4 py-3">
                     <img src={input.vault.iconPath} alt="" className="size-8 rounded-full bg-background p-1" />
-                    <span className="text-xl font-semibold text-foreground">{input.vault.label}</span>
+                    <span className="text-lg font-semibold text-foreground">{input.vault.label}</span>
                   </div>
 
                   <div className="min-w-0">
@@ -494,7 +453,7 @@ function YieldVaultDialog(input: {
                       value={input.amount}
                       inputMode="decimal"
                       placeholder="0.00"
-                      className="h-16 w-full bg-transparent text-right text-[clamp(2.2rem,7vw,3.75rem)] font-semibold tracking-tight text-foreground outline-none placeholder:text-muted-foreground/55"
+                      className="h-14 w-full bg-transparent text-right text-[clamp(2rem,6vw,3.25rem)] font-semibold tracking-tight text-foreground outline-none placeholder:text-muted-foreground/55"
                       onChange={event => input.onAmountChange(event.target.value)}
                     />
                   </div>
@@ -516,7 +475,7 @@ function YieldVaultDialog(input: {
 
               <Button
                 type="button"
-                className="h-12 w-full rounded-xl"
+                className="h-11 w-full rounded-xl"
                 disabled={!input.isWalletReady || input.isPersistingSolanaAddress || input.isSubmitting}
                 onClick={input.onSubmit}
               >
@@ -540,8 +499,8 @@ function SummaryCard(input: {
   return (
     <div
       className={cn(
-        "rounded-[1.4rem] border border-border bg-card px-5 py-5",
-        input.compact ? "min-h-[8.5rem]" : "min-h-[9.75rem]",
+        "rounded-[1.4rem] border border-border bg-card px-4 py-4 sm:px-5",
+        input.compact ? "min-h-[7.25rem]" : "min-h-[9.25rem]",
       )}
     >
       <p
@@ -556,8 +515,15 @@ function SummaryCard(input: {
       >
         {input.label}
       </p>
-      <p className="mt-3 text-4xl font-semibold tracking-tight text-foreground">{input.value}</p>
-      {input.note ? <p className="mt-2 text-sm leading-6 text-muted-foreground">{input.note}</p> : null}
+      <p
+        className={cn(
+          "mt-2 font-semibold tracking-tight text-foreground",
+          input.compact ? "text-3xl" : "text-4xl",
+        )}
+      >
+        {input.value}
+      </p>
+      {input.note ? <p className="mt-1.5 text-sm leading-5 text-muted-foreground">{input.note}</p> : null}
     </div>
   );
 }

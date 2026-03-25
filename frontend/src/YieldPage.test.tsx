@@ -177,7 +177,10 @@ describe("YieldPage", () => {
     renderWithQueryClient(<YieldPage />);
 
     expect(screen.getByText("Earn interest on your USDC")).toBeInTheDocument();
-    expect(screen.getByText("USDC vault only")).toBeInTheDocument();
+    expect(screen.getByText("Deposit treasury USDC into Jupiter's Earn vault.")).toBeInTheDocument();
+    expect(screen.queryByText("Jupiter Lend Earn")).not.toBeInTheDocument();
+    expect(screen.queryByText("USDC-only vault")).not.toBeInTheDocument();
+    expect(screen.queryByText("USDC vault only")).not.toBeInTheDocument();
     expect(screen.getByText("Your Deposits")).toBeInTheDocument();
     expect(screen.getByText("Projected Annual Yield")).toBeInTheDocument();
     expect(screen.getByText("2.23%")).toBeInTheDocument();
@@ -192,13 +195,12 @@ describe("YieldPage", () => {
     expect(vaultRowButton).toBeTruthy();
     fireEvent.click(vaultRowButton!);
 
-    expect(
-      screen.getByText("Deposit into the Jupiter Earn vault and keep the tracked principal in Monra."),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Deposit into the Jupiter Earn vault.")).toBeInTheDocument();
     expect(screen.getAllByText("Deposit").length).toBeGreaterThan(0);
     expect(screen.getByText("Vault TVL")).toBeInTheDocument();
     expect(screen.getAllByText("517.7M USDC").length).toBeGreaterThan(0);
     expect(screen.getAllByText("$517.7M").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Ledger scope")).not.toBeInTheDocument();
   });
 
   it("computes the preview locally when the amount changes", () => {
@@ -231,7 +233,7 @@ describe("YieldPage", () => {
     expect(screen.getByText("Buffer is not defined")).toBeInTheDocument();
   });
 
-  it("shows the untracked state for existing positions with no recorded principal", () => {
+  it("shows zeroed values for existing positions with no recorded principal", () => {
     yieldPositionsMock.useYieldPositions.mockReturnValue({
       data: {
         positions: {
@@ -255,10 +257,21 @@ describe("YieldPage", () => {
       error: null,
     });
 
-  renderWithQueryClient(<YieldPage />);
+    renderWithQueryClient(<YieldPage />);
 
-  expect(screen.getByText("Untracked position")).toBeInTheDocument();
-  expect(screen.getAllByText("Untracked").length).toBeGreaterThan(1);
-  expect(screen.getAllByText("$0.00").length).toBeGreaterThan(0);
-});
+    expect(screen.queryByText("Untracked position")).not.toBeInTheDocument();
+    expect(screen.queryByText("Untracked")).not.toBeInTheDocument();
+    expect(screen.getAllByText("0 USDC").length).toBeGreaterThan(1);
+
+    const vaultRowButton = screen
+      .getAllByRole("button")
+      .find(button => button.textContent?.includes("USDC") && button.textContent?.includes("Jupiter Earn vault"));
+
+    fireEvent.click(vaultRowButton!);
+
+    expect(screen.queryByText("Ledger scope")).not.toBeInTheDocument();
+    expect(screen.queryByText("Untracked")).not.toBeInTheDocument();
+    expect(screen.getAllByText("0 USDC").length).toBeGreaterThan(3);
+    expect(screen.getAllByText("$0.00").length).toBeGreaterThan(1);
+  });
 });

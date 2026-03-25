@@ -89,15 +89,16 @@ export function buildYieldVaultViewModel(input: {
   const earningsRaw = maxBigIntString(BigInt(currentPositionRaw) - BigInt(depositedRaw));
   const apyPercent = Number(vault.supplyRateRaw) / YIELD_SUPPLY_RATE_PRECISION;
   const currentPositionUsdValue = calculateUsdValue(currentPositionRaw, input.asset, input.valuation);
+  const zeroAssetDisplay = `${formatYieldRawAmount("0", input.asset)} ${label}`;
   const projectedAnnualYieldUsdValue =
     !isUntrackedPosition && currentPositionUsdValue !== null
       ? currentPositionUsdValue * (apyPercent / 100)
       : null;
   const trackedDepositedUsdValue = isUntrackedPosition
-    ? null
+    ? 0
     : calculateUsdValue(depositedRaw, input.asset, input.valuation);
   const trackedEarningsUsdValue = isUntrackedPosition
-    ? null
+    ? 0
     : calculateUsdValue(earningsRaw, input.asset, input.valuation);
 
   return {
@@ -109,12 +110,12 @@ export function buildYieldVaultViewModel(input: {
     currentPositionRaw,
     currentPositionUsd: formatUsd(currentPositionUsdValue),
     depositedDisplay: isUntrackedPosition
-      ? "Untracked"
+      ? zeroAssetDisplay
       : `${formatYieldRawAmount(depositedRaw, input.asset)} ${label}`,
     depositedRaw,
     depositedUsd: formatUsd(trackedDepositedUsdValue),
     earningsDisplay: isUntrackedPosition
-      ? "Untracked"
+      ? zeroAssetDisplay
       : `${formatYieldRawAmount(earningsRaw, input.asset)} ${label}`,
     earningsRaw,
     earningsUsd: formatUsd(trackedEarningsUsdValue),
@@ -122,14 +123,11 @@ export function buildYieldVaultViewModel(input: {
     isUntrackedPosition,
     label,
     projectedAnnualYieldUsd: formatUsd(projectedAnnualYieldUsdValue),
-    trackingBadge: isUntrackedPosition ? "Untracked position" : null,
+    trackingBadge: null,
     tvlDisplay: formatYieldCompactAsset(vault.totalAssetsRaw, input.asset),
     tvlRaw: vault.totalAssetsRaw,
     tvlUsd: formatYieldCompactUsd(calculateUsdValue(vault.totalAssetsRaw, input.asset, input.valuation)),
-    warning:
-      isUntrackedPosition
-        ? `This ${label} position predates Monra Yield tracking. New Monra Yield activity will be tracked, but this existing position remains untracked.`
-        : null,
+    warning: null,
     walletBalanceDisplay: `${formatYieldRawAmount(vault.walletBalanceRaw, input.asset)} ${label}`,
     walletBalanceRaw: vault.walletBalanceRaw,
   };

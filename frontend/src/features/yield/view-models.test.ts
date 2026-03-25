@@ -59,7 +59,7 @@ describe("buildYieldOverviewViewModel", () => {
     expect(overview.vaults[0]?.tvlUsd).toBe("$517.7M");
   });
 
-  it("marks existing untracked positions instead of treating them as earnings", () => {
+  it("zeros existing untracked positions on yield surfaces instead of surfacing an untracked label", () => {
     const overview = buildYieldOverviewViewModel({
       onchainSnapshot: createOnchainSnapshot(),
       positions: {
@@ -87,12 +87,13 @@ describe("buildYieldOverviewViewModel", () => {
     expect(overview.totalDepositsUsd).toBe("$0.00");
     expect(overview.totalEarningsUsd).toBe("$0.00");
     expect(overview.projectedAnnualYieldUsd).toBe("$0.00");
-    expect(overview.vaults[0]?.depositedDisplay).toBe("Untracked");
-    expect(overview.vaults[0]?.earningsDisplay).toBe("Untracked");
-    expect(overview.vaults[0]?.trackingBadge).toBe("Untracked position");
-    expect(overview.vaults[0]?.warning).toBe(
-      "This USDC position predates Monra Yield tracking. New Monra Yield activity will be tracked, but this existing position remains untracked.",
-    );
+    expect(overview.vaults[0]?.depositedDisplay).toBe("0 USDC");
+    expect(overview.vaults[0]?.depositedUsd).toBe("$0.00");
+    expect(overview.vaults[0]?.earningsDisplay).toBe("0 USDC");
+    expect(overview.vaults[0]?.earningsUsd).toBe("$0.00");
+    expect(overview.vaults[0]?.trackingBadge).toBeNull();
+    expect(overview.vaults[0]?.warning).toBeNull();
+    expect(overview.vaults[0]?.isUntrackedPosition).toBe(true);
   });
 });
 
