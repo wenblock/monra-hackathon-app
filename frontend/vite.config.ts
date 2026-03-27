@@ -2,8 +2,85 @@ import path from "node:path";
 
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
+import type { OutputBundle, OutputChunk, OutputOptions } from "rollup";
 import { visualizer } from "rollup-plugin-visualizer";
-import { defineConfig, loadEnv } from "vite";
+import { defineConfig, loadEnv, type Plugin } from "vite";
+
+function coinbaseChunkGuard(): Plugin {
+  return {
+    name: "coinbase-chunk-guard",
+    apply: "build" as const,
+    generateBundle(_options: OutputOptions, bundle: OutputBundle) {
+      const coinbaseChunks = Object.entries(bundle).flatMap(([fileName, output]) => {
+        if (output.type !== "chunk") {
+          return [];
+        }
+
+        return Object.keys(output.modules).some(id => id.includes("/node_modules/@coinbase/cdp-react/"))
+          ? [[fileName, output] as const]
+          : [];
+      });
+      const coinbaseChunkNames = coinbaseChunks.map(([fileName]) => fileName);
+
+      if (coinbaseChunkNames.length < 2) {
+        return;
+      }
+
+      const coinbaseChunkSet = new Set(coinbaseChunkNames);
+      const coinbaseChunkGraph = new Map(
+        coinbaseChunkNames.map(fileName => {
+          const output = bundle[fileName] as OutputChunk | undefined;
+
+          if (!output || output.type !== "chunk") {
+            return [fileName, [] as string[]] as const;
+          }
+
+          return [
+            fileName,
+            output.imports.filter(importedFileName => coinbaseChunkSet.has(importedFileName)),
+          ] as const;
+        }),
+      );
+      const visited = new Set<string>();
+      const activeTrail = new Set<string>();
+
+      const detectCycle = (fileName: string, trail: string[]): string[] | null => {
+        if (activeTrail.has(fileName)) {
+          const cycleStart = trail.indexOf(fileName);
+          return [...trail.slice(cycleStart), fileName];
+        }
+
+        if (visited.has(fileName)) {
+          return null;
+        }
+
+        activeTrail.add(fileName);
+
+        for (const importedFileName of coinbaseChunkGraph.get(fileName) ?? []) {
+          const cycle = detectCycle(importedFileName, [...trail, fileName]);
+
+          if (cycle) {
+            return cycle;
+          }
+        }
+
+        activeTrail.delete(fileName);
+        visited.add(fileName);
+        return null;
+      };
+
+      for (const fileName of coinbaseChunkNames) {
+        const cycle = detectCycle(fileName, []);
+
+        if (cycle) {
+          throw new Error(
+            `Detected circular imports between Coinbase React chunks: ${cycle.join(" -> ")}`,
+          );
+        }
+      }
+    },
+  };
+}
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
@@ -25,6 +102,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       tailwindcss(),
+      coinbaseChunkGuard(),
       ...(shouldAnalyze
         ? [
             visualizer({
@@ -67,22 +145,13 @@ export default defineConfig(({ mode }) => {
             if (
               normalizedId.includes("/src/CoinbaseAppRoot.tsx") ||
               normalizedId.includes("/src/features/session/api-client-context.tsx") ||
+              normalizedId.includes("/src/features/session/CoinbaseAuthButton.tsx") ||
               normalizedId.includes("/src/App.tsx") ||
               normalizedId.includes("/src/config.ts") ||
               normalizedId.includes("/src/theme.ts") ||
-              normalizedId.includes("/node_modules/@coinbase/cdp-react/dist/components/CDPReactProvider/") ||
-              normalizedId.includes("/node_modules/@coinbase/cdp-react/dist/components/ThemeProvider/") ||
-              normalizedId.includes("/node_modules/@coinbase/cdp-react/dist/chunks/CDPReactProvider.") ||
-              normalizedId.includes("/node_modules/@coinbase/cdp-react/dist/theme/")
+              normalizedId.includes("/node_modules/@coinbase/cdp-react/")
             ) {
-              return "coinbase-auth-runtime";
-            }
-
-            if (
-              normalizedId.includes("/src/features/session/CoinbaseAuthButton.tsx") ||
-              normalizedId.includes("/node_modules/@coinbase/cdp-react/dist/components/AuthButton/")
-            ) {
-              return "coinbase-auth-ui";
+              return "coinbase-auth";
             }
 
             if (

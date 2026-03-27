@@ -10,7 +10,7 @@ vi.mock("@coinbase/cdp-hooks", () => ({
   useSolanaAddress: () => ({ solanaAddress: "11111111111111111111111111111111" }),
 }));
 
-vi.mock("@coinbase/cdp-react", () => ({
+vi.mock("@coinbase/cdp-react/components/ExportWalletModal", () => ({
   ExportWalletModal: ({
     address,
     children,

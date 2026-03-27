@@ -1,4 +1,7 @@
-import { ExportWalletModal, ExportWalletModalTrigger } from "@coinbase/cdp-react";
+import {
+  ExportWalletModal,
+  ExportWalletModalTrigger,
+} from "@coinbase/cdp-react/components/ExportWalletModal";
 import type { LucideIcon } from "lucide-react";
 import {
   Building2,
