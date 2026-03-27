@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useSignOut, useSolanaAddress } from "@coinbase/cdp-hooks";
-import { Check, Copy, Menu, Wallet } from "lucide-react";
+import { Check, Copy, Menu, UserRound, Wallet } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { sidebarItems } from "@/dashboard-view-models";
@@ -119,6 +119,12 @@ function AppShell({ alerts, children, notice }: AppShellProps) {
                 <Button type="button" variant="secondary" onClick={() => void signOut()}>
                   Sign out
                 </Button>
+                <Button variant="outline" asChild className="gap-2">
+                  <Link to="/profile" preload="intent">
+                    <UserRound className="size-4" />
+                    Profile
+                  </Link>
+                </Button>
               </div>
             </div>
           </header>
@@ -142,9 +148,17 @@ function AppShell({ alerts, children, notice }: AppShellProps) {
                     {formattedAddress}
                   </span>
                 </div>
-                <Button type="button" variant="outline" size="sm" onClick={() => void signOut()}>
-                  Sign out
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={() => void signOut()}>
+                    Sign out
+                  </Button>
+                  <Button variant="secondary" size="sm" asChild className="gap-2">
+                    <Link to="/profile" preload="intent">
+                      <UserRound className="size-4" />
+                      Profile
+                    </Link>
+                  </Button>
+                </div>
               </div>
 
               {alerts ? <div className="mb-5 flex flex-col gap-3 lg:flex-row">{alerts}</div> : null}

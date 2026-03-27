@@ -166,6 +166,7 @@ describe("DashboardRouteComponent", () => {
     renderWithQueryClient(<DashboardRouteComponent />);
 
     expect(screen.getByText("Treasury Value")).toBeInTheDocument();
+    expect(screen.getByText("Treasury Overview")).toBeInTheDocument();
     expect(screen.getByText("Recent Activity")).toBeInTheDocument();
   });
 });

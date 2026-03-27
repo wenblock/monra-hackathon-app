@@ -13,13 +13,14 @@ vi.mock("@coinbase/cdp-hooks", () => ({
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, ...props }: Record<string, unknown>) => {
+    const href = typeof props.to === "string" ? props.to : undefined;
     delete props.activeProps;
     delete props.inactiveProps;
     delete props.preload;
     delete props.to;
 
     return (
-      <a {...props}>
+      <a href={href} {...props}>
         {typeof children === "function"
           ? children({ isActive: false, isTransitioning: false })
           : children}
@@ -67,5 +68,18 @@ describe("AppShell", () => {
 
     expect(screen.getAllByText("Yield").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Earn on stablecoins").length).toBeGreaterThan(0);
+  });
+
+  it("renders profile navigation actions that point to the profile route", () => {
+    render(
+      <AppShell>
+        <div>Child content</div>
+      </AppShell>,
+    );
+
+    const profileLinks = screen.getAllByRole("link", { name: /profile/i });
+
+    expect(profileLinks.length).toBeGreaterThan(0);
+    expect(profileLinks.some(link => link.getAttribute("href") === "/profile")).toBe(true);
   });
 });

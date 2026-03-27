@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import Dashboard, { TOS_IFRAME_SANDBOX } from "@/Dashboard";
@@ -113,7 +113,7 @@ describe("Dashboard hardening", () => {
     });
   });
 
-  it("renders the deposit action before on-ramp and removes the welcome wallet block", () => {
+  it("renders treasury overview metrics and removes the welcome card", () => {
     render(
       <Dashboard
         balances={buildBalances()}
@@ -142,8 +142,19 @@ describe("Dashboard hardening", () => {
     expect(depositIndex).toBeGreaterThan(-1);
     expect(onrampIndex).toBeGreaterThan(-1);
     expect(depositIndex).toBeLessThan(onrampIndex);
-    expect(screen.queryByText("Wallet")).not.toBeInTheDocument();
+    expect(screen.queryByText("Welcome Monra User")).not.toBeInTheDocument();
     expect(screen.getAllByText("Treasury Value")[0]).toBeInTheDocument();
+    const treasuryOverviewCard = screen
+      .getByText("Treasury Overview")
+      .closest("[data-slot='card']") as HTMLElement;
+
+    expect(treasuryOverviewCard).toBeInTheDocument();
+    expect(within(treasuryOverviewCard).getByText("Productive Cash (earning yield)")).toBeInTheDocument();
+    expect(within(treasuryOverviewCard).getByText("Idle Cash (ready to deploy)")).toBeInTheDocument();
+    expect(within(treasuryOverviewCard).getByText("$10.00")).toBeInTheDocument();
+    expect(within(treasuryOverviewCard).getByText("$35.80")).toBeInTheDocument();
+    expect(within(treasuryOverviewCard).getByText("70%")).toBeInTheDocument();
+    expect(within(treasuryOverviewCard).getByText("30%")).toBeInTheDocument();
     expect(screen.queryByText(/live pricing/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/price delayed/i)).not.toBeInTheDocument();
   });
@@ -243,6 +254,85 @@ describe("Dashboard hardening", () => {
     expect(screen.getByText("1.00 SOL")).toBeInTheDocument();
     expect(screen.getByText("$150.00")).toBeInTheDocument();
   });
+
+  it("shows 0% FX exposure when stablecoin balances are zero", () => {
+    render(
+      <Dashboard
+        balances={buildBalances()}
+        valuation={buildValuation({
+          assetValuesUsd: {
+            sol: "150.00",
+            usdc: "0.00",
+            eurc: "0.00",
+          },
+          yieldInvestedValueUsd: "0.00",
+        })}
+        yield={buildYield({
+          currentPosition: { formatted: "0.00", raw: "0" },
+          earnings: { formatted: "0.00", raw: "0" },
+          valueUsd: "0.00",
+        })}
+        bridge={buildBridgeState()}
+        onCreateOfframp={vi.fn()}
+        onCreateOnramp={vi.fn()}
+        onCreateRecipient={vi.fn()}
+        onFetchSolanaTransactionContext={vi.fn()}
+        onRefreshBridgeStatus={vi.fn()}
+        recipients={[]}
+        transactions={[]}
+        transactionsError={null}
+        transactionsLoading={false}
+        user={buildUser()}
+        walletAddress="11111111111111111111111111111111"
+        walletSyncError={null}
+      />,
+    );
+
+    const treasuryOverviewCard = screen
+      .getByText("Treasury Overview")
+      .closest("[data-slot='card']") as HTMLElement;
+
+    expect(within(treasuryOverviewCard).getAllByText("0%")).toHaveLength(2);
+    expect(within(treasuryOverviewCard).getAllByText("$0.00").length).toBeGreaterThan(0);
+  });
+
+  it("shows unavailable treasury overview values when stablecoin valuation data is missing", () => {
+    render(
+      <Dashboard
+        balances={buildBalances()}
+        valuation={buildValuation({
+          assetValuesUsd: {
+            sol: "150.00",
+            usdc: null,
+            eurc: null,
+          },
+          yieldInvestedValueUsd: null,
+        })}
+        yield={buildYield({
+          valueUsd: null,
+        })}
+        bridge={buildBridgeState()}
+        onCreateOfframp={vi.fn()}
+        onCreateOnramp={vi.fn()}
+        onCreateRecipient={vi.fn()}
+        onFetchSolanaTransactionContext={vi.fn()}
+        onRefreshBridgeStatus={vi.fn()}
+        recipients={[]}
+        transactions={[]}
+        transactionsError={null}
+        transactionsLoading={false}
+        user={buildUser()}
+        walletAddress="11111111111111111111111111111111"
+        walletSyncError={null}
+      />,
+    );
+
+    const treasuryOverviewCard = screen
+      .getByText("Treasury Overview")
+      .closest("[data-slot='card']") as HTMLElement;
+
+    expect(within(treasuryOverviewCard).getAllByText("Unavailable").length).toBeGreaterThanOrEqual(3);
+  });
 });
 
 function buildBalances(): SolanaBalancesResponse["balances"] {
@@ -277,7 +367,9 @@ function buildValuation(
   };
 }
 
-function buildYield(): SolanaBalancesResponse["yield"] {
+function buildYield(
+  overrides: Partial<SolanaBalancesResponse["yield"]["positions"]["usdc"]> = {},
+): SolanaBalancesResponse["yield"] {
   return {
     positions: {
       usdc: {
@@ -285,6 +377,7 @@ function buildYield(): SolanaBalancesResponse["yield"] {
         earnings: { formatted: "1.00", raw: "1000000" },
         status: "tracked",
         valueUsd: "10.00",
+        ...overrides,
       },
     },
   };

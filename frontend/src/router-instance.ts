@@ -19,6 +19,12 @@ const dashboardRoute = createRoute({
   component: lazyRouteComponent(() => import("@/routes/dashboard-route")),
 });
 
+const profileRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/profile",
+  component: lazyRouteComponent(() => import("@/routes/profile-route")),
+});
+
 const recipientsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/recipients",
@@ -45,6 +51,7 @@ const transactionsRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   dashboardRoute,
+  profileRoute,
   recipientsRoute,
   swapRoute,
   yieldRoute,

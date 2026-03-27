@@ -1,16 +1,13 @@
 import { Link } from "@tanstack/react-router";
-import { ExternalLink, Mail, MapPin, Send, ShieldCheck, WalletCards } from "lucide-react";
+import { ExternalLink, Send } from "lucide-react";
 import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 
 import AppShell, { AlertBarItem } from "@/AppShell";
 import { quickActions } from "@/dashboard-view-models";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -107,11 +104,11 @@ function Dashboard({
   const effectiveSolanaAddress = walletAddress;
   const showKycAlert = bridge.showKycAlert;
   const showTosAlert = bridge.showTosAlert && !dismissedTosAlert;
-  const displayedKycStatus = bridge.customerStatus ?? user.bridgeKycStatus ?? "not_started";
   const recentTransactions = transactions.slice(0, 5);
   const treasuryValueDisplay = valuation?.treasuryValueUsd
     ? formatUsdCurrency(valuation.treasuryValueUsd)
     : null;
+  const treasuryOverviewMetrics = getTreasuryOverviewMetrics(valuation, yieldSnapshot);
   const assetRows = TRANSFER_ASSETS.map(asset => {
     const tokenAmount = balances ? `${balances[asset].formatted} ${getTransferAssetLabel(asset)}` : null;
     const assetValueUsd = valuation?.assetValuesUsd[asset];
@@ -380,27 +377,53 @@ function Dashboard({
 
           <Card>
             <CardHeader className="pb-4">
-              <div className="flex items-center gap-4">
-                <Avatar className="size-14">
-                  <AvatarFallback>{getInitials(user.fullName)}</AvatarFallback>
-                </Avatar>
-                <div className="space-y-1">
-                  <CardTitle>Welcome {user.fullName}</CardTitle>
-                  <CardDescription>
-                    {user.accountType === "business" ? "Business" : "Individual"}
-                  </CardDescription>
-                </div>
+              <div className="space-y-2">
+                <CardTitle>Treasury Overview</CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  Stablecoin cash posture and current currency exposure.
+                </p>
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <InfoRow
-                icon={WalletCards}
-                label="Account type"
-                value={user.accountType === "business" ? "Business" : "Individual"}
+              <TreasuryOverviewMetricRow
+                description="earning yield"
+                label="Productive Cash"
+                loading={!balances}
+                tone="productive"
+                value={treasuryOverviewMetrics.productiveCashDisplay}
               />
-              <InfoRow icon={MapPin} label="Country" value={user.countryName} />
-              <InfoRow icon={Mail} label="Email" value={user.email} />
-              <StatusRow label="KYC status" status={displayedKycStatus} />
+              <TreasuryOverviewMetricRow
+                description="ready to deploy"
+                label="Idle Cash"
+                loading={!balances}
+                tone="idle"
+                value={treasuryOverviewMetrics.idleCashDisplay}
+              />
+              <div className="rounded-[calc(var(--radius)+4px)] border border-border/70 bg-card/70 px-4 py-4">
+                <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
+                  FX Exposure
+                </p>
+                {!balances ? (
+                  <div className="mt-4 space-y-2">
+                    <Skeleton className="h-6 w-full rounded-full" />
+                    <Skeleton className="h-6 w-full rounded-full" />
+                  </div>
+                ) : treasuryOverviewMetrics.usdExposureDisplay &&
+                  treasuryOverviewMetrics.eurExposureDisplay ? (
+                  <div className="mt-4 space-y-3">
+                    <TreasuryOverviewExposureRow
+                      currency="USD"
+                      value={treasuryOverviewMetrics.usdExposureDisplay}
+                    />
+                    <TreasuryOverviewExposureRow
+                      currency="EUR"
+                      value={treasuryOverviewMetrics.eurExposureDisplay}
+                    />
+                  </div>
+                ) : (
+                  <p className="mt-4 text-sm font-medium text-muted-foreground">Unavailable</p>
+                )}
+              </div>
             </CardContent>
           </Card>
         </section>
@@ -597,24 +620,54 @@ function Dashboard({
   );
 }
 
-function InfoRow({
-  icon: Icon,
+function TreasuryOverviewMetricRow({
+  description,
   label,
+  loading,
+  tone,
   value,
 }: {
-  icon: typeof WalletCards;
+  description: string;
   label: string;
+  loading: boolean;
+  tone: "productive" | "idle";
+  value: string | null;
+}) {
+  return (
+    <div className="rounded-[calc(var(--radius)+4px)] border border-border/70 bg-card/70 px-4 py-4">
+      <div className="min-w-0">
+        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+          <span
+            className={cn(
+              "size-2.5 rounded-full",
+              tone === "productive" ? "bg-primary" : "bg-amber-500",
+            )}
+          />
+          {label} ({description})
+        </p>
+        {loading ? (
+          <Skeleton className="mt-3 h-8 w-32 rounded-full" />
+        ) : (
+          <p className="mt-2 text-2xl font-semibold tracking-tight text-foreground">
+            {value ?? "Unavailable"}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TreasuryOverviewExposureRow({
+  currency,
+  value,
+}: {
+  currency: "EUR" | "USD";
   value: string;
 }) {
   return (
-    <div className="flex items-start gap-3">
-      <span className="mt-0.5 flex size-10 items-center justify-center rounded-2xl bg-secondary text-primary">
-        <Icon className="size-4" />
-      </span>
-      <div>
-        <p className="text-sm text-muted-foreground">{label}</p>
-        <p className="font-medium text-foreground">{value}</p>
-      </div>
+    <div className="flex items-center justify-between gap-3 text-sm">
+      <span className="font-medium text-foreground">{currency}</span>
+      <span className="font-medium text-muted-foreground">{value}</span>
     </div>
   );
 }
@@ -663,26 +716,41 @@ function TreasuryAssetRow({
   );
 }
 
-function StatusRow({
-  label,
-  status,
-}: {
-  label: string;
-  status: string;
-}) {
-  return (
-    <div className="flex items-start gap-3">
-      <span className="mt-0.5 flex size-10 items-center justify-center rounded-2xl bg-secondary text-primary">
-        <ShieldCheck className="size-4" />
-      </span>
-      <div>
-        <p className="text-sm text-muted-foreground">{label}</p>
-        <Badge variant={status === "active" ? "default" : "secondary"} className="mt-2">
-          {formatBridgeStatus(status)}
-        </Badge>
-      </div>
-    </div>
+function getTreasuryOverviewMetrics(
+  valuation: SolanaBalancesResponse["valuation"] | undefined,
+  yieldSnapshot: SolanaBalancesResponse["yield"] | undefined,
+) {
+  const productiveCashValue = parseUsdValue(
+    yieldSnapshot?.positions.usdc.valueUsd ?? valuation?.yieldInvestedValueUsd ?? null,
   );
+  const usdcSpotValue = parseUsdValue(valuation?.assetValuesUsd.usdc);
+  const eurcSpotValue = parseUsdValue(valuation?.assetValuesUsd.eurc);
+  const idleCashValue =
+    usdcSpotValue !== null && eurcSpotValue !== null ? usdcSpotValue + eurcSpotValue : null;
+
+  let usdExposureDisplay: string | null = null;
+  let eurExposureDisplay: string | null = null;
+
+  if (usdcSpotValue !== null && eurcSpotValue !== null) {
+    const totalStablecoinExposure = usdcSpotValue + eurcSpotValue;
+
+    if (totalStablecoinExposure === 0) {
+      usdExposureDisplay = "0%";
+      eurExposureDisplay = "0%";
+    } else {
+      const usdExposurePercent = Math.round((usdcSpotValue / totalStablecoinExposure) * 100);
+      usdExposureDisplay = `${usdExposurePercent}%`;
+      eurExposureDisplay = `${Math.max(0, 100 - usdExposurePercent)}%`;
+    }
+  }
+
+  return {
+    productiveCashDisplay:
+      productiveCashValue !== null ? formatUsdCurrency(productiveCashValue) : null,
+    idleCashDisplay: idleCashValue !== null ? formatUsdCurrency(idleCashValue) : null,
+    usdExposureDisplay,
+    eurExposureDisplay,
+  };
 }
 
 function extractSignedAgreementId(data: unknown) {
@@ -709,25 +777,18 @@ function extractSignedAgreementId(data: unknown) {
   return null;
 }
 
-function getInitials(name: string) {
-  return name
-    .split(" ")
-    .filter(Boolean)
-    .slice(0, 2)
-    .map(part => part[0]?.toUpperCase())
-    .join("");
-}
+function parseUsdValue(value: string | null | undefined) {
+  if (value === null || value === undefined) {
+    return null;
+  }
 
-function formatBridgeStatus(status: string) {
-  return status
-    .split("_")
-    .filter(Boolean)
-    .map(part => part[0]?.toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function formatUsdCurrency(value: string) {
   const parsedValue = Number.parseFloat(value);
+
+  return Number.isFinite(parsedValue) ? parsedValue : null;
+}
+
+function formatUsdCurrency(value: number | string) {
+  const parsedValue = typeof value === "number" ? value : Number.parseFloat(value);
 
   if (!Number.isFinite(parsedValue)) {
     return "Unavailable";
