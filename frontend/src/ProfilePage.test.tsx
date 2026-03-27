@@ -5,9 +5,35 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ProfilePage from "@/ProfilePage";
 import type { AppUser, BridgeComplianceState } from "@/types";
 
-vi.mock("@coinbase/cdp-hooks", () => ({
-  useSignOut: () => ({ signOut: vi.fn() }),
-  useSolanaAddress: () => ({ solanaAddress: "11111111111111111111111111111111" }),
+const cdpHooksMock = vi.hoisted(() => ({
+  useCurrentUser: vi.fn(),
+  useSignOut: vi.fn(),
+  useSolanaAddress: vi.fn(),
+}));
+const cdpCoreMock = vi.hoisted(() => ({
+  getEnabledMfaMethods: vi.fn(),
+  getEnrolledMfaMethods: vi.fn(),
+  isEnrolledInMfa: vi.fn(),
+}));
+
+vi.mock("@coinbase/cdp-hooks", () => cdpHooksMock);
+vi.mock("@coinbase/cdp-core", () => cdpCoreMock);
+
+vi.mock("@coinbase/cdp-react/components/EnrollMfaModal", () => ({
+  EnrollMfaModal: ({
+    children,
+    onEnrollSuccess,
+  }: {
+    children?: ReactNode;
+    onEnrollSuccess?: () => void;
+  }) => (
+    <div data-testid="enroll-mfa-modal">
+      {children}
+      <button type="button" onClick={() => onEnrollSuccess?.()}>
+        Complete MFA enrollment
+      </button>
+    </div>
+  ),
 }));
 
 vi.mock("@coinbase/cdp-react/components/ExportWalletModal", () => ({
@@ -56,6 +82,18 @@ vi.mock("@tanstack/react-router", () => ({
 describe("ProfilePage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    cdpHooksMock.useCurrentUser.mockReturnValue({
+      currentUser: buildCdpUser(),
+    });
+    cdpHooksMock.useSignOut.mockReturnValue({
+      signOut: vi.fn(),
+    });
+    cdpHooksMock.useSolanaAddress.mockReturnValue({
+      solanaAddress: "11111111111111111111111111111111",
+    });
+    cdpCoreMock.getEnabledMfaMethods.mockReturnValue(["totp", "sms"]);
+    cdpCoreMock.getEnrolledMfaMethods.mockReturnValue([]);
+    cdpCoreMock.isEnrolledInMfa.mockReturnValue(false);
   });
 
   afterEach(() => {
@@ -101,11 +139,88 @@ describe("ProfilePage", () => {
       "aria-selected",
       "true",
     );
+    expect(screen.getByText("Not enrolled")).toBeInTheDocument();
+    expect(screen.getByText("Available methods: Authenticator app and Text message")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /set up mfa/i })).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "If MFA is enabled, Coinbase will ask for a verification code before revealing the private key.",
+      ),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /export private key/i })).toBeInTheDocument();
     expect(screen.getByTestId("export-wallet-modal")).toHaveAttribute(
       "data-address",
       "11111111111111111111111111111111",
     );
+  });
+
+  it("renders enrolled MFA state without the enrollment CTA", () => {
+    cdpHooksMock.useCurrentUser.mockReturnValue({
+      currentUser: buildCdpUser({
+        mfaMethods: {
+          totp: {
+            enrolledAt: "2026-03-27T10:00:00.000Z",
+          },
+        },
+      }),
+    });
+    cdpCoreMock.getEnrolledMfaMethods.mockReturnValue(["totp"]);
+    cdpCoreMock.isEnrolledInMfa.mockReturnValue(true);
+
+    render(
+      <ProfilePage
+        bridge={buildBridgeState()}
+        user={buildUser()}
+        walletAddress="11111111111111111111111111111111"
+        walletSyncError={null}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: /security/i }));
+
+    expect(screen.getByText("Enabled")).toBeInTheDocument();
+    expect(screen.getByText("Enrolled methods: Authenticator app")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /set up mfa/i })).not.toBeInTheDocument();
+  });
+
+  it("renders an unavailable MFA state when no project methods are enabled", () => {
+    cdpCoreMock.getEnabledMfaMethods.mockReturnValue([]);
+
+    render(
+      <ProfilePage
+        bridge={buildBridgeState()}
+        user={buildUser()}
+        walletAddress="11111111111111111111111111111111"
+        walletSyncError={null}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: /security/i }));
+
+    expect(screen.getByText("Unavailable")).toBeInTheDocument();
+    expect(screen.getByText("Project methods: Not enabled")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /set up mfa/i })).not.toBeInTheDocument();
+    expect(
+      screen.getByText("MFA enrollment is unavailable until methods are enabled for this CDP project."),
+    ).toBeInTheDocument();
+  });
+
+  it("shows immediate enrolled feedback after MFA enrollment succeeds", () => {
+    render(
+      <ProfilePage
+        bridge={buildBridgeState()}
+        user={buildUser()}
+        walletAddress="11111111111111111111111111111111"
+        walletSyncError={null}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: /security/i }));
+    fireEvent.click(screen.getByRole("button", { name: /complete mfa enrollment/i }));
+
+    expect(screen.getByText("Enabled")).toBeInTheDocument();
+    expect(screen.getByText("Enrollment completed")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /set up mfa/i })).not.toBeInTheDocument();
   });
 
   it("shows a disabled export state when no wallet address is available", () => {
@@ -131,6 +246,22 @@ function buildBridgeState(overrides: Partial<BridgeComplianceState> = {}): Bridg
     hasAcceptedTermsOfService: true,
     showKycAlert: false,
     showTosAlert: false,
+    ...overrides,
+  };
+}
+
+function buildCdpUser(overrides: Record<string, unknown> = {}) {
+  return {
+    authenticationMethods: [],
+    evmAccountObjects: [],
+    evmAccounts: [],
+    evmSmartAccountObjects: [],
+    evmSmartAccounts: [],
+    lastAuthenticatedAt: "2026-03-27T10:00:00.000Z",
+    mfaMethods: undefined,
+    solanaAccountObjects: [],
+    solanaAccounts: [],
+    userId: "cdp-user-1",
     ...overrides,
   };
 }

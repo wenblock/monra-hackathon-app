@@ -22,6 +22,7 @@ import { useDashboardSnapshot } from "@/features/dashboard/use-dashboard-snapsho
 import { useApiClient } from "@/features/session/use-api-client";
 import { usePersistedSolanaAddress } from "@/features/session/use-persisted-solana-address";
 import { useSession } from "@/features/session/use-session";
+import MfaProtectedActionHint from "@/features/security/MfaProtectedActionHint";
 import { useExecuteSwapMutation } from "@/features/swaps/use-swap-mutations";
 import { logRuntimeError } from "@/lib/log-runtime-error";
 import { cn } from "@/lib/utils";
@@ -279,6 +280,8 @@ function SwapPage() {
                 {snapshotQuery.error.message}
               </InlineNotice>
             ) : null}
+
+            <MfaProtectedActionHint actionLabel="signing and submitting this swap" />
 
             <Button
               type="submit"

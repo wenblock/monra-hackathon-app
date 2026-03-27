@@ -18,6 +18,7 @@ import { useToast } from "@/components/ui/toast-provider";
 import { useDashboardSnapshot } from "@/features/dashboard/use-dashboard-snapshot";
 import { usePersistedSolanaAddress } from "@/features/session/use-persisted-solana-address";
 import { useSession } from "@/features/session/use-session";
+import MfaProtectedActionHint from "@/features/security/MfaProtectedActionHint";
 import { useTransactionStreamStatus } from "@/features/transactions/transaction-stream-provider";
 import { buildYieldOverviewViewModel } from "@/features/yield/view-models";
 import { useYieldConfirmMutation } from "@/features/yield/use-yield-confirm-mutation";
@@ -653,6 +654,8 @@ function YieldVaultDialog(input: {
                   ) : null}
                 </div>
               </PanelCard>
+
+              <MfaProtectedActionHint actionLabel="submitting this yield action" />
 
               <Button
                 type="button"

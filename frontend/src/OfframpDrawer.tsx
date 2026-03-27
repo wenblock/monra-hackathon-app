@@ -28,6 +28,7 @@ import {
   buildBankRecipientPayload as buildSharedBankRecipientPayload,
   type BankRecipientDraft,
 } from "@/features/recipients/recipient-payloads";
+import MfaProtectedActionHint from "@/features/security/MfaProtectedActionHint";
 import { getWalletTransferFeeHint } from "@/features/wallet/fee-hints";
 import { SEPA_COUNTRIES } from "@/sepa-countries";
 import type {
@@ -354,6 +355,7 @@ function OfframpDrawer({
                 value={createdTransaction.bridgeTransferId ?? "Unavailable"}
                 monospace
               />
+              <MfaProtectedActionHint actionLabel="broadcasting this source transfer" />
               <Button
                 type="button"
                 className="w-full"
@@ -617,17 +619,19 @@ function OfframpDrawer({
                 </div>
               ) : null}
 
-              <div className="rounded-[calc(var(--radius)+2px)] border border-border/70 bg-secondary/30 px-4 py-3">
-                <p className="text-sm font-medium text-foreground">Source wallet</p>
-                <p className="mt-1 break-all font-mono text-xs text-muted-foreground">
-                  {senderAddress ?? "Wallet is still syncing to the backend."}
-                </p>
-              </div>
+                <div className="rounded-[calc(var(--radius)+2px)] border border-border/70 bg-secondary/30 px-4 py-3">
+                  <p className="text-sm font-medium text-foreground">Source wallet</p>
+                  <p className="mt-1 break-all font-mono text-xs text-muted-foreground">
+                    {senderAddress ?? "Wallet is still syncing to the backend."}
+                  </p>
+                </div>
 
-              <Button
-                type="button"
-                className="w-full"
-                disabled={isSubmitting || !senderAddress || balances === undefined}
+                <MfaProtectedActionHint actionLabel="broadcasting this source transfer" />
+
+                <Button
+                  type="button"
+                  className="w-full"
+                  disabled={isSubmitting || !senderAddress || balances === undefined}
                 onClick={() => void handleContinue()}
               >
                 {isSubmitting || isBroadcasting ? "Creating..." : "Continue"}

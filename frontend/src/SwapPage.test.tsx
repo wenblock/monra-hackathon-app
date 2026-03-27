@@ -150,6 +150,12 @@ describe("SwapPage", () => {
     async () => {
     renderWithQueryClient(<SwapPage />);
 
+    expect(
+      screen.getByText(
+        "If MFA is enabled, Coinbase will ask for a verification code before signing and submitting this swap.",
+      ),
+    ).toBeInTheDocument();
+
     fireEvent.change(screen.getAllByPlaceholderText("0.0")[0], {
       target: { value: "10" },
     });

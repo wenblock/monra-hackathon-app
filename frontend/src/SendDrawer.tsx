@@ -25,6 +25,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { buildWalletRecipientPayload } from "@/features/recipients/recipient-payloads";
+import MfaProtectedActionHint from "@/features/security/MfaProtectedActionHint";
 import { getWalletTransferFeeHint } from "@/features/wallet/fee-hints";
 import type {
   CreateRecipientPayload,
@@ -362,7 +363,9 @@ function SendDrawer({
                     </Button>
                   </div>
                 </div>
-              ) : null}
+                ) : null}
+
+              <MfaProtectedActionHint actionLabel="sending this transfer" />
 
               <Button
                 type="button"

@@ -250,6 +250,22 @@ describe("YieldPage", () => {
     expect(screen.getByText(/1.485/)).toBeInTheDocument();
   });
 
+  it("shows an MFA reminder inside the yield action dialog", () => {
+    renderWithQueryClient(<YieldPage />);
+
+    const vaultRowButton = screen
+      .getAllByRole("button")
+      .find(button => button.textContent?.includes("USDC") && button.textContent?.includes("Jupiter Earn vault"));
+
+    fireEvent.click(vaultRowButton!);
+
+    expect(
+      screen.getAllByText(
+        "If MFA is enabled, Coinbase will ask for a verification code before submitting this yield action.",
+      ).length,
+    ).toBeGreaterThan(0);
+  });
+
   it("renders non-Error yield query failures without crashing", () => {
     yieldOnchainQueryMock.useYieldOnchainQuery.mockReturnValue({
       data: undefined,

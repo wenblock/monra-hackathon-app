@@ -40,6 +40,16 @@ describe("SendDrawer", () => {
     createRecipientMock.mockResolvedValue(buildRecipient());
   });
 
+  it("shows an MFA reminder for the protected send action", () => {
+    render(<Harness />);
+
+    expect(
+      screen.getByText(
+        "If MFA is enabled, Coinbase will ask for a verification code before sending this transfer.",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("shows a user-visible error when the deferred wallet runtime fails to load", async () => {
     render(
       <Harness />,
