@@ -7,6 +7,7 @@ import { buildBridgeStateFromUser } from "@/api";
 import { SessionProvider } from "@/features/session/session-context";
 import { useSessionBootstrap } from "@/features/session/use-session-bootstrap";
 import { useSubmitOnboardingMutation } from "@/features/session/use-session-mutations";
+import { TransactionStreamProvider } from "@/features/transactions/transaction-stream-provider";
 import Loading from "@/Loading";
 
 const LazyOnboardingScreen = lazy(() => import("@/OnboardingScreen"));
@@ -164,7 +165,9 @@ function App() {
         bridge: session.bridge ?? buildBridgeStateFromUser(session.user),
       }}
     >
-      <Outlet />
+      <TransactionStreamProvider userId={session.user.cdpUserId}>
+        <Outlet />
+      </TransactionStreamProvider>
     </SessionProvider>
   );
 }

@@ -5,18 +5,18 @@ import {
   useFetchSolanaTransactionContext,
 } from "@/features/dashboard/use-dashboard-mutations";
 import { useDashboardSnapshot } from "@/features/dashboard/use-dashboard-snapshot";
-import { useDashboardStream } from "@/features/dashboard/use-dashboard-stream";
 import { useCreateRecipientMutation } from "@/features/recipients/use-recipient-mutations";
 import { useRecipientsQuery } from "@/features/recipients/use-recipients-query";
 import { usePersistedSolanaAddress } from "@/features/session/use-persisted-solana-address";
 import { useSession } from "@/features/session/use-session";
 import { useSyncBridgeStatusMutation } from "@/features/session/use-session-mutations";
+import { useTransactionStreamStatus } from "@/features/transactions/transaction-stream-provider";
 
 function DashboardRouteComponent() {
   const { bridge, user } = useSession();
   const userId = user.cdpUserId;
   const { isLive: isDashboardStreamLive, transactionsError: streamTransactionsError } =
-    useDashboardStream(userId);
+    useTransactionStreamStatus();
   const dashboardSnapshotQuery = useDashboardSnapshot(userId, {
     liveUpdatesEnabled: isDashboardStreamLive,
   });

@@ -1,5 +1,6 @@
 import { screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ReactNode } from "react";
 
 import App from "@/App";
 import { renderWithQueryClient } from "@/test-utils";
@@ -37,6 +38,9 @@ vi.mock("@/OnboardingScreen", () => ({
 }));
 vi.mock("@/features/session/use-session-bootstrap", () => sessionBootstrapMock);
 vi.mock("@/features/session/use-session-mutations", () => sessionMutationMock);
+vi.mock("@/features/transactions/transaction-stream-provider", () => ({
+  TransactionStreamProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
+}));
 
 describe("App", () => {
   beforeEach(() => {

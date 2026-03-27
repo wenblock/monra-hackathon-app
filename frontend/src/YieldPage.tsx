@@ -16,9 +16,9 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast-provider";
 import { useDashboardSnapshot } from "@/features/dashboard/use-dashboard-snapshot";
-import { useDashboardStream } from "@/features/dashboard/use-dashboard-stream";
 import { usePersistedSolanaAddress } from "@/features/session/use-persisted-solana-address";
 import { useSession } from "@/features/session/use-session";
+import { useTransactionStreamStatus } from "@/features/transactions/transaction-stream-provider";
 import { buildYieldOverviewViewModel } from "@/features/yield/view-models";
 import { useYieldConfirmMutation } from "@/features/yield/use-yield-confirm-mutation";
 import { useYieldOnchainQuery } from "@/features/yield/use-yield-onchain-query";
@@ -55,7 +55,7 @@ function YieldPage() {
   const { showToast } = useToast();
   const queryClient = useQueryClient();
   const { isLive: isDashboardStreamLive, transactionsError: streamTransactionsError } =
-    useDashboardStream(user.cdpUserId);
+    useTransactionStreamStatus();
   const snapshotQuery = useDashboardSnapshot(user.cdpUserId, {
     liveUpdatesEnabled: isDashboardStreamLive,
   });

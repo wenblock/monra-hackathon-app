@@ -12,8 +12,8 @@ const dashboardSnapshotMock = vi.hoisted(() => ({
   useDashboardSnapshot: vi.fn(),
 }));
 
-const dashboardStreamMock = vi.hoisted(() => ({
-  useDashboardStream: vi.fn(),
+const transactionStreamMock = vi.hoisted(() => ({
+  useTransactionStreamStatus: vi.fn(),
 }));
 
 const dashboardMutationsMock = vi.hoisted(() => ({
@@ -57,11 +57,11 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 vi.mock("@/features/session/use-session", () => sessionMock);
 vi.mock("@/features/dashboard/use-dashboard-snapshot", () => dashboardSnapshotMock);
-vi.mock("@/features/dashboard/use-dashboard-stream", () => dashboardStreamMock);
 vi.mock("@/features/dashboard/use-dashboard-mutations", () => dashboardMutationsMock);
 vi.mock("@/features/recipients/use-recipients-query", () => recipientsQueryMock);
 vi.mock("@/features/recipients/use-recipient-mutations", () => recipientsMutationMock);
 vi.mock("@/features/session/use-session-mutations", () => sessionMutationsMock);
+vi.mock("@/features/transactions/transaction-stream-provider", () => transactionStreamMock);
 
 describe("DashboardRouteComponent", () => {
   beforeEach(() => {
@@ -137,7 +137,7 @@ describe("DashboardRouteComponent", () => {
       error: null,
       isPending: false,
     });
-    dashboardStreamMock.useDashboardStream.mockReturnValue({
+    transactionStreamMock.useTransactionStreamStatus.mockReturnValue({
       isLive: false,
       transactionsError: null,
     });

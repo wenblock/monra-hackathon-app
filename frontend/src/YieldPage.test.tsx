@@ -18,8 +18,8 @@ const dashboardSnapshotMock = vi.hoisted(() => ({
   useDashboardSnapshot: vi.fn(),
 }));
 
-const dashboardStreamMock = vi.hoisted(() => ({
-  useDashboardStream: vi.fn(),
+const transactionStreamMock = vi.hoisted(() => ({
+  useTransactionStreamStatus: vi.fn(),
 }));
 
 const persistedSolanaAddressMock = vi.hoisted(() => ({
@@ -61,8 +61,8 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 vi.mock("@/features/session/use-session", () => sessionMock);
 vi.mock("@/features/dashboard/use-dashboard-snapshot", () => dashboardSnapshotMock);
-vi.mock("@/features/dashboard/use-dashboard-stream", () => dashboardStreamMock);
 vi.mock("@/features/session/use-persisted-solana-address", () => persistedSolanaAddressMock);
+vi.mock("@/features/transactions/transaction-stream-provider", () => transactionStreamMock);
 vi.mock("@/features/yield/use-yield-positions", () => yieldPositionsMock);
 vi.mock("@/features/yield/use-yield-onchain-query", () => yieldOnchainQueryMock);
 vi.mock("@/features/yield/use-yield-confirm-mutation", () => yieldConfirmMutationMock);
@@ -139,7 +139,7 @@ describe("YieldPage", () => {
         },
       },
     });
-    dashboardStreamMock.useDashboardStream.mockReturnValue({
+    transactionStreamMock.useTransactionStreamStatus.mockReturnValue({
       isLive: false,
       transactionsError: null,
     });
