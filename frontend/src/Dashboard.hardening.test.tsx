@@ -1,8 +1,8 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ToastProvider } from "@/components/ui/toast-provider";
 import Dashboard, { TOS_IFRAME_SANDBOX } from "@/Dashboard";
+import { renderWithQueryClient } from "@/test-utils";
 import type {
   AppUser,
   BridgeComplianceState,
@@ -442,7 +442,7 @@ describe("Dashboard hardening", () => {
 });
 
 function renderDashboard(ui: React.ReactNode) {
-  return render(<ToastProvider>{ui}</ToastProvider>);
+  return renderWithQueryClient(<>{ui}</>);
 }
 
 function buildBalances(): SolanaBalancesResponse["balances"] {

@@ -1,8 +1,9 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ProfilePage from "@/ProfilePage";
+import { renderWithQueryClient } from "@/test-utils";
 import type { AppUser, BridgeComplianceState } from "@/types";
 
 const cdpHooksMock = vi.hoisted(() => ({
@@ -121,7 +122,7 @@ describe("ProfilePage", () => {
   });
 
   it("defaults to the account information tab and renders profile fields", () => {
-    render(
+    renderWithQueryClient(
       <ProfilePage
         bridge={buildBridgeState()}
         user={buildUser()}
@@ -144,7 +145,7 @@ describe("ProfilePage", () => {
   });
 
   it("switches to the security tab and wires the export modal to the wallet address", () => {
-    render(
+    renderWithQueryClient(
       <ProfilePage
         bridge={buildBridgeState()}
         user={buildUser()}
@@ -196,7 +197,7 @@ describe("ProfilePage", () => {
     cdpCoreMock.getEnrolledMfaMethods.mockReturnValue(["totp"]);
     cdpCoreMock.isEnrolledInMfa.mockReturnValue(true);
 
-    render(
+    renderWithQueryClient(
       <ProfilePage
         bridge={buildBridgeState()}
         user={buildUser()}
@@ -215,7 +216,7 @@ describe("ProfilePage", () => {
   it("renders an unavailable MFA state when no project methods are enabled", () => {
     cdpCoreMock.getEnabledMfaMethods.mockReturnValue([]);
 
-    render(
+    renderWithQueryClient(
       <ProfilePage
         bridge={buildBridgeState()}
         user={buildUser()}
@@ -235,7 +236,7 @@ describe("ProfilePage", () => {
   });
 
   it("shows immediate enrolled feedback after MFA enrollment succeeds", () => {
-    render(
+    renderWithQueryClient(
       <ProfilePage
         bridge={buildBridgeState()}
         user={buildUser()}
@@ -253,7 +254,7 @@ describe("ProfilePage", () => {
   });
 
   it("shows a disabled export state when no wallet address is available", () => {
-    render(
+    renderWithQueryClient(
       <ProfilePage
         bridge={buildBridgeState()}
         user={buildUser()}

@@ -1,7 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import OfframpDrawer, { getMaxAmountForAsset } from "@/OfframpDrawer";
+import OfframpDrawer from "@/OfframpDrawer";
+import { getMaxAmountForAsset } from "@/OfframpDrawer.helpers";
 import type { AppTransaction, Recipient, SolanaBalancesResponse } from "@/types";
 
 const sendTransactionMock = vi.hoisted(() => vi.fn());

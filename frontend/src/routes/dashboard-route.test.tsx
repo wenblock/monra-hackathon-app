@@ -61,7 +61,7 @@ vi.mock("@/features/dashboard/use-dashboard-mutations", () => dashboardMutations
 vi.mock("@/features/recipients/use-recipients-query", () => recipientsQueryMock);
 vi.mock("@/features/recipients/use-recipient-mutations", () => recipientsMutationMock);
 vi.mock("@/features/session/use-session-mutations", () => sessionMutationsMock);
-vi.mock("@/features/transactions/transaction-stream-provider", () => transactionStreamMock);
+vi.mock("@/features/transactions/use-transaction-stream-status", () => transactionStreamMock);
 
 describe("DashboardRouteComponent", () => {
   beforeEach(() => {

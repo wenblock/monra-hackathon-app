@@ -1,6 +1,4 @@
 import {
-  createContext,
-  useContext,
   useEffect,
   useRef,
   useState,
@@ -8,19 +6,13 @@ import {
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { useToast } from "@/components/ui/toast-provider";
+import { useToast } from "@/components/ui/use-toast";
 import { mergeStreamedDashboardSnapshot } from "@/features/dashboard/cache";
 import { useApiClient } from "@/features/session/use-api-client";
+import { TransactionStreamStatusContext } from "@/features/transactions/transaction-stream-context";
 import { API_BASE_URL } from "@/lib/api-client";
 import { formatActivityAmount, formatActivityRowTitle } from "@/transaction-display";
 import type { AppTransaction, TransactionStreamResponse } from "@/types";
-
-interface TransactionStreamStatus {
-  isLive: boolean;
-  transactionsError: string | null;
-}
-
-const TransactionStreamStatusContext = createContext<TransactionStreamStatus | null>(null);
 
 function TransactionStreamProvider({
   children,
@@ -220,16 +212,4 @@ function formatTransferToastTitle(transaction: AppTransaction) {
     : activityTitle;
 }
 
-function useTransactionStreamStatus() {
-  const context = useContext(TransactionStreamStatusContext);
-
-  if (!context) {
-    throw new Error(
-      "useTransactionStreamStatus must be used within a TransactionStreamProvider.",
-    );
-  }
-
-  return context;
-}
-
-export { TransactionStreamProvider, useTransactionStreamStatus };
+export { TransactionStreamProvider };

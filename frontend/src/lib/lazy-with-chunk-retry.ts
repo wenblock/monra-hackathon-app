@@ -2,17 +2,21 @@ import { lazy, type ComponentType } from "react";
 
 const CHUNK_RETRY_STORAGE_PREFIX = "monra:chunk-retry:";
 
-type ModuleLoader<T extends ComponentType<any>> = () => Promise<{ default: T }>;
+type ModuleLoader<TProps extends object = Record<string, never>> = () => Promise<{
+  default: ComponentType<TProps>;
+}>;
 
-export function lazyWithChunkRetry<T extends ComponentType<any>>(
-  loader: ModuleLoader<T>,
+export function lazyWithChunkRetry<TProps extends object = Record<string, never>>(
+  loader: ModuleLoader<TProps>,
   chunkKey: string,
 ) {
   return lazy(() => loadLazyModuleWithChunkRetry(loader, chunkKey));
 }
 
-export async function loadLazyModuleWithChunkRetry<T extends ComponentType<any>>(
-  loader: ModuleLoader<T>,
+export async function loadLazyModuleWithChunkRetry<
+  TProps extends object = Record<string, never>,
+>(
+  loader: ModuleLoader<TProps>,
   chunkKey: string,
   reload = reloadPage,
 ) {

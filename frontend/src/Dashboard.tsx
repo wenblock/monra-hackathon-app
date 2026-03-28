@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/dialog";
 import InlineNotice from "@/components/ui/inline-notice";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useToast } from "@/components/ui/toast-provider";
+import { useToast } from "@/components/ui/use-toast";
 import {
   TRANSFER_ASSETS,
   getTransferAssetIconPath,
@@ -835,7 +835,8 @@ function formatUsdCurrency(value: number | string) {
   }).format(parsedValue);
 }
 
-export function getTreasuryFreshnessLabel(valuation: SolanaBalancesResponse["valuation"] | undefined) {
+// Preserved for the stale-pricing copy used in the dashboard hardening pass.
+function getTreasuryFreshnessLabel(valuation: SolanaBalancesResponse["valuation"] | undefined) {
   if (!valuation || !valuation.lastUpdatedAt) {
     return "Price unavailable";
   }
@@ -849,7 +850,8 @@ export function getTreasuryFreshnessLabel(valuation: SolanaBalancesResponse["val
   return timestampLabel ? `Live pricing · Updated ${timestampLabel}` : "Live pricing";
 }
 
-export function formatTreasuryTimestamp(value: string) {
+// Preserved for the stale-pricing copy used in the dashboard hardening pass.
+function formatTreasuryTimestamp(value: string) {
   const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) {
@@ -864,6 +866,9 @@ export function formatTreasuryTimestamp(value: string) {
 
   return `${year}-${month}-${day} ${hours}:${minutes} UTC`;
 }
+
+void getTreasuryFreshnessLabel;
+void formatTreasuryTimestamp;
 
 export { TOS_IFRAME_SANDBOX };
 export default Dashboard;

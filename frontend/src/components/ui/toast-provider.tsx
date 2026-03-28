@@ -1,32 +1,19 @@
 import { CheckCircle2, Info, TriangleAlert, X } from "lucide-react";
 import {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
   useRef,
   useState,
   type ReactNode,
 } from "react";
 
+import {
+  ToastContext,
+  type ToastInput,
+  type ToastRecord,
+  type ToastVariant,
+} from "@/components/ui/toast-context";
 import { cn } from "@/lib/utils";
-
-type ToastVariant = "error" | "info" | "success";
-
-interface ToastInput {
-  description?: string;
-  durationMs?: number;
-  title: string;
-  variant?: ToastVariant;
-}
-
-interface ToastRecord extends ToastInput {
-  id: number;
-}
-
-const ToastContext = createContext<{
-  showToast: (input: ToastInput) => void;
-} | null>(null);
 
 const toastToneClasses: Record<ToastVariant, string> = {
   error:
@@ -133,14 +120,4 @@ function ToastIcon({ variant }: { variant: ToastVariant }) {
   return <Info className="size-5" />;
 }
 
-function useToast() {
-  const context = useContext(ToastContext);
-
-  if (!context) {
-    throw new Error("useToast must be used within a ToastProvider.");
-  }
-
-  return context;
-}
-
-export { ToastProvider, useToast };
+export { ToastProvider };

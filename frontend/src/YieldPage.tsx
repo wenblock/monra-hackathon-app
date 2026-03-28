@@ -14,11 +14,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useToast } from "@/components/ui/toast-provider";
+import { useToast } from "@/components/ui/use-toast";
 import { useDashboardSnapshot } from "@/features/dashboard/use-dashboard-snapshot";
 import { usePersistedSolanaAddress } from "@/features/session/use-persisted-solana-address";
 import { useSession } from "@/features/session/use-session";
-import { useTransactionStreamStatus } from "@/features/transactions/transaction-stream-provider";
+import { useTransactionStreamStatus } from "@/features/transactions/use-transaction-stream-status";
 import { buildYieldOverviewViewModel } from "@/features/yield/view-models";
 import { useYieldConfirmMutation } from "@/features/yield/use-yield-confirm-mutation";
 import { useYieldOnchainQuery } from "@/features/yield/use-yield-onchain-query";

@@ -1,4 +1,4 @@
-import { type Config } from "@coinbase/cdp-react";
+import type { Config } from "@coinbase/cdp-react";
 
 const ethereumAccountType = import.meta.env.VITE_CDP_CREATE_ETHEREUM_ACCOUNT_TYPE
   ? import.meta.env.VITE_CDP_CREATE_ETHEREUM_ACCOUNT_TYPE === "smart"

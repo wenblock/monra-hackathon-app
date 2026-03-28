@@ -1,6 +1,6 @@
-import { useTransactionStreamStatus } from "@/features/transactions/transaction-stream-provider";
+import { useTransactionStreamStatus } from "@/features/transactions/use-transaction-stream-status";
 
-function useDashboardStream(_userId?: string, _enabled = true) {
+function useDashboardStream() {
   return useTransactionStreamStatus();
 }
 

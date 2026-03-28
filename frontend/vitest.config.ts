@@ -13,5 +13,11 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     setupFiles: ["./test.setup.ts"],
+    css: true,
+    server: {
+      deps: {
+        inline: [/@coinbase\/cdp-react/],
+      },
+    },
   },
 });

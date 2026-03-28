@@ -1,6 +1,6 @@
 import { useSignSolanaTransaction } from "@coinbase/cdp-hooks";
 import { ArrowDown, ArrowLeftRight } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import AppShell from "@/AppShell";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,7 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select";
-import { useToast } from "@/components/ui/toast-provider";
+import { useToast } from "@/components/ui/use-toast";
 import {
   TRANSFER_ASSETS,
   getTransferAssetDecimals,
@@ -323,10 +323,100 @@ function useSwapQuoteController(input: {
   const lastRequestedKeyRef = useRef<string | null>(null);
   const consecutivePollingFailuresRef = useRef(0);
   const previousWindowActiveRef = useRef(isWindowActive);
+  const latestQuoteRef = useRef<LocalSwapOrder | null>(null);
   const requestKey =
     input.enabled && input.normalizedAmount
       ? `${input.inputAsset}:${input.outputAsset}:${input.normalizedAmount}`
       : null;
+  useEffect(() => {
+    latestQuoteRef.current = latestQuote;
+  }, [latestQuote]);
+
+  const requestQuote = useCallback(
+    async (mode: "initial" | "poll") => {
+      if (!requestKey || !input.normalizedAmount) {
+        return null;
+      }
+
+      const hasExistingQuote = latestQuoteRef.current !== null;
+      const sequence = requestSequenceRef.current + 1;
+      requestSequenceRef.current = sequence;
+
+      activeAbortControllerRef.current?.abort();
+      const abortController = new AbortController();
+      activeAbortControllerRef.current = abortController;
+
+      if (mode === "initial" || !hasExistingQuote) {
+        setIsBlockingPending(true);
+        setBlockingError(null);
+        setRefreshWarning(null);
+      } else {
+        setIsRefreshing(true);
+      }
+
+      try {
+        const order = await input.client.fetchSwapOrder(
+          {
+            amount: input.normalizedAmount,
+            inputAsset: input.inputAsset,
+            outputAsset: input.outputAsset,
+          },
+          abortController.signal,
+        );
+
+        if (sequence !== requestSequenceRef.current) {
+          return null;
+        }
+
+        const nextQuote = decorateSwapOrder(order, {
+          inputAsset: input.inputAsset,
+          normalizedAmount: input.normalizedAmount,
+          outputAsset: input.outputAsset,
+        });
+
+        consecutivePollingFailuresRef.current = 0;
+        latestQuoteRef.current = nextQuote;
+        setLatestQuote(nextQuote);
+        setBlockingError(null);
+        setRefreshWarning(null);
+        return nextQuote;
+      } catch (error) {
+        if (isAbortError(error) || sequence !== requestSequenceRef.current) {
+          return null;
+        }
+
+        logRuntimeError("Unable to preview swap order.", error);
+        const message = extractErrorMessage(error, "Unable to preview this swap.");
+
+        if (mode === "poll" && hasExistingQuote) {
+          consecutivePollingFailuresRef.current += 1;
+          if (consecutivePollingFailuresRef.current >= 2) {
+            setRefreshWarning(
+              "Refreshing the quote in the background. The last good quote is still shown.",
+            );
+          }
+        } else {
+          latestQuoteRef.current = null;
+          setLatestQuote(null);
+          setBlockingError(message);
+        }
+
+        return null;
+      } finally {
+        if (sequence === requestSequenceRef.current) {
+          setIsBlockingPending(false);
+          setIsRefreshing(false);
+        }
+      }
+    },
+    [
+      input.client,
+      input.inputAsset,
+      input.normalizedAmount,
+      input.outputAsset,
+      requestKey,
+    ],
+  );
 
   useEffect(() => {
     const handleWindowFocus = () => setIsWindowActive(!document.hidden);
@@ -390,7 +480,7 @@ function useSwapQuoteController(input: {
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [requestKey]);
+  }, [requestKey, requestQuote]);
 
   useEffect(() => {
     if (!requestKey || !latestQuote || input.paused || !isWindowActive) {
@@ -415,7 +505,7 @@ function useSwapQuoteController(input: {
         pollingIntervalRef.current = null;
       }
     };
-  }, [input.paused, isWindowActive, latestQuote, requestKey]);
+  }, [input.paused, isWindowActive, latestQuote, requestKey, requestQuote]);
 
   useEffect(() => {
     const resumedWindow = isWindowActive && !previousWindowActiveRef.current;
@@ -426,85 +516,11 @@ function useSwapQuoteController(input: {
     }
 
     void requestQuote("poll");
-  }, [input.paused, isWindowActive, latestQuote, requestKey]);
-
-  async function requestQuote(mode: "initial" | "poll") {
-    if (!requestKey || !input.normalizedAmount) {
-      return null;
-    }
-
-    const hasExistingQuote = latestQuote !== null;
-    const sequence = requestSequenceRef.current + 1;
-    requestSequenceRef.current = sequence;
-
-    activeAbortControllerRef.current?.abort();
-    const abortController = new AbortController();
-    activeAbortControllerRef.current = abortController;
-
-    if (mode === "initial" || !hasExistingQuote) {
-      setIsBlockingPending(true);
-      setBlockingError(null);
-      setRefreshWarning(null);
-    } else {
-      setIsRefreshing(true);
-    }
-
-    try {
-      const order = await input.client.fetchSwapOrder(
-        {
-          amount: input.normalizedAmount,
-          inputAsset: input.inputAsset,
-          outputAsset: input.outputAsset,
-        },
-        abortController.signal,
-      );
-
-      if (sequence !== requestSequenceRef.current) {
-        return null;
-      }
-
-      const nextQuote = decorateSwapOrder(order, {
-        inputAsset: input.inputAsset,
-        normalizedAmount: input.normalizedAmount,
-        outputAsset: input.outputAsset,
-      });
-
-      consecutivePollingFailuresRef.current = 0;
-      setLatestQuote(nextQuote);
-      setBlockingError(null);
-      setRefreshWarning(null);
-      return nextQuote;
-    } catch (error) {
-      if (isAbortError(error) || sequence !== requestSequenceRef.current) {
-        return null;
-      }
-
-      logRuntimeError("Unable to preview swap order.", error);
-      const message = extractErrorMessage(error, "Unable to preview this swap.");
-
-      if (mode === "poll" && hasExistingQuote) {
-        consecutivePollingFailuresRef.current += 1;
-        if (consecutivePollingFailuresRef.current >= 2) {
-          setRefreshWarning(
-            "Refreshing the quote in the background. The last good quote is still shown.",
-          );
-        }
-      } else {
-        setLatestQuote(null);
-        setBlockingError(message);
-      }
-
-      return null;
-    } finally {
-      if (sequence === requestSequenceRef.current) {
-        setIsBlockingPending(false);
-        setIsRefreshing(false);
-      }
-    }
-  }
+  }, [input.paused, isWindowActive, latestQuote, requestKey, requestQuote]);
 
   function reset() {
     activeAbortControllerRef.current?.abort();
+    latestQuoteRef.current = null;
     setLatestQuote(null);
     setBlockingError(null);
     setRefreshWarning(null);
@@ -522,7 +538,10 @@ function useSwapQuoteController(input: {
       outputAsset: TransferAsset;
     },
   ) {
-    setLatestQuote(decorateSwapOrder(order, params));
+    const decoratedOrder = decorateSwapOrder(order, params);
+
+    latestQuoteRef.current = decoratedOrder;
+    setLatestQuote(decoratedOrder);
     setBlockingError(null);
     setRefreshWarning(null);
     setIsBlockingPending(false);

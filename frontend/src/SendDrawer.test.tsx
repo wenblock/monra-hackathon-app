@@ -2,7 +2,8 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import SendDrawer, { getSendMaxAmount } from "@/SendDrawer";
+import SendDrawer from "@/SendDrawer";
+import { getSendMaxAmount } from "@/SendDrawer.helpers";
 import type { Recipient, SolanaBalancesResponse } from "@/types";
 
 const sendTransactionMock = vi.hoisted(() => vi.fn());

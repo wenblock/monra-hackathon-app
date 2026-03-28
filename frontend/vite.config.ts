@@ -143,13 +143,11 @@ export default defineConfig(({ mode }) => {
             }
 
             if (
-              normalizedId.includes("/src/CoinbaseAppRoot.tsx") ||
-              normalizedId.includes("/src/features/session/api-client-context.tsx") ||
               normalizedId.includes("/src/features/session/CoinbaseAuthButton.tsx") ||
-              normalizedId.includes("/src/App.tsx") ||
               normalizedId.includes("/src/config.ts") ||
               normalizedId.includes("/src/theme.ts") ||
-              normalizedId.includes("/node_modules/@coinbase/cdp-react/")
+              normalizedId.includes("/node_modules/@coinbase/cdp-react/") ||
+              normalizedId.includes("/node_modules/@coinbase/cdp-hooks/")
             ) {
               return "coinbase-auth";
             }
