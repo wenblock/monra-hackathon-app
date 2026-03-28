@@ -58,7 +58,7 @@ describe("OfframpDrawer", () => {
 
     expect(
       screen.getByText(
-        "If MFA is enabled, Coinbase will ask for a verification code before broadcasting this source transfer.",
+        "If MFA is enabled, Verification code is needed before broadcasting this source transfer.",
       ),
     ).toBeInTheDocument();
   });

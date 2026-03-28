@@ -165,12 +165,12 @@ describe("ProfilePage", () => {
     expect(screen.queryByText("Wallet address")).not.toBeInTheDocument();
     expect(
       screen.queryByText(
-        "If MFA is enabled, Coinbase will ask for a verification code before revealing the private key.",
+        "If MFA is enabled, Verification code is needed before revealing the private key.",
       ),
     ).not.toBeInTheDocument();
     expect(
       screen.queryByText(
-        "Coinbase will ask for a verification code before protected wallet actions like transaction signing and key export.",
+        "Verification code is needed before protected wallet actions like transaction signing and key export.",
       ),
     ).not.toBeInTheDocument();
     expect(screen.queryByText("Coinbase ExportWalletModal")).not.toBeInTheDocument();

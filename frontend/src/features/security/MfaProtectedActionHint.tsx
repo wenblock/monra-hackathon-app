@@ -20,7 +20,7 @@ function MfaProtectedActionHint({ actionLabel, className }: MfaProtectedActionHi
           <ShieldCheck className="size-4" />
         </span>
         <p className="text-sm text-muted-foreground">
-          If MFA is enabled, Coinbase will ask for a verification code before {actionLabel}.
+          If MFA is enabled, Verification code is required {actionLabel}.
         </p>
       </div>
     </div>

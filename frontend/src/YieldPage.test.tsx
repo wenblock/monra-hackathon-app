@@ -261,7 +261,7 @@ describe("YieldPage", () => {
 
     expect(
       screen.queryByText(
-        "If MFA is enabled, Coinbase will ask for a verification code before submitting this yield action.",
+        "If MFA is enabled, Verification code is needed before submitting this yield action.",
       ),
     ).not.toBeInTheDocument();
   });

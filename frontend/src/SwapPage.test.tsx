@@ -153,7 +153,7 @@ describe("SwapPage", () => {
     expect(screen.queryByText("Jupiter Swap")).not.toBeInTheDocument();
     expect(
       screen.queryByText(
-        "If MFA is enabled, Coinbase will ask for a verification code before signing and submitting this swap.",
+        "If MFA is enabled, Verification code is needed before signing and submitting this swap.",
       ),
     ).not.toBeInTheDocument();
 

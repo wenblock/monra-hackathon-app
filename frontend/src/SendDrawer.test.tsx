@@ -45,7 +45,7 @@ describe("SendDrawer", () => {
 
     expect(
       screen.getByText(
-        "If MFA is enabled, Coinbase will ask for a verification code before sending this transfer.",
+        "If MFA is enabled, Verification code is needed before sending this transfer.",
       ),
     ).toBeInTheDocument();
   });

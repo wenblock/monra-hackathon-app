@@ -54,7 +54,7 @@ export function getCdpMfaStatus(
     return {
       canEnroll: false,
       detail:
-        "Coinbase will ask for a verification code before protected wallet actions like transaction signing and key export.",
+        "Verification code is needed for protected wallet actions like transaction signing and key export.",
       enabledMethods,
       enrolledMethods,
       isAvailable,
