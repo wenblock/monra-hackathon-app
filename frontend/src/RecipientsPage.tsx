@@ -41,6 +41,7 @@ import {
   type BankRecipientDraft,
   type WalletRecipientDraft,
 } from "@/features/recipients/recipient-payloads";
+import { useBridgeRequestId } from "@/features/bridge/use-bridge-request-id";
 import { SEPA_COUNTRIES } from "@/sepa-countries";
 import type { CreateRecipientPayload, Recipient } from "@/types";
 
@@ -50,6 +51,7 @@ interface RecipientsPageProps {
   onCreateRecipient: (payload: CreateRecipientPayload) => Promise<Recipient>;
   onDeleteRecipient: (recipientPublicId: string) => Promise<void>;
   recipients: Recipient[];
+  requestScope: string;
 }
 
 type RecipientFormKind = "wallet" | "bank" | null;
@@ -76,6 +78,7 @@ function RecipientsPage({
   onCreateRecipient,
   onDeleteRecipient,
   recipients,
+  requestScope,
 }: RecipientsPageProps) {
   const [isCreateSheetOpen, setIsCreateSheetOpen] = useState(false);
   const [selectedKind, setSelectedKind] = useState<RecipientFormKind>(null);
@@ -85,6 +88,19 @@ function RecipientsPage({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [recipientPendingDelete, setRecipientPendingDelete] = useState<Recipient | null>(null);
   const [deletingRecipientPublicId, setDeletingRecipientPublicId] = useState<string | null>(null);
+  const { clearRequestId, ensureRequestId } = useBridgeRequestId({
+    payload: {
+      bankCountryCode: bankForm.bankCountryCode,
+      recipientType: bankForm.recipientType,
+      firstName: bankForm.firstName.trim(),
+      lastName: bankForm.lastName.trim(),
+      businessName: bankForm.businessName.trim(),
+      bankName: bankForm.bankName.trim(),
+      iban: bankForm.iban.trim().toUpperCase().replace(/\s+/g, ""),
+      bic: bankForm.bic.trim().toUpperCase().replace(/\s+/g, ""),
+    },
+    storageKey: `bridge-request:${requestScope}:bank-recipient:page`,
+  });
 
   useEffect(() => {
     if (isCreateSheetOpen) {
@@ -102,9 +118,10 @@ function RecipientsPage({
     try {
       setFormError(null);
 
-      const payload = await buildCreatePayload(selectedKind, walletForm, bankForm);
+      const payload = await buildCreatePayload(selectedKind, walletForm, bankForm, ensureRequestId);
       setIsSubmitting(true);
       await onCreateRecipient(payload);
+      clearRequestId();
       setIsCreateSheetOpen(false);
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "Unable to create recipient.");
@@ -600,6 +617,7 @@ async function buildCreatePayload(
   selectedKind: RecipientFormKind,
   walletForm: typeof emptyWalletForm,
   bankForm: typeof emptyBankForm,
+  ensureRequestId?: () => string,
 ): Promise<CreateRecipientPayload> {
   if (selectedKind === "wallet") {
     return await buildWalletRecipientPayload(walletForm);
@@ -609,7 +627,7 @@ async function buildCreatePayload(
     throw new Error("Choose Wallet or Bank before saving.");
   }
 
-  return buildBankRecipientPayload(bankForm);
+  return buildBankRecipientPayload(bankForm, ensureRequestId?.() ?? crypto.randomUUID());
 }
 
 function getRecipientAccount(recipient: Recipient) {

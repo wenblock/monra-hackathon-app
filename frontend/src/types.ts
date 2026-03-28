@@ -81,6 +81,7 @@ export interface OnboardingPayload {
   accountType: AccountType;
   fullName: string;
   countryCode: string;
+  requestId: string;
   businessName?: string;
 }
 
@@ -185,10 +186,12 @@ export interface Recipient {
 export interface CreateOnrampPayload {
   amount: string;
   destinationAsset: OnrampDestinationAsset;
+  requestId: string;
 }
 
 export interface CreateOfframpPayload {
   amount: string;
+  requestId: string;
   sourceAsset: OfframpSourceAsset;
   recipientPublicId: string;
 }
@@ -219,6 +222,7 @@ export type CreateRecipientPayload =
     }
   | {
       kind: "bank";
+      requestId: string;
       bankCountryCode: string;
       recipientType: "individual";
       firstName: string;
@@ -229,6 +233,7 @@ export type CreateRecipientPayload =
     }
   | {
       kind: "bank";
+      requestId: string;
       bankCountryCode: string;
       recipientType: "business";
       businessName: string;

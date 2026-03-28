@@ -8,22 +8,30 @@ import {
   isBridgeApiError,
 } from "../lib/bridge.js";
 import type { AppUser, OfframpSourceAsset } from "../types.js";
+import {
+  completeBridgeRequestSession,
+  getOrCreateBridgeRequestSession,
+} from "./bridgeRequestSessionsService.js";
 import { syncBridgeStatus } from "./bridgeStatusService.js";
 import { ServiceError } from "./errors.js";
 
 interface OfframpServiceDependencies {
+  completeBridgeRequestSession: typeof completeBridgeRequestSession;
   createBridgeOfframpTransfer: typeof createBridgeOfframpTransfer;
   createPendingOfframpTransaction: typeof createPendingOfframpTransaction;
   getRecipientByIdForUser: typeof getRecipientByIdForUser;
   getRecipientByPublicIdForUser: typeof getRecipientByPublicIdForUser;
+  getOrCreateBridgeRequestSession: typeof getOrCreateBridgeRequestSession;
   syncBridgeStatus: typeof syncBridgeStatus;
 }
 
 const defaultDependencies: OfframpServiceDependencies = {
+  completeBridgeRequestSession,
   createBridgeOfframpTransfer,
   createPendingOfframpTransaction,
   getRecipientByIdForUser,
   getRecipientByPublicIdForUser,
+  getOrCreateBridgeRequestSession,
   syncBridgeStatus,
 };
 
@@ -32,6 +40,7 @@ export async function createOfframpForUser(input: {
   sourceAsset: OfframpSourceAsset;
   recipientId?: number;
   recipientPublicId?: string;
+  requestId: string;
   user: AppUser;
 }, dependencies: OfframpServiceDependencies = defaultDependencies) {
   if (!input.user.bridgeCustomerId) {
@@ -59,13 +68,35 @@ export async function createOfframpForUser(input: {
       throw new ServiceError("Bridge onboarding must be active before creating an off-ramp.", 409);
     }
 
+    const bridgeRequestSession = await dependencies.getOrCreateBridgeRequestSession({
+      operationType: "offramp_transfer",
+      requestId: input.requestId,
+      payload: {
+        amount: input.amount,
+        bridgeCustomerId: input.user.bridgeCustomerId,
+        externalAccountId: recipient.bridgeExternalAccountId,
+        returnAddress: input.user.solanaAddress,
+        sourceAddress: input.user.solanaAddress,
+        sourceAsset: input.sourceAsset,
+      },
+      userId: input.user.id,
+      cdpUserId: input.user.cdpUserId,
+    });
+
     const bridgeTransfer = await dependencies.createBridgeOfframpTransfer({
       amount: input.amount,
       bridgeCustomerId: input.user.bridgeCustomerId,
+      clientReferenceId: input.requestId,
       externalAccountId: recipient.bridgeExternalAccountId,
+      idempotencyKey: bridgeRequestSession.idempotencyKey,
       returnAddress: input.user.solanaAddress,
       sourceAddress: input.user.solanaAddress,
       sourceAsset: input.sourceAsset,
+    });
+    await dependencies.completeBridgeRequestSession({
+      operationType: "offramp_transfer",
+      requestId: input.requestId,
+      bridgeObjectId: bridgeTransfer.bridgeTransferId,
     });
 
     return dependencies.createPendingOfframpTransaction({

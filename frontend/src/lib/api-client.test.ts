@@ -128,4 +128,45 @@ describe("api-client", () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  it("sends on-ramp requests with the request id in the JSON body", async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          transaction: {
+            id: 1,
+          },
+        }),
+        {
+          status: 200,
+        },
+      ),
+    );
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    try {
+      const client = createApiClient(async () => "token");
+      await client.createOnramp({
+        amount: "25",
+        destinationAsset: "usdc",
+        requestId: "00000000-0000-4000-8000-000000000401",
+      });
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "http://localhost:4000/api/onramp",
+        expect.objectContaining({
+          body: JSON.stringify({
+            amount: "25",
+            destinationAsset: "usdc",
+            requestId: "00000000-0000-4000-8000-000000000401",
+          }),
+          headers: expect.any(Headers),
+          method: "POST",
+        }),
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });

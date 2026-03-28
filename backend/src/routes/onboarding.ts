@@ -4,7 +4,7 @@ import { z } from "zod";
 import { readAuthIdentity, requireAuthIdentity } from "../auth/requestAuth.js";
 import { getUserByCdpUserId } from "../db/repositories/usersRepo.js";
 import { isConstraintViolation } from "../db/errors.js";
-import { isBridgeApiError } from "../lib/bridge.js";
+import { buildStoredBridgeComplianceState, isBridgeApiError } from "../lib/bridge.js";
 import { sendError } from "../lib/http.js";
 import { getCountryName } from "../lib/countries.js";
 import { logError } from "../lib/logger.js";
@@ -13,12 +13,14 @@ import {
   executeOnboardingFlow,
   requiresOnboarding,
 } from "../lib/onboardingFlow.js";
+import { isServiceError } from "../services/errors.js";
 
 const onboardingSchema = z
   .object({
     accountType: z.enum(["individual", "business"]),
     fullName: z.string().trim().min(1, "Full name is required."),
     countryCode: z.string().trim().length(2, "Country code must be a 2-letter ISO code."),
+    requestId: z.string().trim().uuid("Request id must be a valid UUID."),
     businessName: z.string().trim().optional(),
   })
   .superRefine((data, ctx) => {
@@ -49,7 +51,12 @@ onboardingRouter.post("/", requireAuthIdentity, async (request, response) => {
 
     const existingUser = await getUserByCdpUserId(identity.cdpUserId);
     if (existingUser && !requiresOnboarding(existingUser)) {
-      return sendError(response, 409, "A Monra user already exists for this account.");
+      return response.status(200).json({
+        bridge: buildStoredBridgeComplianceState(existingUser),
+        status: "active",
+        identity,
+        user: existingUser,
+      });
     }
 
     if (!identity.email) {
@@ -68,6 +75,7 @@ onboardingRouter.post("/", requireAuthIdentity, async (request, response) => {
       countryCode,
       countryName,
       fullName: parsedBody.data.fullName,
+      requestId: parsedBody.data.requestId,
     });
 
     return response.status(onboarding.createdLocalUser ? 201 : 200).json({
@@ -89,6 +97,10 @@ onboardingRouter.post("/", requireAuthIdentity, async (request, response) => {
 
     if (isBridgeApiError(originalError)) {
       return sendError(response, 502, originalError.message);
+    }
+
+    if (isServiceError(originalError)) {
+      return sendError(response, originalError.status, originalError.message);
     }
 
     if (isUsersPrimaryKeyViolation(originalError)) {

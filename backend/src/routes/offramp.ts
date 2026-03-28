@@ -12,6 +12,7 @@ import { createOfframpForUser } from "../services/offrampService.js";
 
 const createOfframpSchema = z.object({
   amount: z.string().trim().min(1, "Amount is required."),
+  requestId: z.string().trim().uuid("Request id must be a valid UUID."),
   sourceAsset: z.enum(["eurc", "usdc"]).default("eurc"),
   recipientId: z.coerce.number().int().positive("Recipient id must be a positive integer.").optional(),
   recipientPublicId: z.string().trim().uuid("Recipient public id must be a valid UUID.").optional(),
@@ -46,6 +47,7 @@ offrampRouter.post("/", userMutationRateLimit, async (request, response) => {
       amount,
       recipientId: parsedBody.data.recipientId,
       recipientPublicId: parsedBody.data.recipientPublicId,
+      requestId: parsedBody.data.requestId,
       sourceAsset: parsedBody.data.sourceAsset,
       user: existingUser,
     });

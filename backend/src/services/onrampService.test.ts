@@ -47,6 +47,7 @@ test("createOnrampForUser rejects users without a linked Bridge customer", async
       {
         amount: "25",
         destinationAsset: "usdc",
+        requestId: "00000000-0000-4000-8000-000000000201",
         user: createUserFixture({ bridgeCustomerId: null }),
       },
       {} as never,
@@ -63,15 +64,21 @@ test("createOnrampForUser creates and stores a pending Bridge transfer", async (
   const transaction = { id: 1, publicId: "tx-public-id" };
 
   const result = await createOnrampForUser(
-    {
-      amount: "25",
-      destinationAsset: "eurc",
-      user: createUserFixture(),
-    },
-    {
+      {
+        amount: "25",
+        destinationAsset: "eurc",
+        requestId: "00000000-0000-4000-8000-000000000201",
+        user: createUserFixture(),
+      },
+      {
+      async completeBridgeRequestSession(input) {
+        assert.equal(input.bridgeObjectId, "bridge-transfer-id");
+      },
       async createBridgeOnrampTransfer(input) {
+        assert.equal(input.clientReferenceId, "00000000-0000-4000-8000-000000000201");
         assert.equal(input.destinationAsset, "eurc");
         assert.equal(input.destinationAddress, "wallet-address");
+        assert.equal(input.idempotencyKey, "bridge-idempotency-key");
         return {
           bridgeTransferId: "bridge-transfer-id",
           bridgeTransferStatus: "pending",
@@ -86,6 +93,20 @@ test("createOnrampForUser creates and stores a pending Bridge transfer", async (
         storedBridgeTransferId = input.bridgeTransferId;
         assert.equal(input.expectedDestinationAmount, "24.75");
         return transaction as any;
+      },
+      async getOrCreateBridgeRequestSession(input) {
+        assert.equal(input.operationType, "onramp_transfer");
+        return {
+          operationType: "onramp_transfer",
+          requestId: input.requestId,
+          idempotencyKey: "bridge-idempotency-key",
+          payloadHash: "payload-hash",
+          bridgeObjectId: null,
+          userId: 7,
+          cdpUserId: "cdp-user-1",
+          createdAt: "2026-03-19T00:00:00.000Z",
+          updatedAt: "2026-03-19T00:00:00.000Z",
+        };
       },
       async syncBridgeStatus() {
         return {

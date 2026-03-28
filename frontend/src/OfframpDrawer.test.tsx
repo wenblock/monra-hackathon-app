@@ -52,6 +52,7 @@ describe("OfframpDrawer", () => {
         onOpenChange={() => undefined}
         open
         recipients={[buildRecipient()]}
+        requestScope="cdp-user-1"
         senderAddress="11111111111111111111111111111111"
       />,
     );

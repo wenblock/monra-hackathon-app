@@ -47,10 +47,14 @@ test("createOfframpForUser rejects missing recipients", async () => {
       {
         amount: "20",
         recipientId: 9,
+        requestId: "00000000-0000-4000-8000-000000000202",
         sourceAsset: "eurc",
         user: createUserFixture(),
       },
       {
+        async completeBridgeRequestSession() {
+          throw new Error("should not be called");
+        },
         async createBridgeOfframpTransfer() {
           throw new Error("should not be called");
         },
@@ -62,6 +66,9 @@ test("createOfframpForUser rejects missing recipients", async () => {
         },
         async getRecipientByPublicIdForUser() {
           return null;
+        },
+        async getOrCreateBridgeRequestSession() {
+          throw new Error("should not be called");
         },
         async syncBridgeStatus() {
           throw new Error("should not be called");
@@ -80,15 +87,21 @@ test("createOfframpForUser creates a pending off-ramp for a bank recipient", asy
   const transaction = { id: 11, publicId: "tx-public-id" };
 
   const result = await createOfframpForUser(
-    {
-      amount: "20",
-      recipientPublicId: "00000000-0000-4000-8000-000000000009",
-      sourceAsset: "usdc",
-      user: createUserFixture(),
-    },
-    {
+      {
+        amount: "20",
+        recipientPublicId: "00000000-0000-4000-8000-000000000009",
+        requestId: "00000000-0000-4000-8000-000000000202",
+        sourceAsset: "usdc",
+        user: createUserFixture(),
+      },
+      {
+      async completeBridgeRequestSession(input) {
+        assert.equal(input.bridgeObjectId, "bridge-transfer-id");
+      },
       async createBridgeOfframpTransfer(input) {
+        assert.equal(input.clientReferenceId, "00000000-0000-4000-8000-000000000202");
         assert.equal(input.externalAccountId, "bridge-external-account-id");
+        assert.equal(input.idempotencyKey, "bridge-idempotency-key");
         return {
           bridgeTransferId: "bridge-transfer-id",
           bridgeTransferStatus: "pending",
@@ -129,6 +142,20 @@ test("createOfframpForUser creates a pending off-ramp for a bank recipient", asy
           id: 9,
           kind: "bank",
         } as any;
+      },
+      async getOrCreateBridgeRequestSession(input) {
+        assert.equal(input.operationType, "offramp_transfer");
+        return {
+          operationType: "offramp_transfer",
+          requestId: input.requestId,
+          idempotencyKey: "bridge-idempotency-key",
+          payloadHash: "payload-hash",
+          bridgeObjectId: null,
+          userId: 7,
+          cdpUserId: "cdp-user-1",
+          createdAt: "2026-03-19T00:00:00.000Z",
+          updatedAt: "2026-03-19T00:00:00.000Z",
+        };
       },
       async syncBridgeStatus() {
         return {

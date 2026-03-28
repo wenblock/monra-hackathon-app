@@ -18,8 +18,10 @@ process.env.BRIDGE_WEBHOOK_PUBLIC_KEY = publicKeyPem;
 process.env.BRIDGE_WEBHOOK_MAX_AGE_MS = "600000";
 
 const {
+  createBridgeExternalAccount,
   createBridgeOfframpTransfer,
   createBridgeOnrampTransfer,
+  createBridgeKycLink,
   validateBridgeWebhookSignature,
 } = await import("./bridge.js");
 
@@ -99,12 +101,18 @@ test("validateBridgeWebhookSignature rejects malformed headers missing the signa
 test("createBridgeOnrampTransfer requests a USDC destination transfer", async () => {
   const originalFetch = globalThis.fetch;
   let requestedCurrency: string | null = null;
+  let requestBody:
+    | {
+        client_reference_id: string;
+        destination: { currency: string };
+      }
+    | null = null;
+  let idempotencyKey: string | null = null;
 
   globalThis.fetch = async (_input, init) => {
-    const body = JSON.parse(String(init?.body)) as {
-      destination: { currency: string };
-    };
-    requestedCurrency = body.destination.currency;
+    requestBody = JSON.parse(String(init?.body));
+    requestedCurrency = requestBody.destination.currency;
+    idempotencyKey = new Headers(init?.headers).get("Idempotency-Key");
 
     return new Response(
       JSON.stringify({
@@ -133,11 +141,15 @@ test("createBridgeOnrampTransfer requests a USDC destination transfer", async ()
     const result = await createBridgeOnrampTransfer({
       amount: "25",
       bridgeCustomerId: "customer-id",
+      clientReferenceId: "onramp-request-id",
       destinationAddress: "wallet-address",
       destinationAsset: "usdc",
+      idempotencyKey: "bridge-idempotency-key",
     });
 
     assert.equal(requestedCurrency, "usdc");
+    assert.equal(requestBody?.client_reference_id, "onramp-request-id");
+    assert.equal(idempotencyKey, "bridge-idempotency-key");
     assert.equal(result.destinationAmount, "24.75");
   } finally {
     globalThis.fetch = originalFetch;
@@ -181,8 +193,10 @@ test("createBridgeOnrampTransfer requests a EURC destination transfer", async ()
     const result = await createBridgeOnrampTransfer({
       amount: "25",
       bridgeCustomerId: "customer-id",
+      clientReferenceId: "onramp-request-id",
       destinationAddress: "wallet-address",
       destinationAsset: "eurc",
+      idempotencyKey: "bridge-idempotency-key",
     });
 
     assert.equal(requestedCurrency, "eurc");
@@ -192,26 +206,21 @@ test("createBridgeOnrampTransfer requests a EURC destination transfer", async ()
   }
 });
 
-test("createBridgeOnrampTransfer uses a deterministic idempotency key for identical inputs", async () => {
+test("createBridgeKycLink forwards the caller-supplied idempotency key", async () => {
   const originalFetch = globalThis.fetch;
-  const idempotencyKeys: string[] = [];
+  let idempotencyKey: string | null = null;
 
   globalThis.fetch = async (_input, init) => {
-    idempotencyKeys.push(new Headers(init?.headers).get("Idempotency-Key") ?? "");
+    idempotencyKey = new Headers(init?.headers).get("Idempotency-Key");
 
     return new Response(
       JSON.stringify({
-        amount: "25",
-        id: "bridge-transfer-id",
-        receipt: {
-          final_amount: "24.75",
-          url: "https://bridge.example/receipt",
-        },
-        source: {
-          currency: "eur",
-          payment_rail: "sepa",
-        },
-        state: "pending",
+        customer_id: "bridge-customer-id",
+        id: "bridge-kyc-id",
+        kyc_link: "https://bridge.example/kyc",
+        kyc_status: "under_review",
+        tos_link: "https://bridge.example/tos",
+        tos_status: "pending",
       }),
       {
         headers: {
@@ -223,21 +232,58 @@ test("createBridgeOnrampTransfer uses a deterministic idempotency key for identi
   };
 
   try {
-    await createBridgeOnrampTransfer({
-      amount: "25",
-      bridgeCustomerId: "customer-id",
-      destinationAddress: "wallet-address",
-      destinationAsset: "usdc",
-    });
-    await createBridgeOnrampTransfer({
-      amount: "25",
-      bridgeCustomerId: "customer-id",
-      destinationAddress: "wallet-address",
-      destinationAsset: "usdc",
+    await createBridgeKycLink({
+      accountType: "individual",
+      cdpUserId: "cdp-user-id",
+      email: "jane@example.com",
+      fullName: "Jane Doe",
+      idempotencyKey: "bridge-idempotency-key",
     });
 
-    assert.equal(idempotencyKeys.length, 2);
-    assert.equal(idempotencyKeys[0], idempotencyKeys[1]);
+    assert.equal(idempotencyKey, "bridge-idempotency-key");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("createBridgeExternalAccount forwards the caller-supplied idempotency key", async () => {
+  const originalFetch = globalThis.fetch;
+  let idempotencyKey: string | null = null;
+
+  globalThis.fetch = async (_input, init) => {
+    idempotencyKey = new Headers(init?.headers).get("Idempotency-Key");
+
+    return new Response(
+      JSON.stringify({
+        id: "bridge-external-account-id",
+        customer_id: "bridge-customer-id",
+        account_owner_name: "Jane Doe",
+        bank_name: "Monra Bank",
+        active: true,
+      }),
+      {
+        headers: {
+          "Content-Type": "application/json",
+        },
+        status: 200,
+      },
+    );
+  };
+
+  try {
+    await createBridgeExternalAccount({
+      bankCountryCode: "DEU",
+      bankName: "Monra Bank",
+      bic: "MONRADEF",
+      bridgeCustomerId: "bridge-customer-id",
+      firstName: "Jane",
+      iban: "DE89370400440532013000",
+      idempotencyKey: "bridge-idempotency-key",
+      lastName: "Doe",
+      recipientType: "individual",
+    });
+
+    assert.equal(idempotencyKey, "bridge-idempotency-key");
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -247,14 +293,17 @@ test("createBridgeOfframpTransfer requests a USDC source transfer with return in
   const originalFetch = globalThis.fetch;
   let requestBody:
     | {
+        client_reference_id: string;
         destination: { external_account_id: string };
         return_instructions: { address: string };
         source: { currency: string; from_address: string };
       }
     | null = null;
+  let idempotencyKey: string | null = null;
 
   globalThis.fetch = async (_input, init) => {
     requestBody = JSON.parse(String(init?.body));
+    idempotencyKey = new Headers(init?.headers).get("Idempotency-Key");
 
     return new Response(
       JSON.stringify({
@@ -288,7 +337,9 @@ test("createBridgeOfframpTransfer requests a USDC source transfer with return in
     const result = await createBridgeOfframpTransfer({
       amount: "25",
       bridgeCustomerId: "customer-id",
+      clientReferenceId: "offramp-request-id",
       externalAccountId: "external-account-id",
+      idempotencyKey: "bridge-idempotency-key",
       returnAddress: "user-wallet-address",
       sourceAddress: "user-wallet-address",
       sourceAsset: "usdc",
@@ -298,7 +349,9 @@ test("createBridgeOfframpTransfer requests a USDC source transfer with return in
     assert.equal(requestBody.source.currency, "usdc");
     assert.equal(requestBody.source.from_address, "user-wallet-address");
     assert.equal(requestBody.destination.external_account_id, "external-account-id");
+    assert.equal(requestBody.client_reference_id, "offramp-request-id");
     assert.equal(requestBody.return_instructions.address, "user-wallet-address");
+    assert.equal(idempotencyKey, "bridge-idempotency-key");
     assert.equal(result.depositInstructions.toAddress, "bridge-deposit-wallet");
     assert.equal(result.sourceCurrency, "usdc");
   } finally {
@@ -347,7 +400,9 @@ test("createBridgeOfframpTransfer requests a EURC source transfer", async () => 
     const result = await createBridgeOfframpTransfer({
       amount: "42",
       bridgeCustomerId: "customer-id",
+      clientReferenceId: "offramp-request-id",
       externalAccountId: "external-account-id",
+      idempotencyKey: "bridge-idempotency-key",
       returnAddress: "user-wallet-address",
       sourceAddress: "user-wallet-address",
       sourceAsset: "eurc",

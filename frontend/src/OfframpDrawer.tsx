@@ -28,6 +28,7 @@ import {
   buildBankRecipientPayload as buildSharedBankRecipientPayload,
   type BankRecipientDraft,
 } from "@/features/recipients/recipient-payloads";
+import { useBridgeRequestId } from "@/features/bridge/use-bridge-request-id";
 import MfaProtectedActionHint from "@/features/security/MfaProtectedActionHint";
 import { getWalletTransferFeeHint } from "@/features/wallet/fee-hints";
 import { SEPA_COUNTRIES } from "@/sepa-countries";
@@ -54,6 +55,7 @@ interface OfframpDrawerProps {
   onOpenChange: (isOpen: boolean) => void;
   open: boolean;
   recipients: Recipient[];
+  requestScope: string;
   senderAddress: string | null;
 }
 
@@ -81,6 +83,7 @@ function OfframpDrawer({
   onOpenChange,
   open,
   recipients,
+  requestScope,
   senderAddress,
 }: OfframpDrawerProps) {
   const { sendSolanaTransaction } = useSendSolanaTransaction();
@@ -102,6 +105,29 @@ function OfframpDrawer({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isBroadcasting, setIsBroadcasting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { clearRequestId: clearBankRecipientRequestId, ensureRequestId: ensureBankRecipientRequestId } =
+    useBridgeRequestId({
+      payload: {
+        bankCountryCode: bankForm.bankCountryCode,
+        recipientType: bankForm.recipientType,
+        firstName: bankForm.firstName.trim(),
+        lastName: bankForm.lastName.trim(),
+        businessName: bankForm.businessName.trim(),
+        bankName: bankForm.bankName.trim(),
+        iban: bankForm.iban.trim().toUpperCase().replace(/\s+/g, ""),
+        bic: bankForm.bic.trim().toUpperCase().replace(/\s+/g, ""),
+      },
+      storageKey: `bridge-request:${requestScope}:bank-recipient:inline`,
+    });
+  const { clearRequestId: clearOfframpRequestId, ensureRequestId: ensureOfframpRequestId } =
+    useBridgeRequestId({
+      payload: {
+        amount: amount.trim(),
+        recipientPublicId: selectedRecipientPublicId,
+        sourceAsset,
+      },
+      storageKey: `bridge-request:${requestScope}:offramp`,
+    });
 
   const selectedRecipient =
     bankRecipients.find(recipient => recipient.publicId === selectedRecipientPublicId) ?? null;
@@ -122,13 +148,14 @@ function OfframpDrawer({
   const handleCreateRecipient = async () => {
     try {
       setError(null);
-      const payload = buildBankRecipientPayload(bankForm);
+      const payload = buildBankRecipientPayload(bankForm, ensureBankRecipientRequestId());
 
       setIsSavingRecipient(true);
       const recipient = await onCreateBankRecipient(payload);
       setSelectedRecipientPublicId(recipient.publicId);
       setIsRecipientFormOpen(false);
       setBankForm(emptyBankForm);
+      clearBankRecipientRequestId();
     } catch (recipientError) {
       setError(recipientError instanceof Error ? recipientError.message : "Unable to save recipient.");
     } finally {
@@ -168,10 +195,12 @@ function OfframpDrawer({
       const transaction = await onCreateOfframp({
         amount: parsedAmount.decimal,
         recipientPublicId: selectedRecipient.publicId,
+        requestId: ensureOfframpRequestId(),
         sourceAsset,
       });
 
       setCreatedTransaction(transaction);
+      clearOfframpRequestId();
       await broadcastOfframpTransaction(transaction);
     } catch (offrampError) {
       setError(offrampError instanceof Error ? offrampError.message : "Unable to create off-ramp.");
@@ -644,6 +673,8 @@ function OfframpDrawer({
   );
 
   function resetState() {
+    clearBankRecipientRequestId();
+    clearOfframpRequestId();
     setAmount("");
     setSourceAsset("eurc");
     setSelectedRecipientPublicId("");
@@ -700,8 +731,9 @@ function DetailBlock({
 
 function buildBankRecipientPayload(
   bankForm: typeof emptyBankForm,
+  requestId: string,
 ): Extract<CreateRecipientPayload, { kind: "bank" }> {
-  return buildSharedBankRecipientPayload(bankForm);
+  return buildSharedBankRecipientPayload(bankForm, requestId);
 }
 
 export default OfframpDrawer;

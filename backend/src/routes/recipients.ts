@@ -7,7 +7,9 @@ import {
   createRecipient,
   deleteRecipientByIdForUser,
   deleteRecipientByPublicIdForUser,
+  getRecipientByBridgeExternalAccountId,
   getRecipientByIdForUser,
+  getRecipientByIbanForUser,
   getRecipientByPublicIdForUser,
   listRecipientsByUserId,
 } from "../db/repositories/recipientsRepo.js";
@@ -21,6 +23,11 @@ import { logError } from "../lib/logger.js";
 import { getSepaCountryName } from "../lib/sepaCountries.js";
 import { isValidSolanaAddress } from "../lib/solana.js";
 import { userMutationRateLimit } from "../middleware/rateLimits.js";
+import {
+  completeBridgeRequestSession,
+  getOrCreateBridgeRequestSession,
+} from "../services/bridgeRequestSessionsService.js";
+import { isServiceError } from "../services/errors.js";
 
 const createRecipientSchema = z
   .discriminatedUnion("kind", [
@@ -32,6 +39,7 @@ const createRecipientSchema = z
     z.object({
       kind: z.literal("bank"),
       bankCountryCode: z.string().trim().length(3, "Bank country must be a 3-letter ISO code."),
+      requestId: z.string().trim().uuid("Request id must be a valid UUID."),
       recipientType: z.enum(["individual", "business"]),
       firstName: z.string().trim().optional(),
       lastName: z.string().trim().optional(),
@@ -136,20 +144,46 @@ recipientsRouter.post("/", userMutationRateLimit, async (request, response) => {
       return sendError(response, 409, "Bridge customer not configured for this user.");
     }
 
-    const bridgeExternalAccount = await createBridgeExternalAccount({
+    const bridgeRequestSession = await getOrCreateBridgeRequestSession({
+      operationType: "external_account",
+      requestId: parsedBody.data.requestId,
+      payload: {
+        bankCountryCode,
+        bankName,
+        iban,
+        bic,
+        bridgeCustomerId: user.bridgeCustomerId,
+        recipientType: parsedBody.data.recipientType,
+        ...(parsedBody.data.recipientType === "business"
+          ? { businessName: parsedBody.data.businessName!.trim() }
+          : {
+              firstName: parsedBody.data.firstName!.trim(),
+              lastName: parsedBody.data.lastName!.trim(),
+            }),
+      },
       userId: user.id,
+      cdpUserId: user.cdpUserId,
+    });
+
+    const bridgeExternalAccount = await createBridgeExternalAccount({
       bridgeCustomerId: user.bridgeCustomerId,
       bankCountryCode,
       bankName,
       iban,
       bic,
       recipientType: parsedBody.data.recipientType,
+      idempotencyKey: bridgeRequestSession.idempotencyKey,
       ...(parsedBody.data.recipientType === "business"
         ? { businessName: parsedBody.data.businessName!.trim() }
         : {
             firstName: parsedBody.data.firstName!.trim(),
             lastName: parsedBody.data.lastName!.trim(),
           }),
+    });
+    await completeBridgeRequestSession({
+      operationType: "external_account",
+      requestId: parsedBody.data.requestId,
+      bridgeObjectId: bridgeExternalAccount.id,
     });
 
     const displayName =
@@ -158,6 +192,7 @@ recipientsRouter.post("/", userMutationRateLimit, async (request, response) => {
         : `${parsedBody.data.firstName!.trim()} ${parsedBody.data.lastName!.trim()}`;
 
     let recipient;
+    let status = 201;
 
     try {
       recipient = await createRecipient({
@@ -182,6 +217,23 @@ recipientsRouter.post("/", userMutationRateLimit, async (request, response) => {
         bridgeExternalAccountId: bridgeExternalAccount.id,
       });
     } catch (error) {
+      if (isUniqueViolation(error)) {
+        const existingRecipient = await findExistingBankRecipientOnReplay({
+          bridgeExternalAccountId: bridgeExternalAccount.id,
+          iban,
+          userId: user.id,
+        });
+
+        if (existingRecipient) {
+          recipient = existingRecipient;
+          status = 200;
+        }
+      }
+
+      if (recipient) {
+        return response.status(status).json({ recipient });
+      }
+
       await deleteBridgeExternalAccount({
         bridgeCustomerId: user.bridgeCustomerId,
         externalAccountId: bridgeExternalAccount.id,
@@ -196,11 +248,15 @@ recipientsRouter.post("/", userMutationRateLimit, async (request, response) => {
       throw error;
     }
 
-    return response.status(201).json({ recipient });
+    return response.status(status).json({ recipient });
   } catch (error) {
     logError("recipients.create_failed", error, {
       requestId: request.requestId,
     });
+
+    if (isServiceError(error)) {
+      return sendError(response, error.status, error.message);
+    }
 
     if (isBridgeApiError(error)) {
       return sendError(response, 502, error.message);
@@ -272,6 +328,17 @@ recipientsRouter.delete("/:recipientReference", userMutationRateLimit, async (re
 
 function normalizeCompactValue(value: string) {
   return value.trim().toUpperCase().replace(/\s+/g, "");
+}
+
+async function findExistingBankRecipientOnReplay(input: {
+  bridgeExternalAccountId: string;
+  iban: string;
+  userId: number;
+}) {
+  return (
+    (await getRecipientByBridgeExternalAccountId(input.bridgeExternalAccountId)) ??
+    (await getRecipientByIbanForUser(input.userId, input.iban))
+  );
 }
 
 function parseRecipientReference(value: string) {

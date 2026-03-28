@@ -19,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useBridgeRequestId } from "@/features/bridge/use-bridge-request-id";
 import { cn } from "@/lib/utils";
 import { COUNTRIES } from "./countries";
 import type { AuthIdentity, OnboardingPayload } from "./types";
@@ -40,6 +41,15 @@ function OnboardingScreen({ identity, isSubmitting, error, onSubmit }: Props) {
     () => COUNTRIES.find(country => country.code === countryCode),
     [countryCode],
   );
+  const { clearRequestId, ensureRequestId } = useBridgeRequestId({
+    payload: {
+      accountType,
+      businessName: businessName.trim(),
+      countryCode,
+      fullName: fullName.trim(),
+    },
+    storageKey: `bridge-request:${identity.cdpUserId}:onboarding`,
+  });
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -48,8 +58,10 @@ function OnboardingScreen({ identity, isSubmitting, error, onSubmit }: Props) {
       accountType,
       fullName: fullName.trim(),
       countryCode,
+      requestId: ensureRequestId(),
       ...(accountType === "business" ? { businessName: businessName.trim() } : {}),
     });
+    clearRequestId();
   };
 
   return (

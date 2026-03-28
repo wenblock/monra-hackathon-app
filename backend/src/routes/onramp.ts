@@ -12,6 +12,7 @@ import { createOnrampForUser } from "../services/onrampService.js";
 const createOnrampSchema = z.object({
   amount: z.string().trim().min(1, "EUR amount is required."),
   destinationAsset: z.enum(["usdc", "eurc"]).default("usdc"),
+  requestId: z.string().trim().uuid("Request id must be a valid UUID."),
 });
 
 export const onrampRouter = Router();
@@ -29,6 +30,7 @@ onrampRouter.post("/", userMutationRateLimit, async (request, response) => {
     const transaction = await createOnrampForUser({
       amount,
       destinationAsset: parsedBody.data.destinationAsset,
+      requestId: parsedBody.data.requestId,
       user: existingUser,
     });
 

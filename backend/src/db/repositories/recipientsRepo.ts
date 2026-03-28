@@ -128,6 +128,35 @@ export async function getRecipientByPublicIdForUser(userId: number, recipientPub
   return result.rows[0] ? mapRecipient(result.rows[0]) : null;
 }
 
+export async function getRecipientByBridgeExternalAccountId(bridgeExternalAccountId: string) {
+  const result = await pool.query<RecipientRow>(
+    `
+      SELECT ${recipientSelection}
+      FROM recipients
+      WHERE bridge_external_account_id = $1
+      LIMIT 1
+    `,
+    [bridgeExternalAccountId],
+  );
+
+  return result.rows[0] ? mapRecipient(result.rows[0]) : null;
+}
+
+export async function getRecipientByIbanForUser(userId: number, iban: string) {
+  const result = await pool.query<RecipientRow>(
+    `
+      SELECT ${recipientSelection}
+      FROM recipients
+      WHERE user_id = $1
+        AND iban = $2
+      LIMIT 1
+    `,
+    [userId, iban],
+  );
+
+  return result.rows[0] ? mapRecipient(result.rows[0]) : null;
+}
+
 export async function deleteRecipientByIdForUser(userId: number, recipientId: number) {
   const result = await pool.query<RecipientRow>(
     `

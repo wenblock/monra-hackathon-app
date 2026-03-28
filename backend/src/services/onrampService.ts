@@ -1,24 +1,33 @@
 import { createPendingOnrampTransaction } from "../db/repositories/transactionsWriteRepo.js";
 import { createBridgeOnrampTransfer, isBridgeApiError } from "../lib/bridge.js";
 import type { AppUser, OnrampDestinationAsset } from "../types.js";
+import {
+  completeBridgeRequestSession,
+  getOrCreateBridgeRequestSession,
+} from "./bridgeRequestSessionsService.js";
 import { syncBridgeStatus } from "./bridgeStatusService.js";
 import { ServiceError } from "./errors.js";
 
 interface OnrampServiceDependencies {
+  completeBridgeRequestSession: typeof completeBridgeRequestSession;
   createBridgeOnrampTransfer: typeof createBridgeOnrampTransfer;
   createPendingOnrampTransaction: typeof createPendingOnrampTransaction;
+  getOrCreateBridgeRequestSession: typeof getOrCreateBridgeRequestSession;
   syncBridgeStatus: typeof syncBridgeStatus;
 }
 
 const defaultDependencies: OnrampServiceDependencies = {
+  completeBridgeRequestSession,
   createBridgeOnrampTransfer,
   createPendingOnrampTransaction,
+  getOrCreateBridgeRequestSession,
   syncBridgeStatus,
 };
 
 export async function createOnrampForUser(input: {
   amount: string;
   destinationAsset: OnrampDestinationAsset;
+  requestId: string;
   user: AppUser;
 }, dependencies: OnrampServiceDependencies = defaultDependencies) {
   if (!input.user.bridgeCustomerId) {
@@ -35,11 +44,31 @@ export async function createOnrampForUser(input: {
       throw new ServiceError("Bridge onboarding must be active before creating an on-ramp.", 409);
     }
 
+    const bridgeRequestSession = await dependencies.getOrCreateBridgeRequestSession({
+      operationType: "onramp_transfer",
+      requestId: input.requestId,
+      payload: {
+        amount: input.amount,
+        bridgeCustomerId: input.user.bridgeCustomerId,
+        destinationAddress: input.user.solanaAddress,
+        destinationAsset: input.destinationAsset,
+      },
+      userId: input.user.id,
+      cdpUserId: input.user.cdpUserId,
+    });
+
     const bridgeTransfer = await dependencies.createBridgeOnrampTransfer({
       amount: input.amount,
       bridgeCustomerId: input.user.bridgeCustomerId,
+      clientReferenceId: input.requestId,
       destinationAddress: input.user.solanaAddress,
       destinationAsset: input.destinationAsset,
+      idempotencyKey: bridgeRequestSession.idempotencyKey,
+    });
+    await dependencies.completeBridgeRequestSession({
+      operationType: "onramp_transfer",
+      requestId: input.requestId,
+      bridgeObjectId: bridgeTransfer.bridgeTransferId,
     });
 
     return dependencies.createPendingOnrampTransaction({

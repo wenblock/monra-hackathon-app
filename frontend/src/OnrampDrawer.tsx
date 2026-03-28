@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useBridgeRequestId } from "@/features/bridge/use-bridge-request-id";
 import {
   Sheet,
   SheetContent,
@@ -26,6 +27,7 @@ interface OnrampDrawerProps {
   onCreateOnramp: (payload: CreateOnrampPayload) => Promise<AppTransaction>;
   onOpenChange: (isOpen: boolean) => void;
   open: boolean;
+  requestScope: string;
   walletAddress: string | null;
 }
 
@@ -33,6 +35,7 @@ function OnrampDrawer({
   onCreateOnramp,
   onOpenChange,
   open,
+  requestScope,
   walletAddress,
 }: OnrampDrawerProps) {
   const [amount, setAmount] = useState("");
@@ -40,6 +43,13 @@ function OnrampDrawer({
   const [createdTransaction, setCreatedTransaction] = useState<AppTransaction | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { clearRequestId, ensureRequestId } = useBridgeRequestId({
+    payload: {
+      amount: amount.trim(),
+      destinationAsset,
+    },
+    storageKey: `bridge-request:${requestScope}:onramp`,
+  });
 
   const handleOpenChange = (isOpen: boolean) => {
     if (!isOpen) {
@@ -63,9 +73,11 @@ function OnrampDrawer({
       const transaction = await onCreateOnramp({
         amount: normalizedAmount,
         destinationAsset,
+        requestId: ensureRequestId(),
       });
 
       setCreatedTransaction(transaction);
+      clearRequestId();
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "Unable to create on-ramp.");
     } finally {
@@ -227,6 +239,7 @@ function OnrampDrawer({
   );
 
   function resetState() {
+    clearRequestId();
     setAmount("");
     setDestinationAsset("usdc");
     setCreatedTransaction(null);

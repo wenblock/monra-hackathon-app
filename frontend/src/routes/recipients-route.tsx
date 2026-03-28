@@ -20,6 +20,7 @@ function RecipientsRouteComponent() {
       onCreateRecipient={async payload => (await createRecipientMutation.mutateAsync(payload)).recipient}
       onDeleteRecipient={deleteRecipientMutation.mutateAsync}
       recipients={recipientsQuery.data?.recipients ?? []}
+      requestScope={userId}
     />
   );
 }

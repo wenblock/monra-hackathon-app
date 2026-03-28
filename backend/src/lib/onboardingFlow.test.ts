@@ -47,6 +47,20 @@ const identity = {
   email: "jane@example.com",
 };
 
+function createBridgeRequestSessionFixture() {
+  return {
+    operationType: "kyc_link" as const,
+    requestId: "00000000-0000-4000-8000-000000000101",
+    idempotencyKey: "bridge-idempotency-key",
+    payloadHash: "payload-hash",
+    bridgeObjectId: null,
+    userId: 7,
+    cdpUserId: "cdp-user-1",
+    createdAt: "2026-03-19T00:00:00.000Z",
+    updatedAt: "2026-03-19T00:00:00.000Z",
+  };
+}
+
 test("requiresOnboarding returns true when the Bridge customer has not been linked yet", () => {
   assert.equal(requiresOnboarding(null), true);
   assert.equal(requiresOnboarding(createUserFixture()), true);
@@ -74,18 +88,20 @@ test("executeOnboardingFlow creates the local user before calling Bridge and per
 
   const result = await executeOnboardingFlow(
     identity,
-    {
-      accountType: "individual",
-      countryCode: "DE",
-      countryName: "Germany",
-      fullName: "Jane A.-Doe",
-    },
-    {
-      async createBridgeKycLink(input) {
-        callOrder.push("createBridgeKycLink");
-        assert.equal(input.fullName, "Jane A.-Doe");
+      {
+        accountType: "individual",
+        countryCode: "DE",
+        countryName: "Germany",
+        fullName: "Jane A.-Doe",
+        requestId: "00000000-0000-4000-8000-000000000101",
+      },
+      {
+        async createBridgeKycLink(input) {
+          callOrder.push("createBridgeKycLink");
+          assert.equal(input.fullName, "Jane A.-Doe");
+          assert.equal(input.idempotencyKey, "bridge-idempotency-key");
 
-        return {
+          return {
           customerId: "customer-123",
           id: "kyc-link-123",
           kycLink: "https://bridge.example/kyc",
@@ -94,18 +110,26 @@ test("executeOnboardingFlow creates the local user before calling Bridge and per
           tosStatus: "pending",
         };
       },
-      async createUser(input) {
-        callOrder.push("createUser");
-        assert.equal(input.fullName, "Jane A.-Doe");
-        return createdUser;
-      },
-      async getUserByCdpUserId() {
-        callOrder.push("getUserByCdpUserId");
-        return null;
-      },
-      async updateUserBridgeStatuses(input) {
-        callOrder.push("updateUserBridgeStatuses");
-        assert.equal(input.bridgeCustomerId, "customer-123");
+        async createUser(input) {
+          callOrder.push("createUser");
+          assert.equal(input.fullName, "Jane A.-Doe");
+          return createdUser;
+        },
+        async completeBridgeRequestSession() {
+          callOrder.push("completeBridgeRequestSession");
+        },
+        async getUserByCdpUserId() {
+          callOrder.push("getUserByCdpUserId");
+          return null;
+        },
+        async getOrCreateBridgeRequestSession(input) {
+          callOrder.push("getOrCreateBridgeRequestSession");
+          assert.equal(input.requestId, "00000000-0000-4000-8000-000000000101");
+          return createBridgeRequestSessionFixture();
+        },
+        async updateUserBridgeStatuses(input) {
+          callOrder.push("updateUserBridgeStatuses");
+          assert.equal(input.bridgeCustomerId, "customer-123");
         assert.equal(input.bridgeKycLinkId, "kyc-link-123");
         assert.equal(input.userId, createdUser.id);
         return completedUser;
@@ -116,7 +140,9 @@ test("executeOnboardingFlow creates the local user before calling Bridge and per
   assert.deepEqual(callOrder, [
     "getUserByCdpUserId",
     "createUser",
+    "getOrCreateBridgeRequestSession",
     "createBridgeKycLink",
+    "completeBridgeRequestSession",
     "updateUserBridgeStatuses",
   ]);
   assert.equal(result.createdLocalUser, true);
@@ -140,6 +166,7 @@ test("executeOnboardingFlow does not call Bridge when local user creation fails"
         countryCode: "DE",
         countryName: "Germany",
         fullName: "Jane A.-Doe",
+        requestId: "00000000-0000-4000-8000-000000000101",
       },
       {
         async createBridgeKycLink() {
@@ -149,8 +176,14 @@ test("executeOnboardingFlow does not call Bridge when local user creation fails"
         async createUser() {
           throw sequenceError;
         },
+        async completeBridgeRequestSession() {
+          throw new Error("completeBridgeRequestSession should not be called.");
+        },
         async getUserByCdpUserId() {
           return null;
+        },
+        async getOrCreateBridgeRequestSession() {
+          throw new Error("getOrCreateBridgeRequestSession should not be called.");
         },
         async updateUserBridgeStatuses() {
           throw new Error("updateUserBridgeStatuses should not have been called.");
@@ -184,17 +217,18 @@ test("executeOnboardingFlow resumes an incomplete signup with the stored local p
 
   const result = await executeOnboardingFlow(
     identity,
-    {
-      accountType: "business",
-      businessName: "Changed Name Inc.",
-      countryCode: "FR",
-      countryName: "France",
-      fullName: "Changed Contact",
-    },
-    {
-      async createBridgeKycLink(input) {
-        bridgeFullName = input.fullName;
-        return {
+      {
+        accountType: "business",
+        businessName: "Changed Name Inc.",
+        countryCode: "FR",
+        countryName: "France",
+        fullName: "Changed Contact",
+        requestId: "00000000-0000-4000-8000-000000000101",
+      },
+      {
+        async createBridgeKycLink(input) {
+          bridgeFullName = input.fullName;
+          return {
           customerId: "customer-456",
           id: "kyc-link-456",
           kycLink: "https://bridge.example/kyc-456",
@@ -203,16 +237,23 @@ test("executeOnboardingFlow resumes an incomplete signup with the stored local p
           tosStatus: "pending",
         };
       },
-      async createUser() {
-        createUserCalled = true;
-        throw new Error("createUser should not be called for incomplete local users.");
-      },
-      async getUserByCdpUserId() {
-        return existingUser;
-      },
-      async updateUserBridgeStatuses() {
-        return createUserFixture({
-          ...existingUser,
+        async createUser() {
+          createUserCalled = true;
+          throw new Error("createUser should not be called for incomplete local users.");
+        },
+        async completeBridgeRequestSession() {
+          return undefined;
+        },
+        async getUserByCdpUserId() {
+          return existingUser;
+        },
+        async getOrCreateBridgeRequestSession(input) {
+          assert.equal(input.requestId, "00000000-0000-4000-8000-000000000101");
+          return createBridgeRequestSessionFixture();
+        },
+        async updateUserBridgeStatuses() {
+          return createUserFixture({
+            ...existingUser,
           bridgeCustomerId: "customer-456",
           bridgeKycLink: "https://bridge.example/kyc-456",
           bridgeKycLinkId: "kyc-link-456",

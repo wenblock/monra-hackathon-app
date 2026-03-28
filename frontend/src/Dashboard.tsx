@@ -509,6 +509,7 @@ function Dashboard({
             onCreateOnramp={onCreateOnramp}
             onOpenChange={setIsOnrampDrawerOpen}
             open={isOnrampDrawerOpen}
+            requestScope={user.cdpUserId}
             walletAddress={effectiveSolanaAddress}
           />
         </Suspense>
@@ -524,6 +525,7 @@ function Dashboard({
             onOpenChange={setIsOfframpDrawerOpen}
             open={isOfframpDrawerOpen}
             recipients={recipients}
+            requestScope={user.cdpUserId}
             senderAddress={effectiveSolanaAddress}
           />
         </Suspense>

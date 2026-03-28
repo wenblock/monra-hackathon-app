@@ -1,4 +1,4 @@
-import { createHash, createVerify, randomUUID } from "node:crypto";
+import { createHash, createVerify } from "node:crypto";
 
 import { config } from "../config.js";
 import { fetchWithRetry } from "./outboundHttp.js";
@@ -167,45 +167,6 @@ export function isBridgeApiError(error: unknown): error is BridgeApiError {
   return error instanceof BridgeApiError;
 }
 
-function createKycLinkIdempotencyKey(cdpUserId: string) {
-  const digest = createHash("sha256").update(`monra-bridge-kyc:${cdpUserId}`).digest("hex");
-  return `monra-${digest}`;
-}
-
-function createExternalAccountIdempotencyKey(input: {
-  bic: string;
-  bankCountryCode: string;
-  bankName: string;
-  displayName: string;
-  iban: string;
-  recipientType: BankRecipientType;
-  userId: number;
-}) {
-  const digest = createHash("sha256")
-    .update(
-      JSON.stringify({
-        bankCountryCode: input.bankCountryCode,
-        bankName: input.bankName,
-        bic: input.bic,
-        displayName: input.displayName,
-        iban: input.iban,
-        recipientType: input.recipientType,
-        userId: input.userId,
-      }),
-    )
-    .digest("hex");
-
-  return `monra-recipient-${digest}`;
-}
-
-function createTransferIdempotencyKey(input: Record<string, string>) {
-  const digest = createHash("sha256")
-    .update(JSON.stringify(input))
-    .digest("hex");
-
-  return `monra-transfer-${digest}`;
-}
-
 function readString(value: unknown) {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
@@ -314,17 +275,13 @@ export async function createBridgeOnrampTransfer(input: {
   bridgeCustomerId: string;
   destinationAddress: string;
   destinationAsset: OnrampDestinationAsset;
+  clientReferenceId: string;
+  idempotencyKey: string;
 }) {
   const transfer = await bridgeRequest<BridgeTransferResponse>({
     method: "POST",
     path: "/transfers",
-    idempotencyKey: createTransferIdempotencyKey({
-      amount: input.amount,
-      bridgeCustomerId: input.bridgeCustomerId,
-      destinationAddress: input.destinationAddress,
-      destinationAsset: input.destinationAsset,
-      type: "onramp",
-    }),
+    idempotencyKey: input.idempotencyKey,
     body: {
       on_behalf_of: input.bridgeCustomerId,
       source: {
@@ -337,7 +294,7 @@ export async function createBridgeOnrampTransfer(input: {
         to_address: input.destinationAddress,
       },
       amount: input.amount,
-      client_reference_id: randomUUID(),
+      client_reference_id: input.clientReferenceId,
       dry_run: false,
     },
   });
@@ -361,7 +318,9 @@ export async function createBridgeOnrampTransfer(input: {
 export async function createBridgeOfframpTransfer(input: {
   amount: string;
   bridgeCustomerId: string;
+  clientReferenceId: string;
   externalAccountId: string;
+  idempotencyKey: string;
   returnAddress: string;
   sourceAddress: string;
   sourceAsset: OfframpSourceAsset;
@@ -369,15 +328,7 @@ export async function createBridgeOfframpTransfer(input: {
   const transfer = await bridgeRequest<BridgeTransferResponse>({
     method: "POST",
     path: "/transfers",
-    idempotencyKey: createTransferIdempotencyKey({
-      amount: input.amount,
-      bridgeCustomerId: input.bridgeCustomerId,
-      externalAccountId: input.externalAccountId,
-      returnAddress: input.returnAddress,
-      sourceAddress: input.sourceAddress,
-      sourceAsset: input.sourceAsset,
-      type: "offramp",
-    }),
+    idempotencyKey: input.idempotencyKey,
     body: {
       on_behalf_of: input.bridgeCustomerId,
       source: {
@@ -391,7 +342,7 @@ export async function createBridgeOfframpTransfer(input: {
         external_account_id: input.externalAccountId,
       },
       amount: input.amount,
-      client_reference_id: randomUUID(),
+      client_reference_id: input.clientReferenceId,
       dry_run: false,
       return_instructions: {
         address: input.returnAddress,
@@ -422,11 +373,12 @@ export async function createBridgeKycLink(input: {
   cdpUserId: string;
   email: string;
   fullName: string;
+  idempotencyKey: string;
 }) {
   const bridgeLink = await bridgeRequest<BridgeKycLinkResponse>({
     method: "POST",
     path: "/kyc_links",
-    idempotencyKey: createKycLinkIdempotencyKey(input.cdpUserId),
+    idempotencyKey: input.idempotencyKey,
     body: {
       email: input.email,
       endorsements: ["sepa", "base"],
@@ -463,10 +415,10 @@ export async function createBridgeExternalAccount(input: {
   bridgeCustomerId: string;
   businessName?: string;
   firstName?: string;
+  idempotencyKey: string;
   iban: string;
   lastName?: string;
   recipientType: BankRecipientType;
-  userId: number;
 }) {
   const accountOwnerName =
     input.recipientType === "business"
@@ -476,15 +428,7 @@ export async function createBridgeExternalAccount(input: {
   return bridgeRequest<BridgeExternalAccountResponse>({
     method: "POST",
     path: `/customers/${input.bridgeCustomerId}/external_accounts`,
-    idempotencyKey: createExternalAccountIdempotencyKey({
-      userId: input.userId,
-      recipientType: input.recipientType,
-      displayName: accountOwnerName,
-      bankCountryCode: input.bankCountryCode,
-      bankName: input.bankName,
-      iban: input.iban,
-      bic: input.bic,
-    }),
+    idempotencyKey: input.idempotencyKey,
     body: {
       currency: "eur",
       bank_name: input.bankName,

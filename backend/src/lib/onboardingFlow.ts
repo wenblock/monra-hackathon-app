@@ -7,6 +7,10 @@ import type {
 } from "../types.js";
 import { buildStoredBridgeComplianceState, createBridgeKycLink } from "./bridge.js";
 import { createUser, getUserByCdpUserId, updateUserBridgeStatuses } from "../db.js";
+import {
+  completeBridgeRequestSession,
+  getOrCreateBridgeRequestSession,
+} from "../services/bridgeRequestSessionsService.js";
 
 export interface OnboardingSubmission {
   accountType: AppUser["accountType"];
@@ -14,6 +18,7 @@ export interface OnboardingSubmission {
   countryCode: string;
   countryName: string;
   fullName: string;
+  requestId: string;
 }
 
 interface CreateBridgeKycLinkResult {
@@ -31,9 +36,12 @@ interface OnboardingFlowDependencies {
     cdpUserId: string;
     email: string;
     fullName: string;
+    idempotencyKey: string;
   }) => Promise<CreateBridgeKycLinkResult>;
   createUser: typeof createUser;
   getUserByCdpUserId: typeof getUserByCdpUserId;
+  completeBridgeRequestSession: typeof completeBridgeRequestSession;
+  getOrCreateBridgeRequestSession: typeof getOrCreateBridgeRequestSession;
   updateUserBridgeStatuses: typeof updateUserBridgeStatuses;
 }
 
@@ -55,7 +63,9 @@ export class OnboardingFlowError extends Error {
 const defaultDependencies: OnboardingFlowDependencies = {
   createBridgeKycLink,
   createUser,
+  completeBridgeRequestSession,
   getUserByCdpUserId,
+  getOrCreateBridgeRequestSession,
   updateUserBridgeStatuses,
 };
 
@@ -122,11 +132,30 @@ export async function executeOnboardingFlow(
   let bridgeKycLink: CreateBridgeKycLinkResult;
 
   try {
+    const bridgeRequestSession = await dependencies.getOrCreateBridgeRequestSession({
+      operationType: "kyc_link",
+      requestId: submission.requestId,
+      payload: {
+        accountType: user.accountType,
+        cdpUserId: identity.cdpUserId,
+        email: identity.email!,
+        fullName: buildBridgeFullName(user),
+      },
+      userId: user.id,
+      cdpUserId: identity.cdpUserId,
+    });
+
     bridgeKycLink = await dependencies.createBridgeKycLink({
       accountType: user.accountType,
       cdpUserId: identity.cdpUserId,
       email: identity.email!,
       fullName: buildBridgeFullName(user),
+      idempotencyKey: bridgeRequestSession.idempotencyKey,
+    });
+    await dependencies.completeBridgeRequestSession({
+      operationType: "kyc_link",
+      requestId: submission.requestId,
+      bridgeObjectId: bridgeKycLink.id,
     });
   } catch (error) {
     throw new OnboardingFlowError(

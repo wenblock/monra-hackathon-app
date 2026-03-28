@@ -44,6 +44,7 @@ export async function buildWalletRecipientPayload(
 
 export function buildBankRecipientPayload(
   bankForm: BankRecipientDraft,
+  requestId: string,
 ): Extract<CreateRecipientPayload, { kind: "bank" }> {
   if (!bankForm.bankCountryCode) {
     throw new Error("Bank country is required.");
@@ -79,6 +80,7 @@ export function buildBankRecipientPayload(
 
     return {
       kind: "bank",
+      requestId,
       recipientType: "individual",
       bankCountryCode: bankForm.bankCountryCode,
       firstName,
@@ -96,6 +98,7 @@ export function buildBankRecipientPayload(
 
   return {
     kind: "bank",
+    requestId,
     recipientType: "business",
     bankCountryCode: bankForm.bankCountryCode,
     businessName,

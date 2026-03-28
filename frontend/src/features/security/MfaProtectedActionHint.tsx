@@ -20,7 +20,7 @@ function MfaProtectedActionHint({ actionLabel, className }: MfaProtectedActionHi
           <ShieldCheck className="size-4" />
         </span>
         <p className="text-sm text-muted-foreground">
-          If MFA is enabled, Verification code is required {actionLabel}.
+          If MFA is enabled, Verification code is needed before {actionLabel}.
         </p>
       </div>
     </div>

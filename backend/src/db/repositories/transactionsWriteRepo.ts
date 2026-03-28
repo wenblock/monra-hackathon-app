@@ -84,6 +84,23 @@ function buildOfframpNormalizationKey(bridgeTransferId: string) {
   return `offramp:${bridgeTransferId}`;
 }
 
+async function getTransactionByBridgeTransferId(
+  client: PoolClient,
+  bridgeTransferId: string,
+) {
+  const result = await client.query<TransactionRow>(
+    `
+      SELECT ${transactionSelection}
+      FROM transactions
+      WHERE bridge_transfer_id = $1::text
+      LIMIT 1
+    `,
+    [bridgeTransferId],
+  );
+
+  return result.rows[0] ?? null;
+}
+
 function buildSwapNormalizationKey(transactionSignature: string, trackedWalletAddress: string) {
   return `swap:${transactionSignature}:${trackedWalletAddress}`;
 }
@@ -151,121 +168,137 @@ export async function createPendingOnrampTransaction(input: CreatePendingOnrampT
     input.expectedDestinationAmount,
     getTransferAssetDecimals(input.asset),
   );
-  const result = await pool.query<TransactionRow>(
-    `
-      INSERT INTO transactions (
-        user_id,
-        recipient_id,
-        direction,
-        entry_type,
-        asset,
-        amount_decimal,
-        amount_raw,
-        network,
-        tracked_wallet_address,
-        from_wallet_address,
-        counterparty_name,
-        counterparty_wallet_address,
-        bridge_transfer_id,
-        bridge_transfer_status,
-        bridge_source_amount,
-        bridge_source_currency,
-        bridge_source_deposit_instructions,
-        bridge_destination_tx_hash,
-        bridge_receipt_url,
-        transaction_signature,
-        webhook_event_id,
-        normalization_key,
-        status,
-        confirmed_at,
-        failed_at,
-        failure_reason
-      )
-      VALUES (
-        $1, NULL, 'inbound', 'onramp', $2, $3, $4, 'solana-mainnet', $5, $6, $7, NULL, $8, $9,
-        $10, $11, $12::JSONB, NULL, $13, $8, NULL, $14, 'pending', NULL, NULL, NULL
-      )
-      RETURNING ${transactionSelection}
-    `,
-    [
-      input.userId,
-      input.asset,
-      input.expectedDestinationAmount,
-      amountRaw,
-      input.walletAddress,
-      input.walletAddress,
-      buildOnrampCounterpartyName(input.depositInstructions?.paymentRail),
-      input.bridgeTransferId,
-      input.bridgeTransferStatus,
-      input.sourceAmount,
-      input.sourceCurrency,
-      input.depositInstructions ? JSON.stringify(input.depositInstructions) : null,
-      input.receiptUrl ?? null,
-      `onramp:${input.bridgeTransferId}`,
-    ],
-  );
+  return withTransaction(async client => {
+    const inserted = await client.query<TransactionRow>(
+      `
+        INSERT INTO transactions (
+          user_id,
+          recipient_id,
+          direction,
+          entry_type,
+          asset,
+          amount_decimal,
+          amount_raw,
+          network,
+          tracked_wallet_address,
+          from_wallet_address,
+          counterparty_name,
+          counterparty_wallet_address,
+          bridge_transfer_id,
+          bridge_transfer_status,
+          bridge_source_amount,
+          bridge_source_currency,
+          bridge_source_deposit_instructions,
+          bridge_destination_tx_hash,
+          bridge_receipt_url,
+          transaction_signature,
+          webhook_event_id,
+          normalization_key,
+          status,
+          confirmed_at,
+          failed_at,
+          failure_reason
+        )
+        VALUES (
+          $1, NULL, 'inbound', 'onramp', $2, $3, $4, 'solana-mainnet', $5, $6, $7, NULL, $8, $9,
+          $10, $11, $12::JSONB, NULL, $13, $8, NULL, $14, 'pending', NULL, NULL, NULL
+        )
+        ON CONFLICT (bridge_transfer_id) WHERE bridge_transfer_id IS NOT NULL DO NOTHING
+        RETURNING ${transactionSelection}
+      `,
+      [
+        input.userId,
+        input.asset,
+        input.expectedDestinationAmount,
+        amountRaw,
+        input.walletAddress,
+        input.walletAddress,
+        buildOnrampCounterpartyName(input.depositInstructions?.paymentRail),
+        input.bridgeTransferId,
+        input.bridgeTransferStatus,
+        input.sourceAmount,
+        input.sourceCurrency,
+        input.depositInstructions ? JSON.stringify(input.depositInstructions) : null,
+        input.receiptUrl ?? null,
+        `onramp:${input.bridgeTransferId}`,
+      ],
+    );
 
-  return mapCollapsedTransaction(mapLedgerTransaction(result.rows[0]), null);
+    const row = inserted.rows[0] ?? (await getTransactionByBridgeTransferId(client, input.bridgeTransferId));
+    if (!row) {
+      throw new Error("Unable to load the stored on-ramp transaction.");
+    }
+
+    return mapCollapsedTransaction(mapLedgerTransaction(row), null);
+  });
 }
 
 export async function createPendingOfframpTransaction(input: CreatePendingOfframpTransactionInput) {
   const amountRaw = parseDecimalAmountToRaw(input.amount, getTransferAssetDecimals(input.asset));
-  const result = await pool.query<TransactionRow>(
-    `
-      INSERT INTO transactions (
-        user_id,
-        recipient_id,
-        direction,
-        entry_type,
-        asset,
-        amount_decimal,
-        amount_raw,
-        network,
-        tracked_wallet_address,
-        from_wallet_address,
-        counterparty_name,
-        counterparty_wallet_address,
-        bridge_transfer_id,
-        bridge_transfer_status,
-        bridge_source_amount,
-        bridge_source_currency,
-        bridge_source_deposit_instructions,
-        bridge_destination_tx_hash,
-        bridge_receipt_url,
-        transaction_signature,
-        webhook_event_id,
-        normalization_key,
-        status,
-        confirmed_at,
-        failed_at,
-        failure_reason
-      )
-      VALUES (
-        $1, $2, 'outbound', 'offramp', $3, $4, $5, 'solana-mainnet', $6, $7, $8, NULL, $9, $10,
-        $11, $12, $13::JSONB, NULL, $14, $9, NULL, $15, 'pending', NULL, NULL, NULL
-      )
-      RETURNING ${transactionSelection}
-    `,
-    [
-      input.userId,
-      input.recipientId,
-      input.asset,
-      input.amount,
-      amountRaw,
-      input.walletAddress,
-      input.walletAddress,
-      input.recipientName,
-      input.bridgeTransferId,
-      input.bridgeTransferStatus,
-      input.sourceAmount,
-      input.sourceCurrency,
-      JSON.stringify(input.depositInstructions),
-      input.receiptUrl ?? null,
-      buildOfframpNormalizationKey(input.bridgeTransferId),
-    ],
-  );
+  return withTransaction(async client => {
+    const inserted = await client.query<TransactionRow>(
+      `
+        INSERT INTO transactions (
+          user_id,
+          recipient_id,
+          direction,
+          entry_type,
+          asset,
+          amount_decimal,
+          amount_raw,
+          network,
+          tracked_wallet_address,
+          from_wallet_address,
+          counterparty_name,
+          counterparty_wallet_address,
+          bridge_transfer_id,
+          bridge_transfer_status,
+          bridge_source_amount,
+          bridge_source_currency,
+          bridge_source_deposit_instructions,
+          bridge_destination_tx_hash,
+          bridge_receipt_url,
+          transaction_signature,
+          webhook_event_id,
+          normalization_key,
+          status,
+          confirmed_at,
+          failed_at,
+          failure_reason
+        )
+        VALUES (
+          $1, $2, 'outbound', 'offramp', $3, $4, $5, 'solana-mainnet', $6, $7, $8, NULL, $9, $10,
+          $11, $12, $13::JSONB, NULL, $14, $9, NULL, $15, 'pending', NULL, NULL, NULL
+        )
+        ON CONFLICT (bridge_transfer_id) WHERE bridge_transfer_id IS NOT NULL DO NOTHING
+        RETURNING ${transactionSelection}
+      `,
+      [
+        input.userId,
+        input.recipientId,
+        input.asset,
+        input.amount,
+        amountRaw,
+        input.walletAddress,
+        input.walletAddress,
+        input.recipientName,
+        input.bridgeTransferId,
+        input.bridgeTransferStatus,
+        input.sourceAmount,
+        input.sourceCurrency,
+        JSON.stringify(input.depositInstructions),
+        input.receiptUrl ?? null,
+        buildOfframpNormalizationKey(input.bridgeTransferId),
+      ],
+    );
 
-  return mapCollapsedTransaction(mapLedgerTransaction(result.rows[0]), null);
+    const row = inserted.rows[0] ?? (await getTransactionByBridgeTransferId(client, input.bridgeTransferId));
+    if (!row) {
+      throw new Error("Unable to load the stored off-ramp transaction.");
+    }
+
+    return mapCollapsedTransaction(mapLedgerTransaction(row), null);
+  });
 }
 
 export async function createConfirmedSwapTransaction(input: CreateConfirmedSwapTransactionInput) {
