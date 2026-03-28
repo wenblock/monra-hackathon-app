@@ -250,7 +250,7 @@ describe("YieldPage", () => {
     expect(screen.getByText(/1.485/)).toBeInTheDocument();
   });
 
-  it("shows an MFA reminder inside the yield action dialog", () => {
+  it("does not show an MFA reminder inside the yield action dialog", () => {
     renderWithQueryClient(<YieldPage />);
 
     const vaultRowButton = screen
@@ -260,10 +260,10 @@ describe("YieldPage", () => {
     fireEvent.click(vaultRowButton!);
 
     expect(
-      screen.getAllByText(
+      screen.queryByText(
         "If MFA is enabled, Coinbase will ask for a verification code before submitting this yield action.",
-      ).length,
-    ).toBeGreaterThan(0);
+      ),
+    ).not.toBeInTheDocument();
   });
 
   it("renders non-Error yield query failures without crashing", () => {

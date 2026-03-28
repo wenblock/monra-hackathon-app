@@ -10,6 +10,9 @@ const cdpHooksMock = vi.hoisted(() => ({
   useSignOut: vi.fn(),
   useSolanaAddress: vi.fn(),
 }));
+const sessionMock = vi.hoisted(() => ({
+  useSession: vi.fn(),
+}));
 const cdpCoreMock = vi.hoisted(() => ({
   getEnabledMfaMethods: vi.fn(),
   getEnrolledMfaMethods: vi.fn(),
@@ -18,6 +21,7 @@ const cdpCoreMock = vi.hoisted(() => ({
 
 vi.mock("@coinbase/cdp-hooks", () => cdpHooksMock);
 vi.mock("@coinbase/cdp-core", () => cdpCoreMock);
+vi.mock("@/features/session/use-session", () => sessionMock);
 
 vi.mock("@coinbase/cdp-react/components/EnrollMfaModal", () => ({
   EnrollMfaModal: ({
@@ -46,6 +50,17 @@ vi.mock("@coinbase/cdp-react/components/ExportWalletModal", () => ({
   }) => (
     <div data-testid="export-wallet-modal" data-address={address}>
       {children}
+    </div>
+  ),
+  ExportWalletModalContent: ({
+    className,
+    title,
+  }: {
+    className?: string;
+    title?: string;
+  }) => (
+    <div data-testid="export-wallet-modal-content" className={className}>
+      {title}
     </div>
   ),
   ExportWalletModalTrigger: ({
@@ -84,6 +99,11 @@ describe("ProfilePage", () => {
     vi.clearAllMocks();
     cdpHooksMock.useCurrentUser.mockReturnValue({
       currentUser: buildCdpUser(),
+    });
+    sessionMock.useSession.mockReturnValue({
+      user: {
+        fullName: "Monra User",
+      },
     });
     cdpHooksMock.useSignOut.mockReturnValue({
       signOut: vi.fn(),
@@ -142,16 +162,25 @@ describe("ProfilePage", () => {
     expect(screen.getByText("Not enrolled")).toBeInTheDocument();
     expect(screen.getByText("Available methods: Authenticator app and Text message")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /set up mfa/i })).toBeInTheDocument();
+    expect(screen.queryByText("Wallet address")).not.toBeInTheDocument();
     expect(
-      screen.getByText(
+      screen.queryByText(
         "If MFA is enabled, Coinbase will ask for a verification code before revealing the private key.",
       ),
-    ).toBeInTheDocument();
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        "Coinbase will ask for a verification code before protected wallet actions like transaction signing and key export.",
+      ),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Coinbase ExportWalletModal")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Export private key").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /export private key/i })).toBeInTheDocument();
     expect(screen.getByTestId("export-wallet-modal")).toHaveAttribute(
       "data-address",
       "11111111111111111111111111111111",
     );
+    expect(screen.getByTestId("export-wallet-modal-content")).toHaveTextContent("Export private key");
   });
 
   it("renders enrolled MFA state without the enrollment CTA", () => {

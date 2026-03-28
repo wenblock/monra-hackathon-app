@@ -330,14 +330,14 @@ function SendDrawer({
                     id="send-recipient-full-name"
                     label="Full Name"
                     onChange={setNewRecipientFullName}
-                    placeholder="Hassan Qureshi"
+                    placeholder="Enter full name"
                     value={newRecipientFullName}
                   />
                   <Field
                     id="send-recipient-wallet-address"
                     label="Solana Wallet Address"
                     onChange={setNewRecipientWalletAddress}
-                    placeholder="Enter Solana wallet address"
+                    placeholder="Enter wallet address"
                     value={newRecipientWalletAddress}
                   />
                   <div className="flex gap-3">

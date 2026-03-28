@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useSignOut, useSolanaAddress } from "@coinbase/cdp-hooks";
-import { Check, Copy, Menu, UserRound, Wallet } from "lucide-react";
+import { Check, Copy, Menu, UserRound } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { sidebarItems } from "@/dashboard-view-models";
@@ -12,11 +12,11 @@ import { Separator } from "@/components/ui/separator";
 import {
   Sheet,
   SheetContent,
-  SheetDescription,
   SheetHeader,
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import { useSession } from "@/features/session/use-session";
 import { logRuntimeError } from "@/lib/log-runtime-error";
 import { cn } from "@/lib/utils";
 
@@ -27,10 +27,13 @@ interface AppShellProps {
 }
 
 function AppShell({ alerts, children, notice }: AppShellProps) {
+  const { user } = useSession();
   const { solanaAddress } = useSolanaAddress();
   const { signOut } = useSignOut();
   const [isCopied, setIsCopied] = useState(false);
   const [clipboardError, setClipboardError] = useState<string | null>(null);
+  const userFullName = typeof user.fullName === "string" ? user.fullName.trim() : "";
+  const welcomeLabel = userFullName ? `Welcome ${userFullName}` : "Welcome";
 
   const formattedAddress = useMemo(() => {
     if (!solanaAddress) return "Wallet pending";
@@ -81,25 +84,14 @@ function AppShell({ alerts, children, notice }: AppShellProps) {
                 </SheetTrigger>
                 <SheetContent side="left" className="w-[min(88vw,20rem)]">
                   <SheetHeader>
-                    <SheetTitle>Monra</SheetTitle>
-                    <SheetDescription>Wallet operations and treasury overview.</SheetDescription>
+                    <SheetTitle>{welcomeLabel}</SheetTitle>
                   </SheetHeader>
                   <SidebarContent compact />
                 </SheetContent>
               </Sheet>
 
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-3">
-                  <div className="flex size-11 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-sm">
-                    <Wallet className="size-5" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted-foreground">
-                      Monra
-                    </p>
-                    <p className="truncate text-lg font-semibold">Treasury workspace</p>
-                  </div>
-                </div>
+                <p className="truncate text-lg font-semibold">{welcomeLabel}</p>
               </div>
 
               <div className="hidden items-center gap-2 sm:flex">
@@ -179,13 +171,7 @@ function SidebarContent({ compact = false }: { compact?: boolean }) {
         <div className="space-y-4">
           <div className="flex items-start justify-between gap-3">
             <div className="space-y-2">
-              <p className="font-mono text-xs uppercase tracking-[0.28em] text-sidebar-foreground/60">
-                Monra
-              </p>
               <h1 className="text-3xl font-semibold tracking-tight">Treasury Ops</h1>
-              <p className="text-sm text-sidebar-foreground/70">
-                Wallet operations, recipients, and fiat rails.
-              </p>
             </div>
           </div>
         </div>

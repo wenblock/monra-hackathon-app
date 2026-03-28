@@ -249,7 +249,7 @@ function RecipientsPage({
                     onChange={event =>
                       setWalletForm(current => ({ ...current, fullName: event.target.value }))
                     }
-                    placeholder="Hassan Qureshi"
+                    placeholder="Enter full name"
                   />
                 </div>
                 <div className="space-y-2">
@@ -260,7 +260,7 @@ function RecipientsPage({
                     onChange={event =>
                       setWalletForm(current => ({ ...current, walletAddress: event.target.value }))
                     }
-                    placeholder="Enter Solana wallet address"
+                    placeholder="Enter wallet address"
                   />
                 </div>
               </div>
@@ -318,14 +318,14 @@ function RecipientsPage({
                         label="First Name"
                         value={bankForm.firstName}
                         onChange={value => setBankForm(current => ({ ...current, firstName: value }))}
-                        placeholder="Hassan"
+                        placeholder="Enter first name"
                       />
                       <Field
                         id="bank-last-name"
                         label="Last Name"
                         value={bankForm.lastName}
                         onChange={value => setBankForm(current => ({ ...current, lastName: value }))}
-                        placeholder="Qureshi"
+                        placeholder="Enter last name"
                       />
                     </div>
                     <Field
@@ -333,7 +333,7 @@ function RecipientsPage({
                       label="Bank Name"
                       value={bankForm.bankName}
                       onChange={value => setBankForm(current => ({ ...current, bankName: value }))}
-                      placeholder="Wise"
+                      placeholder="Enter bank name"
                     />
                     <div className="grid gap-4 sm:grid-cols-2">
                       <Field
@@ -341,14 +341,14 @@ function RecipientsPage({
                         label="IBAN"
                         value={bankForm.iban}
                         onChange={value => setBankForm(current => ({ ...current, iban: value }))}
-                        placeholder="BE21967788293603"
+                        placeholder="Enter IBAN"
                       />
                       <Field
                         id="bank-bic"
                         label="BIC"
                         value={bankForm.bic}
                         onChange={value => setBankForm(current => ({ ...current, bic: value }))}
-                        placeholder="TRWIBEB1XXX"
+                        placeholder="Enter BIC"
                       />
                     </div>
                   </>
@@ -363,14 +363,14 @@ function RecipientsPage({
                       onChange={value =>
                         setBankForm(current => ({ ...current, businessName: value }))
                       }
-                      placeholder="Wenblock"
+                      placeholder="Enter business name"
                     />
                     <Field
                       id="business-bank-name"
                       label="Bank Name"
                       value={bankForm.bankName}
                       onChange={value => setBankForm(current => ({ ...current, bankName: value }))}
-                      placeholder="SHINE"
+                      placeholder="Enter bank name"
                     />
                     <div className="grid gap-4 sm:grid-cols-2">
                       <Field
@@ -378,14 +378,14 @@ function RecipientsPage({
                         label="IBAN"
                         value={bankForm.iban}
                         onChange={value => setBankForm(current => ({ ...current, iban: value }))}
-                        placeholder="FR7617418000010001199661214"
+                        placeholder="Enter IBAN"
                       />
                       <Field
                         id="business-bic"
                         label="BIC"
                         value={bankForm.bic}
                         onChange={value => setBankForm(current => ({ ...current, bic: value }))}
-                        placeholder="SNNNFR22XXX"
+                        placeholder="Enter BIC"
                       />
                     </div>
                   </>

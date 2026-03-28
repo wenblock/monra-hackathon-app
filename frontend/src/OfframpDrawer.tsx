@@ -523,14 +523,14 @@ function OfframpDrawer({
                           id="offramp-recipient-first-name"
                           label="First Name"
                           onChange={value => setBankForm(current => ({ ...current, firstName: value }))}
-                          placeholder="Hassan"
+                          placeholder="Enter first name"
                           value={bankForm.firstName}
                         />
                         <Field
                           id="offramp-recipient-last-name"
                           label="Last Name"
                           onChange={value => setBankForm(current => ({ ...current, lastName: value }))}
-                          placeholder="Qureshi"
+                          placeholder="Enter last name"
                           value={bankForm.lastName}
                         />
                       </div>
@@ -538,7 +538,7 @@ function OfframpDrawer({
                         id="offramp-recipient-bank-name"
                         label="Bank Name"
                         onChange={value => setBankForm(current => ({ ...current, bankName: value }))}
-                        placeholder="Wise"
+                        placeholder="Enter bank name"
                         value={bankForm.bankName}
                       />
                       <div className="grid gap-4 sm:grid-cols-2">
@@ -546,14 +546,14 @@ function OfframpDrawer({
                           id="offramp-recipient-iban"
                           label="IBAN"
                           onChange={value => setBankForm(current => ({ ...current, iban: value }))}
-                          placeholder="BE21967788293603"
+                          placeholder="Enter IBAN"
                           value={bankForm.iban}
                         />
                         <Field
                           id="offramp-recipient-bic"
                           label="BIC"
                           onChange={value => setBankForm(current => ({ ...current, bic: value }))}
-                          placeholder="TRWIBEB1XXX"
+                          placeholder="Enter BIC"
                           value={bankForm.bic}
                         />
                       </div>
@@ -566,14 +566,14 @@ function OfframpDrawer({
                         id="offramp-recipient-business-name"
                         label="Business Name"
                         onChange={value => setBankForm(current => ({ ...current, businessName: value }))}
-                        placeholder="Wenblock"
+                        placeholder="Enter business name"
                         value={bankForm.businessName}
                       />
                       <Field
                         id="offramp-recipient-business-bank-name"
                         label="Bank Name"
                         onChange={value => setBankForm(current => ({ ...current, bankName: value }))}
-                        placeholder="SHINE"
+                        placeholder="Enter bank name"
                         value={bankForm.bankName}
                       />
                       <div className="grid gap-4 sm:grid-cols-2">
@@ -581,14 +581,14 @@ function OfframpDrawer({
                           id="offramp-recipient-business-iban"
                           label="IBAN"
                           onChange={value => setBankForm(current => ({ ...current, iban: value }))}
-                          placeholder="FR7617418000010001199661214"
+                          placeholder="Enter IBAN"
                           value={bankForm.iban}
                         />
                         <Field
                           id="offramp-recipient-business-bic"
                           label="BIC"
                           onChange={value => setBankForm(current => ({ ...current, bic: value }))}
-                          placeholder="SNNNFR22XXX"
+                          placeholder="Enter BIC"
                           value={bankForm.bic}
                         />
                       </div>

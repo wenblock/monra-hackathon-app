@@ -22,7 +22,6 @@ import { useDashboardSnapshot } from "@/features/dashboard/use-dashboard-snapsho
 import { useApiClient } from "@/features/session/use-api-client";
 import { usePersistedSolanaAddress } from "@/features/session/use-persisted-solana-address";
 import { useSession } from "@/features/session/use-session";
-import MfaProtectedActionHint from "@/features/security/MfaProtectedActionHint";
 import { useExecuteSwapMutation } from "@/features/swaps/use-swap-mutations";
 import { logRuntimeError } from "@/lib/log-runtime-error";
 import { cn } from "@/lib/utils";
@@ -198,9 +197,6 @@ function SwapPage() {
       <div className="flex min-h-[calc(100vh-10rem)] items-center justify-center py-6">
         <div className="w-full max-w-[34rem] space-y-5">
           <div className="space-y-2 text-center">
-            <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted-foreground">
-              Jupiter Swap
-            </p>
             <h1 className="text-3xl font-semibold tracking-tight text-foreground">Swap assets</h1>
             <p className="text-sm text-muted-foreground">
               Convert between SOL, USDC, and EURC directly from the treasury wallet.
@@ -280,8 +276,6 @@ function SwapPage() {
                 {snapshotQuery.error.message}
               </InlineNotice>
             ) : null}
-
-            <MfaProtectedActionHint actionLabel="signing and submitting this swap" />
 
             <Button
               type="submit"

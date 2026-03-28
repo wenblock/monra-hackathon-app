@@ -6,6 +6,7 @@ import {
 } from "@coinbase/cdp-react/components/EnrollMfaModal";
 import {
   ExportWalletModal,
+  ExportWalletModalContent,
   ExportWalletModalTrigger,
 } from "@coinbase/cdp-react/components/ExportWalletModal";
 import type { LucideIcon } from "lucide-react";
@@ -15,7 +16,6 @@ import {
   KeyRound,
   Mail,
   ShieldCheck,
-  TriangleAlert,
   UserRound,
   Wallet,
 } from "lucide-react";
@@ -32,7 +32,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import InlineNotice from "@/components/ui/inline-notice";
-import MfaProtectedActionHint from "@/features/security/MfaProtectedActionHint";
 import { getCdpMfaStatus } from "@/features/security/mfa";
 import { cn } from "@/lib/utils";
 import type { AppUser, BridgeComplianceState } from "@/types";
@@ -208,7 +207,7 @@ function ProfilePage({ bridge, user, walletAddress, walletSyncError }: ProfilePa
                   </CardDescription>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-5">
+              <CardContent>
                 <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
                   <div className="rounded-[calc(var(--radius)+2px)] border border-border/70 bg-background/60 p-4">
                     <div className="flex items-start justify-between gap-4">
@@ -218,7 +217,6 @@ function ProfilePage({ bridge, user, walletAddress, walletSyncError }: ProfilePa
                         </span>
                         <div className="space-y-2">
                           <p className="font-medium text-foreground">Multi-factor authentication</p>
-                          <p className="text-sm text-muted-foreground">{mfaStatus.detail}</p>
                         </div>
                       </div>
                       <Badge variant={mfaStatus.status === "enabled" ? "success" : "secondary"}>
@@ -232,16 +230,12 @@ function ProfilePage({ bridge, user, walletAddress, walletSyncError }: ProfilePa
                     </div>
 
                     {mfaStatus.canEnroll ? (
-                      <div className="mt-4 space-y-3">
+                      <div className="mt-4">
                         <EnrollMfaModal onEnrollSuccess={() => setDidEnrollMfa(true)}>
                           <Button type="button" className="min-w-[12rem]">
                             Set up MFA
                           </Button>
                         </EnrollMfaModal>
-                        <p className="text-sm text-muted-foreground">
-                          Coinbase handles MFA enrollment inside a secure modal and will reuse it
-                          for protected wallet actions.
-                        </p>
                       </div>
                     ) : (
                       <div className="mt-4 rounded-[calc(var(--radius)+2px)] border border-border/70 bg-secondary/30 px-4 py-3 text-sm text-muted-foreground">
@@ -253,41 +247,15 @@ function ProfilePage({ bridge, user, walletAddress, walletSyncError }: ProfilePa
                   </div>
 
                   <div className="rounded-[calc(var(--radius)+2px)] border border-[color:color-mix(in_srgb,var(--danger)_20%,white)] bg-[color:color-mix(in_srgb,var(--danger)_6%,white)] p-4">
-                    <div className="flex items-start gap-3">
-                      <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-2xl bg-white/75 text-[var(--danger)]">
-                        <TriangleAlert className="size-4" />
-                      </span>
-                      <div className="space-y-2">
-                        <p className="font-medium text-foreground">Export private key</p>
-                        <p className="text-sm text-muted-foreground">
-                          Exported private keys grant full control over wallet funds. Only export
-                          when you need to migrate the wallet or take direct custody, and never
-                          share the key or store it insecurely.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-                  <ProfileDetail
-                    icon={Wallet}
-                    label="Wallet address"
-                    valueClassName="font-mono text-sm break-all"
-                  >
-                    {displayedWalletAddress}
-                  </ProfileDetail>
-
-                  <div className="rounded-[calc(var(--radius)+2px)] border border-border/70 bg-background/60 p-4">
                     <div className="flex h-full flex-col justify-between gap-4">
                       <div className="space-y-2">
                         <div className="flex items-center gap-2">
-                          <span className="flex size-10 items-center justify-center rounded-2xl bg-secondary text-primary">
+                          <span className="flex size-10 items-center justify-center rounded-2xl bg-white/75 text-[var(--danger)]">
                             <KeyRound className="size-4" />
                           </span>
                           <div>
                             <p className="text-sm text-muted-foreground">Secure export</p>
-                            <p className="font-medium text-foreground">Coinbase ExportWalletModal</p>
+                            <p className="font-medium text-foreground">Export private key</p>
                           </div>
                         </div>
                         <p className="text-sm text-muted-foreground">
@@ -296,10 +264,12 @@ function ProfilePage({ bridge, user, walletAddress, walletSyncError }: ProfilePa
                         </p>
                       </div>
 
-                      <MfaProtectedActionHint actionLabel="revealing the private key" />
-
                       {walletAddress ? (
                         <ExportWalletModal address={walletAddress}>
+                          <ExportWalletModalContent
+                            title="Export private key"
+                            className="border-[color:color-mix(in_srgb,var(--danger)_22%,white)] bg-[color:color-mix(in_srgb,var(--danger)_8%,white)]"
+                          />
                           <ExportWalletModalTrigger
                             label="Export private key"
                             className="min-w-[12rem]"

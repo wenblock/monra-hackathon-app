@@ -5,6 +5,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import AppShell from "@/AppShell";
 
 const clipboardWriteTextMock = vi.hoisted(() => vi.fn());
+const sessionMock = vi.hoisted(() => ({
+  useSession: vi.fn(),
+}));
 
 vi.mock("@coinbase/cdp-hooks", () => ({
   useSignOut: () => ({ signOut: vi.fn() }),
@@ -28,10 +31,16 @@ vi.mock("@tanstack/react-router", () => ({
     );
   },
 }));
+vi.mock("@/features/session/use-session", () => sessionMock);
 
 describe("AppShell", () => {
   beforeEach(() => {
     clipboardWriteTextMock.mockReset();
+    sessionMock.useSession.mockReturnValue({
+      user: {
+        fullName: "Monra User",
+      },
+    });
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: {
@@ -66,6 +75,7 @@ describe("AppShell", () => {
       </AppShell>,
     );
 
+    expect(screen.getAllByText("Welcome Monra User").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Yield").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Earn on stablecoins").length).toBeGreaterThan(0);
   });
