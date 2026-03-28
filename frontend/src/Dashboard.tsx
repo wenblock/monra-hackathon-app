@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/dialog";
 import InlineNotice from "@/components/ui/inline-notice";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/components/ui/toast-provider";
 import {
   TRANSFER_ASSETS,
   getTransferAssetIconPath,
@@ -89,6 +90,7 @@ function Dashboard({
   walletAddress,
   walletSyncError,
 }: Props) {
+  const { showToast } = useToast();
   const [dismissedTosAlert, setDismissedTosAlert] = useState(false);
   const [isKycDialogOpen, setIsKycDialogOpen] = useState(false);
   const [isTosDialogOpen, setIsTosDialogOpen] = useState(false);
@@ -103,6 +105,7 @@ function Dashboard({
 
   const effectiveSolanaAddress = walletAddress;
   const showKycAlert = bridge.showKycAlert;
+  const hasCompletedKyc = bridge.customerStatus === "active";
   const showTosAlert = bridge.showTosAlert && !dismissedTosAlert;
   const recentTransactions = transactions.slice(0, 5);
   const treasuryValueDisplay = valuation?.treasuryValueUsd
@@ -283,6 +286,14 @@ function Dashboard({
     </InlineNotice>
   ) : null;
 
+  const handleBlockedFiatRailAction = useCallback(() => {
+    showToast({
+      title: "KYC required",
+      description: "Complete identity verification before using on-ramp or off-ramp.",
+      variant: "error",
+    });
+  }, [showToast]);
+
   return (
     <AppShell alerts={alerts} notice={shellNotice}>
       <div className="space-y-6">
@@ -318,10 +329,24 @@ function Dashboard({
                     action.id === "deposit"
                       ? () => setIsDepositDrawerOpen(true)
                       : action.id === "onramp"
-                        ? () => setIsOnrampDrawerOpen(true)
+                        ? () => {
+                            if (!hasCompletedKyc) {
+                              handleBlockedFiatRailAction();
+                              return;
+                            }
+
+                            setIsOnrampDrawerOpen(true);
+                          }
                         : action.id === "send"
                           ? () => setIsSendDrawerOpen(true)
-                          : () => setIsOfframpDrawerOpen(true);
+                          : () => {
+                              if (!hasCompletedKyc) {
+                                handleBlockedFiatRailAction();
+                                return;
+                              }
+
+                              setIsOfframpDrawerOpen(true);
+                            };
 
                   return (
                     <Button

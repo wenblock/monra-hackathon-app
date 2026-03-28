@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ToastProvider } from "@/components/ui/toast-provider";
 import Dashboard, { TOS_IFRAME_SANDBOX } from "@/Dashboard";
 import type {
   AppUser,
@@ -9,12 +10,16 @@ import type {
 } from "@/types";
 
 const qrCodeDataUrlMock = vi.hoisted(() => vi.fn());
+const sessionMock = vi.hoisted(() => ({
+  useSession: vi.fn(),
+}));
 
 vi.mock("qrcode", () => ({
   default: {
     toDataURL: qrCodeDataUrlMock,
   },
 }));
+vi.mock("@/features/session/use-session", () => sessionMock);
 
 vi.mock("@coinbase/cdp-hooks", () => ({
   useSignOut: () => ({ signOut: vi.fn() }),
@@ -41,6 +46,11 @@ vi.mock("@tanstack/react-router", () => ({
 describe("Dashboard hardening", () => {
   beforeEach(() => {
     qrCodeDataUrlMock.mockReset();
+    sessionMock.useSession.mockReturnValue({
+      user: {
+        fullName: "Monra User",
+      },
+    });
   });
 
   afterEach(() => {
@@ -48,7 +58,7 @@ describe("Dashboard hardening", () => {
   });
 
   it("renders a hardened Bridge terms iframe with an external fallback", () => {
-    render(
+    renderDashboard(
       <Dashboard
         balances={buildBalances()}
         valuation={buildValuation()}
@@ -83,7 +93,7 @@ describe("Dashboard hardening", () => {
   it("shows a notice when Bridge KYC QR generation fails", async () => {
     qrCodeDataUrlMock.mockRejectedValueOnce(new Error("QR unavailable"));
 
-    render(
+    renderDashboard(
       <Dashboard
         balances={buildBalances()}
         valuation={buildValuation()}
@@ -114,7 +124,7 @@ describe("Dashboard hardening", () => {
   });
 
   it("renders treasury overview metrics and removes the welcome card", () => {
-    render(
+    renderDashboard(
       <Dashboard
         balances={buildBalances()}
         valuation={buildValuation()}
@@ -142,7 +152,7 @@ describe("Dashboard hardening", () => {
     expect(depositIndex).toBeGreaterThan(-1);
     expect(onrampIndex).toBeGreaterThan(-1);
     expect(depositIndex).toBeLessThan(onrampIndex);
-    expect(screen.queryByText("Welcome Monra User")).not.toBeInTheDocument();
+    expect(screen.getByText("Welcome Monra User")).toBeInTheDocument();
     expect(screen.getAllByText("Treasury Value")[0]).toBeInTheDocument();
     const treasuryOverviewCard = screen
       .getByText("Treasury Overview")
@@ -162,7 +172,7 @@ describe("Dashboard hardening", () => {
   it("opens the deposit drawer with QR, address, and supported assets", async () => {
     qrCodeDataUrlMock.mockResolvedValueOnce("data:image/png;base64,deposit-qr");
 
-    render(
+    renderDashboard(
       <Dashboard
         balances={buildBalances()}
         valuation={buildValuation()}
@@ -198,7 +208,7 @@ describe("Dashboard hardening", () => {
   it("shows a notice when deposit QR generation fails", async () => {
     qrCodeDataUrlMock.mockRejectedValueOnce(new Error("QR unavailable"));
 
-    render(
+    renderDashboard(
       <Dashboard
         balances={buildBalances()}
         valuation={buildValuation()}
@@ -229,7 +239,7 @@ describe("Dashboard hardening", () => {
   });
 
   it("renders SOL like the other assets with token amount under the label and USD value on the right", () => {
-    render(
+    renderDashboard(
       <Dashboard
         balances={buildBalances()}
         valuation={buildValuation()}
@@ -256,7 +266,7 @@ describe("Dashboard hardening", () => {
   });
 
   it("shows 0% FX exposure when stablecoin balances are zero", () => {
-    render(
+    renderDashboard(
       <Dashboard
         balances={buildBalances()}
         valuation={buildValuation({
@@ -297,7 +307,7 @@ describe("Dashboard hardening", () => {
   });
 
   it("shows unavailable treasury overview values when stablecoin valuation data is missing", () => {
-    render(
+    renderDashboard(
       <Dashboard
         balances={buildBalances()}
         valuation={buildValuation({
@@ -333,7 +343,107 @@ describe("Dashboard hardening", () => {
 
     expect(within(treasuryOverviewCard).getAllByText("Unavailable").length).toBeGreaterThanOrEqual(3);
   });
+
+  it("shows a KYC required error toast instead of opening the on-ramp drawer when verification is incomplete", async () => {
+    renderDashboard(
+      <Dashboard
+        balances={buildBalances()}
+        valuation={buildValuation()}
+        yield={buildYield()}
+        bridge={buildBridgeState({ customerStatus: "not_started", showKycAlert: true })}
+        onCreateOfframp={vi.fn()}
+        onCreateOnramp={vi.fn()}
+        onCreateRecipient={vi.fn()}
+        onFetchSolanaTransactionContext={vi.fn()}
+        onRefreshBridgeStatus={vi.fn()}
+        recipients={[]}
+        transactions={[]}
+        transactionsError={null}
+        transactionsLoading={false}
+        user={buildUser()}
+        walletAddress="11111111111111111111111111111111"
+        walletSyncError={null}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: /on-ramp/i })[0]);
+
+    expect(await screen.findByText("KYC required")).toBeInTheDocument();
+    expect(
+      screen.getByText("Complete identity verification before using on-ramp or off-ramp."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Deposit instructions ready")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Convert EUR via SEPA into USDC or EURC on Solana using Bridge deposit instructions."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows a KYC required error toast instead of opening the off-ramp drawer when verification is incomplete", async () => {
+    renderDashboard(
+      <Dashboard
+        balances={buildBalances()}
+        valuation={buildValuation()}
+        yield={buildYield()}
+        bridge={buildBridgeState({ customerStatus: "not_started", showKycAlert: true })}
+        onCreateOfframp={vi.fn()}
+        onCreateOnramp={vi.fn()}
+        onCreateRecipient={vi.fn()}
+        onFetchSolanaTransactionContext={vi.fn()}
+        onRefreshBridgeStatus={vi.fn()}
+        recipients={[]}
+        transactions={[]}
+        transactionsError={null}
+        transactionsLoading={false}
+        user={buildUser()}
+        walletAddress="11111111111111111111111111111111"
+        walletSyncError={null}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: /off-ramp/i })[0]);
+
+    expect(await screen.findByText("KYC required")).toBeInTheDocument();
+    expect(
+      screen.getByText("Complete identity verification before using on-ramp or off-ramp."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("No bank recipients yet. Add one below to continue.")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Convert EURC or USDC on Solana into EUR sent to a saved SEPA bank recipient."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("still opens the on-ramp drawer when KYC is complete", async () => {
+    renderDashboard(
+      <Dashboard
+        balances={buildBalances()}
+        valuation={buildValuation()}
+        yield={buildYield()}
+        bridge={buildBridgeState({ customerStatus: "active", showKycAlert: false })}
+        onCreateOfframp={vi.fn()}
+        onCreateOnramp={vi.fn()}
+        onCreateRecipient={vi.fn()}
+        onFetchSolanaTransactionContext={vi.fn()}
+        onRefreshBridgeStatus={vi.fn()}
+        recipients={[]}
+        transactions={[]}
+        transactionsError={null}
+        transactionsLoading={false}
+        user={buildUser()}
+        walletAddress="11111111111111111111111111111111"
+        walletSyncError={null}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: /on-ramp/i })[0]);
+
+    expect(await screen.findByText("Convert EUR via SEPA into USDC or EURC on Solana using Bridge deposit instructions.")).toBeInTheDocument();
+    expect(screen.queryByText("KYC required")).not.toBeInTheDocument();
+  });
 });
+
+function renderDashboard(ui: React.ReactNode) {
+  return render(<ToastProvider>{ui}</ToastProvider>);
+}
 
 function buildBalances(): SolanaBalancesResponse["balances"] {
   return {
