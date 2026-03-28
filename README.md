@@ -11,7 +11,7 @@ This README is the source of truth for hackathon reviewers. It explains what the
 
 ## What Monra does
 
-- Onboards a user from Coinbase CDP auth into a local Monra profile
+- Onboards a user from CDP auth into a local Monra profile
 - Syncs Bridge compliance state for KYC and terms acceptance
 - Shows a treasury dashboard for SOL, USDC, EURC, and yield-invested USDC
 - Saves wallet and bank recipients
@@ -23,11 +23,11 @@ This README is the source of truth for hackathon reviewers. It explains what the
 
 ## Suggested review flow
 
-1. Open [https://app.monra.io](https://app.monra.io) and sign in with Coinbase CDP email auth.
+1. Open [https://app.monra.io](https://app.monra.io) and sign up with email auth.
 2. Complete onboarding to create the local Monra user and Bridge-linked profile.
 3. Review the dashboard treasury cards, asset balances, and recent activity feed.
-4. Add a wallet or bank recipient to see recipient management and Bridge-backed bank account creation.
-5. Test on-ramp and off-ramp flows if KYC and terms acceptance are complete.
+4. Add a wallet or bank recipient to see recipient management.
+5. Test on-ramp and off-ramp flows if KYC is completed.
 6. Test swap and yield flows from the funded treasury wallet.
 7. Open the transactions page and confirm new activity appears without a full page refresh.
 
@@ -87,7 +87,7 @@ This README is the source of truth for hackathon reviewers. It explains what the
 
 ```mermaid
 flowchart LR
-  U["User / Reviewer"] --> FE["Frontend<br/>React + Vite + TanStack Router"]
+  U["User"] --> FE["Frontend<br/>React + Vite + TanStack Router"]
   FE --> CDP["Coinbase CDP<br/>auth + embedded wallet"]
   FE --> API["Express API"]
   FE --> SSE["SSE stream<br/>/api/transactions/stream"]
@@ -118,7 +118,7 @@ flowchart LR
 ### Onboarding and Bridge compliance
 
 - `backend/src/routes/onboarding.ts` validates the onboarding form and hands off to `backend/src/lib/onboardingFlow.ts`.
-- `backend/src/lib/onboardingFlow.ts` creates the local user record first, then creates the Bridge customer and related compliance state. If Bridge fails after the local write, retrying resumes the flow instead of duplicating the user.
+- `backend/src/lib/onboardingFlow.ts` creates the local user record first, then creates the Bridge customer and related compliance state.
 - `backend/src/routes/bridge.ts` lets the frontend force a Bridge status refresh after KYC or terms acceptance.
 
 ### Route groups
@@ -353,5 +353,4 @@ Notes:
 ### Known limitations / next steps
 
 - End-to-end fiat rails and webhook-driven transaction completion require live Bridge, Alchemy, and CDP credentials.
-- The build no longer has the `coinbase-auth -> wallet-runtime -> coinbase-auth` circular chunk warning, but the `coinbase-auth` bundle is still large because it contains the CDP auth UI.
 - The reconciliation worker is opt-in through `RECONCILIATION_INTERVAL_MS`; leaving it at `0` keeps local development simpler.
