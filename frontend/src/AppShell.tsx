@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { useSignOut, useSolanaAddress } from "@coinbase/cdp-hooks";
+import { useSolanaAddress } from "@coinbase/cdp-hooks";
 import { Check, Copy, Menu, UserRound } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
@@ -16,6 +16,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import { useAppSignOut } from "@/features/session/use-app-sign-out";
 import { useSession } from "@/features/session/use-session";
 import { logRuntimeError } from "@/lib/log-runtime-error";
 import { cn } from "@/lib/utils";
@@ -29,7 +30,7 @@ interface AppShellProps {
 function AppShell({ alerts, children, notice }: AppShellProps) {
   const { user } = useSession();
   const { solanaAddress } = useSolanaAddress();
-  const { signOut } = useSignOut();
+  const { signOut } = useAppSignOut();
   const [isCopied, setIsCopied] = useState(false);
   const [clipboardError, setClipboardError] = useState<string | null>(null);
   const userFullName = typeof user.fullName === "string" ? user.fullName.trim() : "";

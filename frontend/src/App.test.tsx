@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
@@ -21,6 +21,10 @@ const sessionMutationMock = vi.hoisted(() => ({
   useSubmitOnboardingMutation: vi.fn(),
 }));
 
+const appSignOutMock = vi.hoisted(() => ({
+  useAppSignOut: vi.fn(),
+}));
+
 vi.mock("@coinbase/cdp-hooks", () => cdpHooksMock);
 vi.mock("@tanstack/react-router", () => ({
   Outlet: () => <div data-testid="app-outlet" />,
@@ -39,10 +43,13 @@ vi.mock("@/OnboardingScreen", () => ({
   default: () => <div>Set up your Monra account</div>,
 }));
 vi.mock("@/features/session/use-session-bootstrap", () => sessionBootstrapMock);
+vi.mock("@/features/session/use-app-sign-out", () => appSignOutMock);
 vi.mock("@/features/session/use-session-mutations", () => sessionMutationMock);
 vi.mock("@/features/transactions/transaction-stream-provider", () => ({
   TransactionStreamProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
+
+const sharedSignOutMock = vi.hoisted(() => vi.fn());
 
 describe("App", () => {
   beforeEach(() => {
@@ -50,6 +57,11 @@ describe("App", () => {
     cdpHooksMock.useIsInitialized.mockReturnValue({ isInitialized: true });
     cdpHooksMock.useIsSignedIn.mockReturnValue({ isSignedIn: false });
     cdpHooksMock.useSignOut.mockReturnValue({ signOut: vi.fn().mockResolvedValue(undefined) });
+    sharedSignOutMock.mockReset();
+    sharedSignOutMock.mockResolvedValue(undefined);
+    appSignOutMock.useAppSignOut.mockReturnValue({
+      signOut: sharedSignOutMock,
+    });
     sessionBootstrapMock.useSessionBootstrap.mockReturnValue({
       data: undefined,
       error: null,
@@ -104,6 +116,24 @@ describe("App", () => {
     renderWithQueryClient(<App />);
 
     expect(screen.getByTestId("app-outlet")).toBeInTheDocument();
+  });
+
+  it("routes bootstrap-auth failures through the shared app sign-out helper", async () => {
+    cdpHooksMock.useCurrentUser.mockReturnValue({ currentUser: { userId: "cdp-user-1" } });
+    cdpHooksMock.useIsSignedIn.mockReturnValue({ isSignedIn: true });
+    sessionBootstrapMock.useSessionBootstrap.mockReturnValue({
+      data: undefined,
+      error: new Error("Backend session failed"),
+      isError: true,
+      isPending: false,
+    });
+
+    renderWithQueryClient(<App />);
+
+    expect(await screen.findByText("Backend session failed")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(sharedSignOutMock).toHaveBeenCalledTimes(1);
+    });
   });
 });
 

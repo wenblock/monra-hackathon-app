@@ -1,16 +1,19 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { Mock } from "vitest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import AppShell from "@/AppShell";
 
 const clipboardWriteTextMock = vi.hoisted(() => vi.fn());
+const appSignOutMock = vi.hoisted(() => ({
+  useAppSignOut: vi.fn(),
+}));
+const sharedSignOutMock = vi.hoisted(() => vi.fn());
 const sessionMock = vi.hoisted(() => ({
   useSession: vi.fn(),
 }));
 
 vi.mock("@coinbase/cdp-hooks", () => ({
-  useSignOut: () => ({ signOut: vi.fn() }),
   useSolanaAddress: () => ({ solanaAddress: "11111111111111111111111111111111" }),
 }));
 
@@ -31,11 +34,17 @@ vi.mock("@tanstack/react-router", () => ({
     );
   },
 }));
+vi.mock("@/features/session/use-app-sign-out", () => appSignOutMock);
 vi.mock("@/features/session/use-session", () => sessionMock);
 
 describe("AppShell", () => {
   beforeEach(() => {
+    sharedSignOutMock.mockReset();
+    sharedSignOutMock.mockResolvedValue(undefined);
     clipboardWriteTextMock.mockReset();
+    appSignOutMock.useAppSignOut.mockReturnValue({
+      signOut: sharedSignOutMock,
+    });
     sessionMock.useSession.mockReturnValue({
       user: {
         fullName: "Monra User",
@@ -91,5 +100,19 @@ describe("AppShell", () => {
 
     expect(profileLinks.length).toBeGreaterThan(0);
     expect(profileLinks.some(link => link.getAttribute("href") === "/profile")).toBe(true);
+  });
+
+  it("routes sign out through the shared app sign-out helper", () => {
+    render(
+      <AppShell>
+        <div>Child content</div>
+      </AppShell>,
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: /sign out/i })[0]);
+
+    return waitFor(() => {
+      expect(sharedSignOutMock).toHaveBeenCalledTimes(1);
+    });
   });
 });

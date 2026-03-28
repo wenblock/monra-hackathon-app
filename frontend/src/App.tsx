@@ -1,9 +1,10 @@
-import { useCurrentUser, useIsInitialized, useIsSignedIn, useSignOut } from "@coinbase/cdp-hooks";
+import { useCurrentUser, useIsInitialized, useIsSignedIn } from "@coinbase/cdp-hooks";
 import { useQueryClient } from "@tanstack/react-query";
 import { Outlet } from "@tanstack/react-router";
-import { Suspense, lazy, useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 
 import { buildBridgeStateFromUser } from "@/api";
+import { useAppSignOut } from "@/features/session/use-app-sign-out";
 import { SessionProvider } from "@/features/session/session-context";
 import { useSessionBootstrap } from "@/features/session/use-session-bootstrap";
 import { useSubmitOnboardingMutation } from "@/features/session/use-session-mutations";
@@ -24,11 +25,10 @@ function App() {
   const { isInitialized } = useIsInitialized();
   const { isSignedIn } = useIsSignedIn();
   const { currentUser } = useCurrentUser();
-  const { signOut } = useSignOut();
+  const { signOut } = useAppSignOut();
   const queryClient = useQueryClient();
   const [phase, setPhase] = useState<AppPhase>("initializing_cdp");
   const [error, setError] = useState<string | undefined>(undefined);
-  const signOutInFlight = useRef(false);
   const sessionBootstrapQuery = useSessionBootstrap({
     enabled: isInitialized && isSignedIn && Boolean(currentUser?.userId),
     userId: currentUser?.userId,
@@ -43,7 +43,6 @@ function App() {
 
     if (!isSignedIn) {
       queryClient.clear();
-      signOutInFlight.current = false;
       setPhase("unauthenticated");
       return;
     }
@@ -85,17 +84,10 @@ function App() {
   ]);
 
   useEffect(() => {
-    if (!isSignedIn || !sessionBootstrapQuery.isError || signOutInFlight.current) {
+    if (!isSignedIn || !sessionBootstrapQuery.isError) {
       return;
     }
-
-    signOutInFlight.current = true;
-
-    void signOut()
-      .catch(() => undefined)
-      .finally(() => {
-        signOutInFlight.current = false;
-      });
+    void signOut().catch(() => undefined);
   }, [isSignedIn, sessionBootstrapQuery.isError, signOut]);
 
   useEffect(() => {
