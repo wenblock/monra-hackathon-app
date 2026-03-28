@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 
 import {
   TRANSFER_ASSETS,
+  getTransferAssetDecimals,
   getTransferAssetLabel,
 } from "@/assets";
 import { Badge } from "@/components/ui/badge";
@@ -81,6 +82,10 @@ function SendDrawer({
   const transferFeeHint = getWalletTransferFeeHint({
     asset,
     balances,
+  });
+  const maxAmount = getSendMaxAmount({
+    asset,
+    availableRawBalance,
   });
 
   const handleDrawerChange = (isOpen: boolean) => {
@@ -235,6 +240,16 @@ function SendDrawer({
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field
                   id="send-amount"
+                  actionDisabled={maxAmount === null}
+                  actionLabel="MAX"
+                  onAction={() => {
+                    if (!maxAmount) {
+                      return;
+                    }
+
+                    setAmount(maxAmount);
+                    setError(null);
+                  }}
                   label="Amount"
                   onChange={setAmount}
                   placeholder={asset === "sol" ? "0.25" : "50.00"}
@@ -397,14 +412,20 @@ function SendDrawer({
 }
 
 function Field({
+  actionDisabled,
+  actionLabel,
   id,
   label,
+  onAction,
   onChange,
   placeholder,
   value,
 }: {
+  actionDisabled?: boolean;
+  actionLabel?: string;
   id: string;
   label: string;
+  onAction?: () => void;
   onChange: (value: string) => void;
   placeholder: string;
   value: string;
@@ -412,9 +433,62 @@ function Field({
   return (
     <div className="space-y-2">
       <Label htmlFor={id}>{label}</Label>
-      <Input id={id} value={value} onChange={event => onChange(event.target.value)} placeholder={placeholder} />
+      <div className="flex items-center gap-2">
+        <Input
+          id={id}
+          value={value}
+          onChange={event => onChange(event.target.value)}
+          placeholder={placeholder}
+        />
+        {actionLabel && onAction ? (
+          <Button
+            type="button"
+            variant="secondary"
+            className="shrink-0"
+            disabled={actionDisabled}
+            onClick={onAction}
+          >
+            {actionLabel}
+          </Button>
+        ) : null}
+      </div>
     </div>
   );
+}
+
+const MIN_SOL_FEE_RESERVE_RAW = 100_000n;
+
+export function getSendMaxAmount(input: {
+  asset: TransferAsset;
+  availableRawBalance: string;
+}) {
+  const availableRawBalance = normalizeRawAmount(input.availableRawBalance);
+  const maxRawAmount =
+    input.asset === "sol"
+      ? availableRawBalance - MIN_SOL_FEE_RESERVE_RAW
+      : availableRawBalance;
+
+  if (maxRawAmount <= 0n) {
+    return null;
+  }
+
+  return formatRawAmount(maxRawAmount, getTransferAssetDecimals(input.asset));
+}
+
+function formatRawAmount(rawAmount: bigint, decimals: number) {
+  const paddedAmount = rawAmount.toString().padStart(decimals + 1, "0");
+  const wholePart = paddedAmount.slice(0, -decimals) || "0";
+  const fractionalPart = paddedAmount.slice(-decimals).replace(/0+$/, "");
+  return fractionalPart ? `${wholePart}.${fractionalPart}` : wholePart;
+}
+
+function normalizeRawAmount(value: string | null | undefined) {
+  const trimmedValue = value?.trim();
+  if (!trimmedValue) {
+    return 0n;
+  }
+
+  return BigInt(trimmedValue);
 }
 
 export default SendDrawer;

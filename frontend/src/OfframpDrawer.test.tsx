@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import OfframpDrawer from "@/OfframpDrawer";
+import OfframpDrawer, { getMaxAmountForAsset } from "@/OfframpDrawer";
 import type { AppTransaction, Recipient, SolanaBalancesResponse } from "@/types";
 
 const sendTransactionMock = vi.hoisted(() => vi.fn());
@@ -44,17 +44,7 @@ describe("OfframpDrawer", () => {
 
   it("shows an MFA reminder before broadcasting the source transfer", async () => {
     render(
-      <OfframpDrawer
-        balances={buildBalances()}
-        onCreateBankRecipient={vi.fn()}
-        onCreateOfframp={createOfframpMock}
-        onFetchTransactionContext={fetchTransactionContextMock}
-        onOpenChange={() => undefined}
-        open
-        recipients={[buildRecipient()]}
-        requestScope="cdp-user-1"
-        senderAddress="11111111111111111111111111111111"
-      />,
+      <Harness />,
     );
 
     expect(
@@ -63,14 +53,77 @@ describe("OfframpDrawer", () => {
       ),
     ).toBeInTheDocument();
   });
+
+  it("renders a max action next to the amount field", () => {
+    render(<Harness />);
+
+    expect(screen.getByRole("button", { name: "MAX" })).toBeInTheDocument();
+  });
+
+  it("computes the full available balance and disables max for empty balances", () => {
+    expect(
+      getMaxAmountForAsset({
+        asset: "eurc",
+        availableRawBalance: "50000000",
+      }),
+    ).toBe("50");
+
+    expect(
+      getMaxAmountForAsset({
+        asset: "usdc",
+        availableRawBalance: "75250000",
+      }),
+    ).toBe("75.25");
+
+    expect(
+      getMaxAmountForAsset({
+        asset: "eurc",
+        availableRawBalance: "0",
+      }),
+    ).toBeNull();
+  });
+
+  it("disables max when the selected asset has no available balance", () => {
+    render(
+      <Harness
+        balances={{
+          eurc: { formatted: "0.00", raw: "0" },
+          sol: { formatted: "1.00", raw: "1000000000" },
+          usdc: { formatted: "0.00", raw: "0" },
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "MAX" })).toBeDisabled();
+  });
 });
 
 function buildBalances(): SolanaBalancesResponse["balances"] {
   return {
     eurc: { formatted: "50.00", raw: "50000000" },
     sol: { formatted: "1.00", raw: "1000000000" },
-    usdc: { formatted: "50.00", raw: "50000000" },
+    usdc: { formatted: "75.25", raw: "75250000" },
   };
+}
+
+function Harness({
+  balances = buildBalances(),
+}: {
+  balances?: SolanaBalancesResponse["balances"];
+}) {
+  return (
+    <OfframpDrawer
+      balances={balances}
+      onCreateBankRecipient={vi.fn()}
+      onCreateOfframp={createOfframpMock}
+      onFetchTransactionContext={fetchTransactionContextMock}
+      onOpenChange={() => undefined}
+      open
+      recipients={[buildRecipient()]}
+      requestScope="cdp-user-1"
+      senderAddress="11111111111111111111111111111111"
+    />
+  );
 }
 
 function buildRecipient(): Recipient {

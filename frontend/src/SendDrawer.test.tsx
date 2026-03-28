@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import SendDrawer from "@/SendDrawer";
+import SendDrawer, { getSendMaxAmount } from "@/SendDrawer";
 import type { Recipient, SolanaBalancesResponse } from "@/types";
 
 const sendTransactionMock = vi.hoisted(() => vi.fn());
@@ -76,6 +76,28 @@ describe("SendDrawer", () => {
     ).toBeInTheDocument();
     expect(fetchTransactionContextMock).not.toHaveBeenCalled();
     expect(sendTransactionMock).not.toHaveBeenCalled();
+  });
+
+  it("renders a max action next to the amount field", () => {
+    render(<Harness />);
+
+    expect(screen.getByRole("button", { name: "MAX" })).toBeInTheDocument();
+  });
+
+  it("computes the max send amount using a SOL fee reserve and full stablecoin balances", () => {
+    expect(
+      getSendMaxAmount({
+        asset: "sol",
+        availableRawBalance: "1000000000",
+      }),
+    ).toBe("0.9999");
+
+    expect(
+      getSendMaxAmount({
+        asset: "usdc",
+        availableRawBalance: "10000000",
+      }),
+    ).toBe("10");
   });
 });
 

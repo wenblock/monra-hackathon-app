@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 
 import {
   OFFRAMP_SOURCE_ASSETS,
+  getTransferAssetDecimals,
   getTransferAssetLabel,
 } from "@/assets";
 import { Badge } from "@/components/ui/badge";
@@ -135,6 +136,10 @@ function OfframpDrawer({
   const splTransferFeeHint = getWalletTransferFeeHint({
     asset: sourceAsset,
     balances,
+  });
+  const maxAmount = getMaxAmountForAsset({
+    asset: sourceAsset,
+    availableRawBalance,
   });
 
   const handleOpenChange = (isOpen: boolean) => {
@@ -405,6 +410,16 @@ function OfframpDrawer({
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field
                   id="offramp-amount"
+                  actionDisabled={maxAmount === null}
+                  actionLabel="MAX"
+                  onAction={() => {
+                    if (!maxAmount) {
+                      return;
+                    }
+
+                    setAmount(maxAmount);
+                    setError(null);
+                  }}
                   label={`${displayCurrencyByAsset[sourceAsset]} amount`}
                   onChange={setAmount}
                   placeholder="25.00"
@@ -690,14 +705,20 @@ function OfframpDrawer({
 }
 
 function Field({
+  actionDisabled,
+  actionLabel,
   id,
   label,
+  onAction,
   onChange,
   placeholder,
   value,
 }: {
+  actionDisabled?: boolean;
+  actionLabel?: string;
   id: string;
   label: string;
+  onAction?: () => void;
   onChange: (value: string) => void;
   placeholder: string;
   value: string;
@@ -705,7 +726,25 @@ function Field({
   return (
     <div className="space-y-2">
       <Label htmlFor={id}>{label}</Label>
-      <Input id={id} value={value} onChange={event => onChange(event.target.value)} placeholder={placeholder} />
+      <div className="flex items-center gap-2">
+        <Input
+          id={id}
+          value={value}
+          onChange={event => onChange(event.target.value)}
+          placeholder={placeholder}
+        />
+        {actionLabel && onAction ? (
+          <Button
+            type="button"
+            variant="secondary"
+            className="shrink-0"
+            disabled={actionDisabled}
+            onClick={onAction}
+          >
+            {actionLabel}
+          </Button>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -734,6 +773,34 @@ function buildBankRecipientPayload(
   requestId: string,
 ): Extract<CreateRecipientPayload, { kind: "bank" }> {
   return buildSharedBankRecipientPayload(bankForm, requestId);
+}
+
+export function getMaxAmountForAsset(input: {
+  asset: OfframpSourceAsset;
+  availableRawBalance: string;
+}) {
+  const availableRawBalance = normalizeRawAmount(input.availableRawBalance);
+  if (availableRawBalance <= 0n) {
+    return null;
+  }
+
+  return formatRawAmount(availableRawBalance, getTransferAssetDecimals(input.asset));
+}
+
+function formatRawAmount(rawAmount: bigint, decimals: number) {
+  const paddedAmount = rawAmount.toString().padStart(decimals + 1, "0");
+  const wholePart = paddedAmount.slice(0, -decimals) || "0";
+  const fractionalPart = paddedAmount.slice(-decimals).replace(/0+$/, "");
+  return fractionalPart ? `${wholePart}.${fractionalPart}` : wholePart;
+}
+
+function normalizeRawAmount(value: string | null | undefined) {
+  const trimmedValue = value?.trim();
+  if (!trimmedValue) {
+    return 0n;
+  }
+
+  return BigInt(trimmedValue);
 }
 
 export default OfframpDrawer;
