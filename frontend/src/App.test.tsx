@@ -28,7 +28,9 @@ vi.mock("@tanstack/react-router", () => ({
 vi.mock("@/SignInScreen", () => ({
   default: ({ error }: { error?: string }) => (
     <div>
-      <div>Secure access</div>
+      <div>Global payments, simplified</div>
+      <div>Send and receive money instantly with stablecoins</div>
+      <div>Secure • No passwords</div>
       {error ? <div>{error}</div> : null}
     </div>
   ),
@@ -65,7 +67,9 @@ describe("App", () => {
   it("renders the sign-in screen when unauthenticated", async () => {
     renderWithQueryClient(<App />);
 
-    expect(await screen.findByText("Secure access")).toBeInTheDocument();
+    expect(await screen.findByText("Global payments, simplified")).toBeInTheDocument();
+    expect(screen.getByText("Send and receive money instantly with stablecoins")).toBeInTheDocument();
+    expect(screen.getByText("Secure • No passwords")).toBeInTheDocument();
   });
 
   it("renders onboarding when the session needs onboarding", async () => {
