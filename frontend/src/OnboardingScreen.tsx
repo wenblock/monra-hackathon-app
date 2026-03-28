@@ -1,7 +1,6 @@
-import { Building2, Globe2, UserRound } from "lucide-react";
+import { Building2, UserRound } from "lucide-react";
 import { type FormEvent, useMemo, useState } from "react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -66,39 +65,9 @@ function OnboardingScreen({ identity, isSubmitting, error, onSubmit }: Props) {
 
   return (
     <main className="flex min-h-screen items-center justify-center px-4 py-10 sm:px-6 lg:px-8">
-      <div className="grid w-full max-w-6xl gap-6 lg:grid-cols-[0.88fr_1.12fr]">
-        <Card className="border-primary/10 bg-[linear-gradient(160deg,rgba(255,255,255,0.98),rgba(245,242,236,0.94))]">
-          <CardContent className="flex h-full flex-col justify-between gap-8 p-8 sm:p-10">
-            <div className="space-y-5">
-              <Badge>Monra</Badge>
-              <div className="space-y-4">
-                <h1 className="text-4xl font-semibold tracking-tight text-foreground">
-                  Complete your profile once, then reuse it in the new dashboard shell.
-                </h1>
-                <p className="text-base text-muted-foreground">
-                  This keeps the backend contract unchanged while improving the form flow, hierarchy, and responsiveness.
-                </p>
-              </div>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <SummaryBlock
-                icon={UserRound}
-                title="Profile shape"
-                description="Choose the account type that controls how your workspace is labeled."
-              />
-              <SummaryBlock
-                icon={Globe2}
-                title="Country context"
-                description="Saved country data feeds the redesigned account summary card."
-              />
-            </div>
-          </CardContent>
-        </Card>
-
+      <div className="w-full max-w-3xl">
         <Card>
           <CardHeader className="space-y-3 pb-5">
-            <Badge variant="secondary">Onboarding</Badge>
             <CardTitle className="text-3xl">Set up your Monra account</CardTitle>
             <CardDescription className="text-base">
               Choose an account type, confirm identity details, and continue into the dashboard.
@@ -123,9 +92,6 @@ function OnboardingScreen({ identity, isSubmitting, error, onSubmit }: Props) {
                       <UserRound className="size-5" />
                     </span>
                     <p className="mt-4 text-lg font-semibold">Individual</p>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      Personal profile for a single operator.
-                    </p>
                   </button>
 
                   <button
@@ -142,9 +108,6 @@ function OnboardingScreen({ identity, isSubmitting, error, onSubmit }: Props) {
                       <Building2 className="size-5" />
                     </span>
                     <p className="mt-4 text-lg font-semibold">Business</p>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      Adds organization labeling for the account summary.
-                    </p>
                   </button>
                 </div>
               </div>
@@ -223,26 +186,6 @@ function OnboardingScreen({ identity, isSubmitting, error, onSubmit }: Props) {
         </Card>
       </div>
     </main>
-  );
-}
-
-function SummaryBlock({
-  icon: Icon,
-  title,
-  description,
-}: {
-  icon: typeof UserRound;
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="rounded-[calc(var(--radius)+2px)] border border-border/70 bg-white/70 p-4">
-      <span className="flex size-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-        <Icon className="size-4" />
-      </span>
-      <p className="mt-4 font-semibold text-foreground">{title}</p>
-      <p className="mt-1 text-sm text-muted-foreground">{description}</p>
-    </div>
   );
 }
 

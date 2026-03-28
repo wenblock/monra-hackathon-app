@@ -574,9 +574,6 @@ function Dashboard({
                   );
                 }}
               />
-              <div className="rounded-[calc(var(--radius)+2px)] border border-dashed border-border bg-secondary/30 px-4 py-3 text-sm text-muted-foreground">
-                If the embedded terms page does not load, open it in a new tab and return here after accepting.
-              </div>
               <Button type="button" variant="secondary" asChild>
                 <a href={user.bridgeTosLink} target="_blank" rel="noopener noreferrer">
                   Open terms in new tab
@@ -617,10 +614,6 @@ function Dashboard({
                   QR code unavailable
                 </div>
               )}
-            </div>
-
-            <div className="rounded-[calc(var(--radius)+2px)] border border-dashed border-border bg-secondary/40 p-4 text-sm text-muted-foreground">
-              Point your phone camera at the code above to complete KYC on mobile.
             </div>
           </div>
 
