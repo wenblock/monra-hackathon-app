@@ -44,9 +44,9 @@ function SignInScreen({ error }: Props) {
             </Suspense>
           </div>
 
-          <p className="text-sm text-muted-foreground">Secure • No passwords</p>
+          <p className="text-sm text-muted-foreground">Secure &bull; No passwords</p>
         </CardContent>
-      </div>
+      </Card>
     </main>
   );
 }
