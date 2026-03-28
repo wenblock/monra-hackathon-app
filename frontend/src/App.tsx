@@ -1,9 +1,10 @@
 import { useCurrentUser, useIsInitialized, useIsSignedIn } from "@coinbase/cdp-hooks";
 import { useQueryClient } from "@tanstack/react-query";
 import { Outlet } from "@tanstack/react-router";
-import { Suspense, lazy, useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 
 import { buildBridgeStateFromUser } from "@/api";
+import { lazyWithChunkRetry } from "@/lib/lazy-with-chunk-retry";
 import { useAppSignOut } from "@/features/session/use-app-sign-out";
 import { SessionProvider } from "@/features/session/session-context";
 import { useSessionBootstrap } from "@/features/session/use-session-bootstrap";
@@ -11,8 +12,14 @@ import { useSubmitOnboardingMutation } from "@/features/session/use-session-muta
 import { TransactionStreamProvider } from "@/features/transactions/transaction-stream-provider";
 import Loading from "@/Loading";
 
-const LazyOnboardingScreen = lazy(() => import("@/OnboardingScreen"));
-const LazySignInScreen = lazy(() => import("@/SignInScreen"));
+const LazyOnboardingScreen = lazyWithChunkRetry(
+  () => import("@/OnboardingScreen"),
+  "onboarding-screen",
+);
+const LazySignInScreen = lazyWithChunkRetry(
+  () => import("@/SignInScreen"),
+  "sign-in-screen",
+);
 
 type AppPhase =
   | "initializing_cdp"

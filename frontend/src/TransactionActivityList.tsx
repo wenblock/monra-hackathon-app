@@ -1,7 +1,8 @@
 import { ArrowDownLeft, ArrowUpRight, ArrowLeftRight, PiggyBank } from "lucide-react";
-import { Suspense, lazy, useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
+import { lazyWithChunkRetry } from "@/lib/lazy-with-chunk-retry";
 import { cn } from "@/lib/utils";
 import {
   formatActivityAmount,
@@ -14,7 +15,10 @@ import {
 } from "@/transaction-display";
 import type { AppTransaction } from "@/types";
 
-const LazyTransactionDetailsDrawer = lazy(() => import("@/TransactionDetailsDrawer"));
+const LazyTransactionDetailsDrawer = lazyWithChunkRetry(
+  () => import("@/TransactionDetailsDrawer"),
+  "transaction-details-drawer",
+);
 
 interface TransactionActivityListProps {
   transactions: AppTransaction[];

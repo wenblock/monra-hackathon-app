@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { ExternalLink, Send } from "lucide-react";
-import { Suspense, lazy, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 
 import AppShell, { AlertBarItem } from "@/AppShell";
 import { quickActions } from "@/dashboard-view-models";
@@ -27,6 +27,7 @@ import {
   getTransferAssetIconPath,
   getTransferAssetLabel,
 } from "@/assets";
+import { lazyWithChunkRetry } from "@/lib/lazy-with-chunk-retry";
 import { logRuntimeError } from "@/lib/log-runtime-error";
 import { cn } from "@/lib/utils";
 import TransactionActivityList from "@/TransactionActivityList";
@@ -43,10 +44,22 @@ import type {
   SolanaTransactionContextResponse,
 } from "@/types";
 
-const LazyOfframpDrawer = lazy(() => import("@/OfframpDrawer"));
-const LazyOnrampDrawer = lazy(() => import("@/OnrampDrawer"));
-const LazySendDrawer = lazy(() => import("@/SendDrawer"));
-const LazyDepositDrawer = lazy(() => import("@/DepositDrawer"));
+const LazyOfframpDrawer = lazyWithChunkRetry(
+  () => import("@/OfframpDrawer"),
+  "offramp-drawer",
+);
+const LazyOnrampDrawer = lazyWithChunkRetry(
+  () => import("@/OnrampDrawer"),
+  "onramp-drawer",
+);
+const LazySendDrawer = lazyWithChunkRetry(
+  () => import("@/SendDrawer"),
+  "send-drawer",
+);
+const LazyDepositDrawer = lazyWithChunkRetry(
+  () => import("@/DepositDrawer"),
+  "deposit-drawer",
+);
 
 const TOS_IFRAME_SANDBOX =
   "allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts";

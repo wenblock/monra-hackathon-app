@@ -1,8 +1,12 @@
-import { Suspense, lazy } from "react";
+import { Suspense } from "react";
 
 import { Card, CardContent } from "@/components/ui/card";
+import { lazyWithChunkRetry } from "@/lib/lazy-with-chunk-retry";
 
-const LazyCoinbaseAuthButton = lazy(() => import("@/features/session/CoinbaseAuthButton"));
+const LazyCoinbaseAuthButton = lazyWithChunkRetry(
+  () => import("@/features/session/CoinbaseAuthButton"),
+  "coinbase-auth-button",
+);
 
 interface Props {
   error?: string;
