@@ -145,7 +145,7 @@ function SendDrawer({
         throw new Error("Amount exceeds the available balance.");
       }
 
-      const recipientTokenAccountAddress = walletRuntime.getRecipientTokenAccountAddress(
+      const recipientTokenAccountProbeAddress = walletRuntime.getRecipientTokenAccountAddress(
         asset,
         selectedRecipient.walletAddress,
       );
@@ -153,7 +153,7 @@ function SendDrawer({
         asset,
         senderAddress,
         recipientAddress: selectedRecipient.walletAddress,
-        recipientTokenAccountAddress,
+        recipientTokenAccountAddress: recipientTokenAccountProbeAddress,
       });
       const preparedTransaction = walletRuntime.prepareTransferTransaction({
         amountRaw: parsedAmount.raw,
@@ -161,9 +161,9 @@ function SendDrawer({
         balances,
         recentBlockhash: transactionContext.recentBlockhash,
         recipientAddress: selectedRecipient.walletAddress,
-        recipientTokenAccountAddress,
         recipientTokenAccountExists: transactionContext.recipientTokenAccountExists ?? false,
         senderAddress,
+        tokenDestination: asset === "sol" ? undefined : { mode: "derived-associated-account" },
       });
       needsRecipientTokenAccountCreation = preparedTransaction.needsRecipientTokenAccountCreation;
 

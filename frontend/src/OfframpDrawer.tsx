@@ -32,6 +32,7 @@ import {
 import { useBridgeRequestId } from "@/features/bridge/use-bridge-request-id";
 import MfaProtectedActionHint from "@/features/security/MfaProtectedActionHint";
 import { getWalletTransferFeeHint } from "@/features/wallet/fee-hints";
+import type { TokenTransferDestination } from "@/features/wallet/runtime";
 import { SEPA_COUNTRIES } from "@/sepa-countries";
 import type {
   AppTransaction,
@@ -236,39 +237,43 @@ function OfframpDrawer({
       setIsBroadcasting(true);
       walletRuntime = await import("@/features/wallet/runtime");
 
+      const directTokenAccountProbeAddress = depositAddress;
       const directTokenAccountContext = await onFetchTransactionContext({
         asset: transaction.asset,
         senderAddress,
         recipientAddress: depositAddress,
-        recipientTokenAccountAddress: depositAddress,
+        recipientTokenAccountAddress: directTokenAccountProbeAddress,
       });
       const hasDirectTokenAccount = directTokenAccountContext.recipientTokenAccountExists ?? false;
-      let transactionContext = directTokenAccountContext;
-      let recipientTokenAccountAddress: string | undefined =
-        hasDirectTokenAccount ? depositAddress : undefined;
+      let recipientTokenAccountContext = directTokenAccountContext;
+      let tokenDestination: TokenTransferDestination = {
+        mode: "explicit-token-account",
+        tokenAccountAddress: directTokenAccountProbeAddress,
+      };
 
       if (!hasDirectTokenAccount) {
-        recipientTokenAccountAddress = walletRuntime.getRecipientTokenAccountAddress(
+        const derivedAssociatedTokenAccountProbeAddress = walletRuntime.getRecipientTokenAccountAddress(
           transaction.asset,
           depositAddress,
         );
-        transactionContext = await onFetchTransactionContext({
+        recipientTokenAccountContext = await onFetchTransactionContext({
           asset: transaction.asset,
           senderAddress,
           recipientAddress: depositAddress,
-          recipientTokenAccountAddress,
+          recipientTokenAccountAddress: derivedAssociatedTokenAccountProbeAddress,
         });
+        tokenDestination = { mode: "derived-associated-account" };
       }
 
       const preparedTransaction = walletRuntime.prepareTransferTransaction({
         amountRaw: BigInt(transaction.amountRaw),
         asset: transaction.asset,
         balances,
-        recentBlockhash: transactionContext.recentBlockhash,
+        recentBlockhash: recipientTokenAccountContext.recentBlockhash,
         recipientAddress: depositAddress,
-        recipientTokenAccountAddress: hasDirectTokenAccount ? depositAddress : recipientTokenAccountAddress,
-        recipientTokenAccountExists: transactionContext.recipientTokenAccountExists ?? false,
+        recipientTokenAccountExists: recipientTokenAccountContext.recipientTokenAccountExists ?? false,
         senderAddress,
+        tokenDestination,
       });
       needsRecipientTokenAccountCreation = preparedTransaction.needsRecipientTokenAccountCreation;
 

@@ -14,14 +14,18 @@ import type { TransferAsset } from "@/types";
 const TOKEN_PROGRAM_ID = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
 
+export type TokenTransferDestination =
+  | { mode: "derived-associated-account" }
+  | { mode: "explicit-token-account"; tokenAccountAddress: string };
+
 export function buildSerializedTransferTransaction(input: {
   amountRaw: bigint;
   asset: TransferAsset;
   recentBlockhash: string;
   recipientAddress: string;
-  recipientTokenAccountAddress?: string;
   recipientTokenAccountExists: boolean;
   senderAddress: string;
+  tokenDestination?: TokenTransferDestination;
 }) {
   const senderPublicKey = new PublicKey(input.senderAddress);
   const recipientPublicKey = new PublicKey(input.recipientAddress);
@@ -39,19 +43,20 @@ export function buildSerializedTransferTransaction(input: {
     const mint = new PublicKey(getTransferAssetMintAddress(input.asset));
     const decimals = getTransferAssetDecimals(input.asset);
     const senderAta = findAssociatedTokenAddress(senderPublicKey, mint);
-    const recipientAta = input.recipientTokenAccountAddress
-      ? new PublicKey(input.recipientTokenAccountAddress)
+    const tokenDestination = input.tokenDestination ?? { mode: "derived-associated-account" as const };
+    const recipientTokenAccount = tokenDestination.mode === "explicit-token-account"
+      ? new PublicKey(tokenDestination.tokenAccountAddress)
       : findAssociatedTokenAddress(recipientPublicKey, mint);
 
     if (!input.recipientTokenAccountExists) {
-      if (input.recipientTokenAccountAddress) {
+      if (tokenDestination.mode === "explicit-token-account") {
         throw new Error("Recipient token account does not exist.");
       }
 
       transaction.add(
         createAssociatedTokenAccountInstruction(
           senderPublicKey,
-          recipientAta,
+          recipientTokenAccount,
           recipientPublicKey,
           mint,
         ),
@@ -62,7 +67,7 @@ export function buildSerializedTransferTransaction(input: {
       createTransferCheckedInstruction({
         amount: input.amountRaw,
         decimals,
-        destination: recipientAta,
+        destination: recipientTokenAccount,
         mint,
         owner: senderPublicKey,
         source: senderAta,

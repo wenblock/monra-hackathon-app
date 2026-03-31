@@ -7,8 +7,11 @@ import {
   buildSerializedTransferTransaction,
   findAssociatedTokenAddress,
   parseTransferAmount,
+  type TokenTransferDestination as RuntimeTokenTransferDestination,
 } from "@/solana-transfer";
 import type { SolanaBalancesResponse, TransferAsset } from "@/types";
+
+export type TokenTransferDestination = RuntimeTokenTransferDestination;
 
 export function assertValidSolanaAddress(value: string) {
   assertRuntimeSolanaAddress(value);
@@ -39,12 +42,15 @@ export function prepareTransferTransaction(input: {
   balances?: SolanaBalancesResponse["balances"];
   recentBlockhash: string;
   recipientAddress: string;
-  recipientTokenAccountAddress?: string;
   recipientTokenAccountExists: boolean;
   senderAddress: string;
+  tokenDestination?: RuntimeTokenTransferDestination;
 }) {
   const needsRecipientTokenAccountCreation =
     input.asset !== "sol" && !input.recipientTokenAccountExists;
+  const tokenDestination = input.asset === "sol"
+    ? undefined
+    : input.tokenDestination ?? { mode: "derived-associated-account" as const };
 
   ensureSufficientSolForTransfer({
     amountRaw: input.amountRaw,
@@ -60,9 +66,9 @@ export function prepareTransferTransaction(input: {
       asset: input.asset,
       recentBlockhash: input.recentBlockhash,
       recipientAddress: input.recipientAddress,
-      recipientTokenAccountAddress: input.recipientTokenAccountAddress,
       recipientTokenAccountExists: input.recipientTokenAccountExists,
       senderAddress: input.senderAddress,
+      tokenDestination,
     }),
   };
 }

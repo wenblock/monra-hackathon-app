@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import OfframpDrawer from "@/OfframpDrawer";
@@ -8,6 +8,17 @@ import type { AppTransaction, Recipient, SolanaBalancesResponse } from "@/types"
 const sendTransactionMock = vi.hoisted(() => vi.fn());
 const createOfframpMock = vi.hoisted(() => vi.fn());
 const fetchTransactionContextMock = vi.hoisted(() => vi.fn());
+const getAssetDecimalsMock = vi.hoisted(() => vi.fn(() => 6));
+const getRecipientTokenAccountAddressMock = vi.hoisted(() => vi.fn(() => "11111111111111111111111111111111"));
+const normalizeWalletTransactionErrorMock = vi.hoisted(() => vi.fn(() => "Normalized wallet error."));
+const parseAssetAmountMock = vi.hoisted(() => vi.fn(() => ({
+  decimal: "25",
+  raw: 25_000_000n,
+})));
+const prepareTransferTransactionMock = vi.hoisted(() => vi.fn(() => ({
+  needsRecipientTokenAccountCreation: false,
+  serializedTransaction: "serialized-transaction",
+})));
 
 vi.mock("@coinbase/cdp-hooks", () => ({
   useSendSolanaTransaction: () => ({
@@ -15,32 +26,106 @@ vi.mock("@coinbase/cdp-hooks", () => ({
   }),
 }));
 
+vi.mock("@/components/ui/select", async () => {
+  const React = await import("react");
+
+  const SelectContext = React.createContext<{
+    onValueChange?: (value: string) => void;
+    value?: string;
+  } | null>(null);
+
+  function Select({
+    children,
+    onValueChange,
+    value,
+  }: {
+    children: React.ReactNode;
+    onValueChange?: (value: string) => void;
+    value?: string;
+  }) {
+    return (
+      <SelectContext.Provider value={{ onValueChange, value }}>
+        {children}
+      </SelectContext.Provider>
+    );
+  }
+
+  function SelectTrigger({ children }: { children: React.ReactNode }) {
+    return (
+      <button data-slot="select-trigger" type="button">
+        {children}
+      </button>
+    );
+  }
+
+  function SelectValue({ placeholder }: { placeholder?: string }) {
+    const context = React.useContext(SelectContext);
+
+    return <span>{context?.value || placeholder || ""}</span>;
+  }
+
+  function SelectContent({ children }: { children: React.ReactNode }) {
+    return <div data-slot="select-content">{children}</div>;
+  }
+
+  function SelectItem({
+    children,
+    value,
+  }: {
+    children: React.ReactNode;
+    value: string;
+  }) {
+    const context = React.useContext(SelectContext);
+
+    return (
+      <button role="option" type="button" onClick={() => context?.onValueChange?.(value)}>
+        {children}
+      </button>
+    );
+  }
+
+  return {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+  };
+});
+
 vi.mock("@/features/wallet/runtime", () => ({
-  getAssetDecimals: vi.fn(() => 6),
-  getRecipientTokenAccountAddress: vi.fn(() => "11111111111111111111111111111111"),
-  normalizeWalletTransactionError: vi.fn(() => "Normalized wallet error."),
-  parseAssetAmount: vi.fn(() => ({
-    decimal: "25",
-    raw: 25_000_000n,
-  })),
-  prepareTransferTransaction: vi.fn(() => ({
-    needsRecipientTokenAccountCreation: false,
-    serializedTransaction: "serialized-transaction",
-  })),
+  getAssetDecimals: getAssetDecimalsMock,
+  getRecipientTokenAccountAddress: getRecipientTokenAccountAddressMock,
+  normalizeWalletTransactionError: normalizeWalletTransactionErrorMock,
+  parseAssetAmount: parseAssetAmountMock,
+  prepareTransferTransaction: prepareTransferTransactionMock,
 }));
 
 describe("OfframpDrawer", () => {
   beforeEach(() => {
+    HTMLElement.prototype.scrollIntoView = vi.fn();
     createOfframpMock.mockReset();
     fetchTransactionContextMock.mockReset();
+    getAssetDecimalsMock.mockClear();
+    getRecipientTokenAccountAddressMock.mockReset();
+    normalizeWalletTransactionErrorMock.mockClear();
+    parseAssetAmountMock.mockClear();
+    prepareTransferTransactionMock.mockReset();
     sendTransactionMock.mockReset();
 
     createOfframpMock.mockResolvedValue(buildOfframpTransaction());
+    getRecipientTokenAccountAddressMock.mockReturnValue("11111111111111111111111111111111");
     fetchTransactionContextMock.mockResolvedValue({
       recentBlockhash: "blockhash-1",
       recipientTokenAccountExists: true,
     });
-    sendTransactionMock.mockReturnValue(new Promise(() => undefined));
+    prepareTransferTransactionMock.mockReturnValue({
+      needsRecipientTokenAccountCreation: false,
+      serializedTransaction: "serialized-transaction",
+    });
+    sendTransactionMock.mockResolvedValue({
+      transactionSignature: "broadcast-signature-1",
+    });
   });
 
   it("shows an MFA reminder before broadcasting the source transfer", async () => {
@@ -96,6 +181,80 @@ describe("OfframpDrawer", () => {
     );
 
     expect(screen.getByRole("button", { name: "MAX" })).toBeDisabled();
+  });
+
+  it("uses the direct bridge token account when it already exists", async () => {
+    render(<Harness />);
+
+    await selectTriggerOption(1, "Monra Treasury");
+    expect(await screen.findByText("DE89370400440532013000")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("EUR amount"), {
+      target: { value: "25" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    await waitFor(() =>
+      expect(prepareTransferTransactionMock).toHaveBeenCalledWith(expect.objectContaining({
+        asset: "eurc",
+        recentBlockhash: "blockhash-1",
+        recipientAddress: "11111111111111111111111111111111",
+        recipientTokenAccountExists: true,
+        senderAddress: "11111111111111111111111111111111",
+        tokenDestination: {
+          mode: "explicit-token-account",
+          tokenAccountAddress: "11111111111111111111111111111111",
+        },
+      })),
+    );
+  });
+
+  it("falls back to the derived ATA when bridge only returns a wallet owner", async () => {
+    fetchTransactionContextMock
+      .mockResolvedValueOnce({
+        recentBlockhash: "blockhash-direct",
+        recipientTokenAccountExists: false,
+      })
+      .mockResolvedValueOnce({
+        recentBlockhash: "blockhash-derived",
+        recipientTokenAccountExists: false,
+      });
+    getRecipientTokenAccountAddressMock.mockReturnValue("derived-associated-token-account");
+    prepareTransferTransactionMock.mockReturnValue({
+      needsRecipientTokenAccountCreation: true,
+      serializedTransaction: "serialized-transaction",
+    });
+
+    render(<Harness />);
+
+    await selectTriggerOption(1, "Monra Treasury");
+    expect(await screen.findByText("DE89370400440532013000")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("EUR amount"), {
+      target: { value: "25" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    await waitFor(() => expect(fetchTransactionContextMock).toHaveBeenCalledTimes(2));
+
+    expect(fetchTransactionContextMock).toHaveBeenNthCalledWith(1, {
+      asset: "eurc",
+      recipientAddress: "11111111111111111111111111111111",
+      recipientTokenAccountAddress: "11111111111111111111111111111111",
+      senderAddress: "11111111111111111111111111111111",
+    });
+    expect(fetchTransactionContextMock).toHaveBeenNthCalledWith(2, {
+      asset: "eurc",
+      recipientAddress: "11111111111111111111111111111111",
+      recipientTokenAccountAddress: "derived-associated-token-account",
+      senderAddress: "11111111111111111111111111111111",
+    });
+    expect(prepareTransferTransactionMock).toHaveBeenCalledWith(expect.objectContaining({
+      asset: "eurc",
+      recentBlockhash: "blockhash-derived",
+      recipientAddress: "11111111111111111111111111111111",
+      recipientTokenAccountExists: false,
+      senderAddress: "11111111111111111111111111111111",
+      tokenDestination: { mode: "derived-associated-account" },
+    }));
   });
 });
 
@@ -205,4 +364,16 @@ function buildOfframpTransaction(): AppTransaction {
     updatedAt: "2026-03-27T10:00:00.000Z",
     userId: 1,
   };
+}
+
+async function selectTriggerOption(triggerIndex: number, optionLabel: string) {
+  const trigger = document.querySelectorAll("[data-slot='select-trigger']").item(triggerIndex);
+
+  if (!(trigger instanceof HTMLElement)) {
+    throw new Error(`Select trigger ${triggerIndex} is unavailable.`);
+  }
+
+  trigger.focus();
+  fireEvent.keyDown(trigger, { code: "ArrowDown", key: "ArrowDown" });
+  fireEvent.click(await screen.findByRole("option", { name: optionLabel }));
 }
